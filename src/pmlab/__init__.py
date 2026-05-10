@@ -15,6 +15,7 @@ from pmlab.execution.paper_broker import PaperBroker
 from pmlab.execution.settlement import SettlementEngine
 from pmlab.modeling.base import MarketForecaster
 from pmlab.modeling.champion import ChampionManifest
+from pmlab.modeling.lgbm_baseline import LGBMForecaster
 from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.registry import PluginRegistry
 from pmlab.workspace.context import WorkspaceContext
@@ -25,7 +26,7 @@ __all__ = [
     "Position", "settle_position",
     "compute_edge", "estimate_fee", "flat_stake_size",
     "MarketPlugin", "PluginRegistry",
-    "MarketForecaster", "ChampionManifest",
+    "MarketForecaster", "ChampionManifest", "LGBMForecaster",
     "HoldoutGateResult", "SegmentGateResult",
     "BacktestMetrics", "compute_metrics",
     "EdgeSignal", "PaperBroker", "SettlementEngine",
