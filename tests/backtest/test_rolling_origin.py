@@ -105,3 +105,29 @@ def test_stride_controls_steps():
 
     assert len(result_stride5.steps) >= len(result_stride10.steps)
     assert len(result_stride10.steps) >= len(result_stride20.steps)
+
+
+def test_empty_result_when_no_steps_qualify():
+    """Line 130: all_trades empty → empty DataFrame returned with correct columns."""
+    # Panel with only 5 rows — min_train_rows=100 means no step ever qualifies
+    panel = _make_panel(n_dates=3, n_markets_per_date=2)
+    model = DummyClassifier(strategy="most_frequent")
+    result = rolling_origin_eval(panel, model, min_train_rows=100, stride=1)
+    assert result.trades.empty
+    # Must still have required columns even when empty
+    required = {"market_id", "eval_date", "outcome_label", "predicted_prob",
+                "market_price", "realized_pnl", "edge"}
+    assert required.issubset(set(result.trades.columns))
+    assert result.steps == []
+
+
+def test_single_class_proba_branch():
+    """Line 81: proba shape (N,1) — model returns only one class probability."""
+    from sklearn.dummy import DummyClassifier
+
+    panel = _make_panel(n_dates=30)
+    # prior= forces DummyClassifier to output shape (N,1) when only one class seen
+    model = DummyClassifier(strategy="prior")
+    # Should not crash even with unusual proba shape
+    result = rolling_origin_eval(panel, model, min_train_rows=10, stride=5)
+    assert isinstance(result.trades, pd.DataFrame)

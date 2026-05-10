@@ -118,3 +118,45 @@ def test_load_roundtrip(tmp_path):
     assert loaded.gate.decision == "GO"
     assert loaded.get_allowed_segments() == manifest.get_allowed_segments()
     assert loaded.published_at == manifest.published_at
+
+
+def test_publish_with_calibrator(tmp_path):
+    """Lines 56-57: calibrator provided → calibrator.pkl saved."""
+    import numpy as np
+
+    from pmlab.modeling.calibration import IsotonicCalibrator
+
+    gate = _make_go_gate()
+    model = _make_fitted_lgbm()
+
+    calibrator = IsotonicCalibrator()
+    calibrator.fit(np.array([0.3, 0.5, 0.7]), np.array([0, 1, 1]))
+
+    manifest = ChampionManifest.publish(
+        model=model,
+        gate=gate,
+        output_dir=tmp_path / "out",
+        plugin_family="test",
+        calibrator=calibrator,
+    )
+    assert manifest.calibrator_path is not None
+    assert manifest.calibrator_path.exists()
+    assert manifest.calibrator_path.name == "calibrator.pkl"
+
+
+def test_load_model_returns_forecaster(tmp_path):
+    """Lines 112-113: load_model() loads LGBMForecaster from pkl."""
+    gate = _make_go_gate()
+    model = _make_fitted_lgbm()
+    manifest = ChampionManifest.publish(
+        model=model,
+        gate=gate,
+        output_dir=tmp_path / "out",
+        plugin_family="test",
+    )
+    loaded_model = manifest.load_model()
+    assert hasattr(loaded_model, "predict_proba")
+    import pandas as pd
+    X = pd.DataFrame({"f1": [1.0, 2.0], "f2": [0.5, 0.3]})
+    proba = loaded_model.predict_proba(X)
+    assert proba.shape[1] == 2
