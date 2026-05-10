@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.."; pwd)"
+if [[ $# -lt 2 ]]; then
+  echo "usage: scripts/pmlab-workspace <workspace_name> <command...>" >&2
+  exit 2
+fi
+WORKSPACE="$1"; shift
+DATA_ROOT="${REPO_ROOT}/data/workspaces/${WORKSPACE}"
+ARTIFACTS_ROOT="${REPO_ROOT}/artifacts/workspaces/${WORKSPACE}"
+export PMLAB_WORKSPACE_NAME="${WORKSPACE}"
+export PMLAB_DATA_DIR="${DATA_ROOT}"
+export PMLAB_PARQUET_DIR="${DATA_ROOT}/parquet"
+export PMLAB_DUCKDB_PATH="${DATA_ROOT}/duckdb/warehouse.duckdb"
+export PMLAB_ARTIFACTS_DIR="${ARTIFACTS_ROOT}"
+mkdir -p "${PMLAB_PARQUET_DIR}" "$(dirname "${PMLAB_DUCKDB_PATH}")" "${PMLAB_ARTIFACTS_DIR}"
+exec "$@"

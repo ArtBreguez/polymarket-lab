@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from pmlab.core.pnl import Position, settle_position
 
 
