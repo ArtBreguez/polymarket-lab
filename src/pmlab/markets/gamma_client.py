@@ -57,11 +57,18 @@ def fetch_gamma_markets(
 
 
 class GammaClient:
-    """Stateful Gamma API client with connection reuse."""
+    """Stateful Gamma API client with optional TTL disk cache."""
 
-    def __init__(self, base_url: str = GAMMA_API_BASE, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str = GAMMA_API_BASE,
+        timeout: float = 30.0,
+        cache: "DiskCache | None" = None,
+    ) -> None:
+        from pmlab.markets.cache import DiskCache as _DiskCache  # noqa: F401 (type guard)
         self.base_url = base_url
         self._client = httpx.Client(timeout=timeout)
+        self._cache = cache
 
     def fetch_markets(
         self,
@@ -71,17 +78,28 @@ class GammaClient:
         active: bool = True,
         closed: bool = False,
     ) -> list[dict[str, Any]]:
-        """Fetch markets (reuses underlying HTTP connection)."""
-        return fetch_gamma_markets(
+        """Fetch markets, using cache if configured."""
+        if self._cache is not None:
+            cache_key = f"gamma:markets:{tag}:{keyword}:{limit}:{active}:{closed}"
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached  # type: ignore[return-value]
+
+        result = fetch_gamma_markets(
             tag=tag, keyword=keyword, limit=limit,
             active=active, closed=closed,
             base_url=self.base_url, client=self._client,
         )
 
+        if self._cache is not None:
+            self._cache.set(cache_key, result)
+
+        return result
+
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> GammaClient:
+    def __enter__(self) -> "GammaClient":
         return self
 
     def __exit__(self, *args: Any) -> None:
