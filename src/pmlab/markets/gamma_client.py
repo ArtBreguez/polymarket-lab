@@ -2,9 +2,12 @@
 """Polymarket Gamma API client — fetch open markets by tag/keyword."""
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+if TYPE_CHECKING:
+    from pmlab.markets.cache import DiskCache
 
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 
@@ -38,16 +41,15 @@ def fetch_gamma_markets(
 
     url = f"{base_url}/markets"
     own_client = client is None
-    if own_client:
-        client = httpx.Client(timeout=30.0)
+    _client: httpx.Client = client if client is not None else httpx.Client(timeout=30.0)
 
     try:
-        resp = client.get(url, params=params)
+        resp = _client.get(url, params=params)
         resp.raise_for_status()
-        markets: list[dict] = resp.json()
+        markets: list[dict[str, Any]] = resp.json()
     finally:
         if own_client:
-            client.close()
+            _client.close()
 
     if keyword:
         kw_lower = keyword.lower()
@@ -63,9 +65,8 @@ class GammaClient:
         self,
         base_url: str = GAMMA_API_BASE,
         timeout: float = 30.0,
-        cache: "DiskCache | None" = None,
+        cache: DiskCache | None = None,
     ) -> None:
-        from pmlab.markets.cache import DiskCache as _DiskCache  # noqa: F401 (type guard)
         self.base_url = base_url
         self._client = httpx.Client(timeout=timeout)
         self._cache = cache
@@ -81,9 +82,9 @@ class GammaClient:
         """Fetch markets, using cache if configured."""
         if self._cache is not None:
             cache_key = f"gamma:markets:{tag}:{keyword}:{limit}:{active}:{closed}"
-            cached = self._cache.get(cache_key)
+            cached: list[dict[str, Any]] | None = self._cache.get(cache_key)
             if cached is not None:
-                return cached  # type: ignore[return-value]
+                return cached
 
         result = fetch_gamma_markets(
             tag=tag, keyword=keyword, limit=limit,
@@ -92,14 +93,76 @@ class GammaClient:
         )
 
         if self._cache is not None:
+            cache_key = f"gamma:markets:{tag}:{keyword}:{limit}:{active}:{closed}"
             self._cache.set(cache_key, result)
 
         return result
 
+    def fetch_markets_all(
+        self,
+        tag: str | None = None,
+        keyword: str | None = None,
+        page_size: int = 100,
+        max_results: int = 1000,
+        active: bool = True,
+        closed: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Fetch all markets using offset-based pagination.
+
+        Iterates pages until fewer than page_size results are returned
+        or max_results is reached.
+
+        Args:
+            tag: Filter by tag.
+            keyword: Client-side keyword filter applied after pagination.
+            page_size: Results per page (max 100).
+            max_results: Hard cap on total results returned.
+            active: Include active markets.
+            closed: Include closed markets.
+
+        Returns:
+            All matching markets up to max_results.
+        """
+        from pmlab.logging import get_logger
+        _log = get_logger(__name__)
+
+        all_markets: list[dict[str, Any]] = []
+        offset = 0
+
+        while len(all_markets) < max_results:
+            params: dict[str, Any] = {
+                "limit": page_size,
+                "offset": offset,
+                "active": active,
+                "closed": closed,
+            }
+            if tag:
+                params["tag"] = tag
+
+            resp = self._client.get(f"{self.base_url}/markets", params=params)
+            resp.raise_for_status()
+            page: list[dict[str, Any]] = resp.json()
+
+            if not page:
+                break
+
+            all_markets.extend(page)
+            _log.debug("Paginated: fetched %d markets (offset=%d)", len(page), offset)
+
+            if len(page) < page_size:
+                break
+            offset += page_size
+
+        if keyword:
+            kw_lower = keyword.lower()
+            all_markets = [m for m in all_markets if kw_lower in m.get("question", "").lower()]
+
+        return all_markets[:max_results]
+
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "GammaClient":
+    def __enter__(self) -> GammaClient:
         return self
 
     def __exit__(self, *args: Any) -> None:

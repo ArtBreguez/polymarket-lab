@@ -6,9 +6,13 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pmlab.backtest.holdout_gate import HoldoutGateResult
 from pmlab.modeling.base import MarketForecaster
+
+if TYPE_CHECKING:
+    from pmlab.modeling.calibration import IsotonicCalibrator
 
 
 @dataclass
@@ -28,21 +32,15 @@ class ChampionManifest:
         output_dir: Path,
         plugin_family: str,
         model_name: str = "champion",
-        calibrator=None,
+        calibrator: IsotonicCalibrator | None = None,
     ) -> ChampionManifest:
         """Publish a champion model.
 
         HARD GATE: raises ValueError if gate.decision != "GO".
-
-        Saves:
-            - {output_dir}/champion.pkl   (model)
-            - {output_dir}/champion.json  (manifest metadata)
-            - {output_dir}/calibrator.pkl (if calibrator provided)
         """
         if gate.decision != "GO":
             raise ValueError(
-                f"Cannot publish champion with NO_GO gate. "
-                f"Gate decision: {gate.decision}"
+                f"Cannot publish champion with NO_GO gate. Gate decision: {gate.decision}"
             )
 
         output_dir = Path(output_dir)
@@ -67,7 +65,6 @@ class ChampionManifest:
             plugin_family=plugin_family,
         )
 
-        # Write JSON
         json_data = {
             "model_name": model_name,
             "model_path": str(model_path),

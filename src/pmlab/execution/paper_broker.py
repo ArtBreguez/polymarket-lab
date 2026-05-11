@@ -7,6 +7,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from typing import Any
+
 from pmlab.core.fees import estimate_fee
 from pmlab.execution.edge_signal import EdgeSignal
 
@@ -40,7 +42,7 @@ class PaperBroker:
         signals: list[EdgeSignal],
         now_utc: datetime | None = None,
         city_timezones: dict[str, str] | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Process signals and append non-stale, non-duplicate trades.
 
         Args:
@@ -63,7 +65,7 @@ class PaperBroker:
             for t in existing_trades
         }
 
-        new_trades: list[dict] = []
+        new_trades: list[dict[str, Any]] = []
         for signal in signals:
             # 1. Segment filter
             if self.allowed_segments is not None and signal.city_or_segment not in self.allowed_segments:
@@ -89,12 +91,13 @@ class PaperBroker:
         self.trades_path.write_text(json.dumps({"trades": all_trades}, indent=2))
         return new_trades
 
-    def load_trades(self) -> list[dict]:
+    def load_trades(self) -> list[dict[str, Any]]:
         """Load existing trades from trades_path, or return empty list."""
         if not self.trades_path.exists():
             return []
         data = json.loads(self.trades_path.read_text())
-        return data.get("trades", [])
+        result: list[dict[str, Any]] = data.get("trades", [])
+        return result
 
     def _is_stale(
         self, signal: EdgeSignal, now_utc: datetime, city_tz: str
@@ -119,7 +122,7 @@ class PaperBroker:
         cutoff_utc = cutoff_local.astimezone(UTC)
         return now_utc >= cutoff_utc
 
-    def _build_trade(self, signal: EdgeSignal, now_utc: datetime) -> dict:
+    def _build_trade(self, signal: EdgeSignal, now_utc: datetime) -> dict[str, Any]:
         """Build a trade dict from a signal."""
         entry_price = signal.gamma_price if signal.direction == "yes" else (1.0 - signal.gamma_price)
         size = self.flat_stake / max(entry_price, 1e-9)

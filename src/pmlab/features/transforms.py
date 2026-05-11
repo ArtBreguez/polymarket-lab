@@ -43,18 +43,19 @@ def add_rolling_stats(
             for stat in stats:
                 new_col = f"{col}_roll{window}_{stat}"
                 if group_by is not None:
-                    rolled = out.groupby(group_by)[col].rolling(window, min_periods=min_periods)
+                    rolled_group = out.groupby(group_by)[col].rolling(window, min_periods=min_periods)
+                    out[new_col] = getattr(rolled_group, stat)().values
                 else:
-                    rolled = out[col].rolling(window, min_periods=min_periods)
-                out[new_col] = getattr(rolled, stat)().values
+                    rolled_plain = out[col].rolling(window, min_periods=min_periods)
+                    out[new_col] = getattr(rolled_plain, stat)().values
     return out
 
 def encode_cyclical(series: pd.Series, period: float) -> tuple[pd.Series, pd.Series]:
     angle = 2.0 * np.pi * series / period
-    name = series.name or "x"
-    sin_s = np.sin(angle).rename(f"{name}_sin")
-    cos_s = np.cos(angle).rename(f"{name}_cos")
-    return sin_s, cos_s  # type: ignore[return-value]
+    name = str(series.name) if series.name is not None else "x"
+    sin_s = pd.Series(np.sin(angle).values, index=series.index, name=f"{name}_sin")
+    cos_s = pd.Series(np.cos(angle).values, index=series.index, name=f"{name}_cos")
+    return sin_s, cos_s
 
 def encode_onehot(
     df: pd.DataFrame,

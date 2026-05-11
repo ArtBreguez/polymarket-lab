@@ -92,7 +92,7 @@ def _card(label: str, value: str, extra_class: str = "") -> str:
     return f"<div class='card'><div class='card-label'>{label}</div><div class='{value_class}'>{value}</div></div>"
 
 
-def _equity_curve_svg(settled: list[dict]) -> str:
+def _equity_curve_svg(settled: list[dict[str, Any]]) -> str:
     sorted_trades = sorted(settled, key=lambda t: t.get("recorded_at", ""))
     pnl_values = [t.get("realized_pnl", 0) for t in sorted_trades]
     cumulative: list[float] = []
@@ -127,9 +127,9 @@ def _equity_curve_svg(settled: list[dict]) -> str:
     )
 
 
-def _segment_table(settled: list[dict]) -> str:
+def _segment_table(settled: list[dict[str, Any]]) -> str:
     from collections import defaultdict
-    seg_data: dict[str, dict] = defaultdict(lambda: {"pnl": 0.0, "count": 0, "wins": 0})
+    seg_data: dict[str, dict[str, Any]] = defaultdict(lambda: {"pnl": 0.0, "count": 0, "wins": 0})
     for t in settled:
         seg = t.get("city_or_segment", "unknown")
         pnl = t.get("realized_pnl", 0) or 0.0
@@ -145,7 +145,7 @@ def _segment_table(settled: list[dict]) -> str:
     return "<table><thead><tr><th>Segment</th><th>Trades</th><th>PnL</th><th>Hit Rate</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
 
 
-def _trade_table(trades: list[dict]) -> str:
+def _trade_table(trades: list[dict[str, Any]]) -> str:
     rows = []
     for t in trades:
         pnl = t.get("realized_pnl")

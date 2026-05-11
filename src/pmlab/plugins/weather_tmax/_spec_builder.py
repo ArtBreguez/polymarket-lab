@@ -26,7 +26,7 @@ def build_tmax_spec(raw: dict[str, Any]) -> MarketSpec:
     city = m.group("city").strip() if m else raw.get("city", "")
 
     # Build outcome bins from the tokens in the API response
-    tokens: list[dict] = raw.get("tokens", []) or raw.get("outcomes", [])
+    tokens: list[dict[str, Any]] = raw.get("tokens", []) or raw.get("outcomes", [])
     bins = _build_bins_from_tokens(tokens)
 
     return MarketSpec(

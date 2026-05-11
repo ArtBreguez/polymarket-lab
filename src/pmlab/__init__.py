@@ -1,7 +1,7 @@
 """pmlab — Generic ML framework for Polymarket prediction markets."""
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
 from pmlab.backtest.metrics import BacktestMetrics, compute_metrics
@@ -34,6 +34,7 @@ from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.registry import PluginRegistry
 from pmlab.reports.html_report import generate_report
 from pmlab.workspace.context import WorkspaceContext
+from pmlab.config import PmlabSettings, get_settings
 
 __all__ = [
     "__version__",
@@ -60,4 +61,6 @@ __all__ = [
     # Plugins / Workspace
     "MarketPlugin", "PluginRegistry",
     "WorkspaceContext",
+    # Config
+    "PmlabSettings", "get_settings",
 ]

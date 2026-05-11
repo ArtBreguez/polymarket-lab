@@ -59,7 +59,7 @@ class LiveBroker:
         if side not in ("BUY", "SELL"):
             raise ValueError(f"side must be BUY or SELL, got {side}")
 
-        payload = {
+        payload: dict[str, Any] = {
             "token_id": token_id,
             "side": side,
             "price": str(round(price, 4)),
@@ -91,12 +91,12 @@ class LiveBroker:
 
         data: dict[str, Any] = resp.json()
         return OrderReceipt(
-            order_id=data.get("orderID", data.get("order_id", "")),
+            order_id=str(data.get("orderID", data.get("order_id", ""))),
             token_id=token_id,
             side=side,
             price=price,
             size=size,
-            status=data.get("status", "unknown"),
+            status=str(data.get("status", "unknown")),
         )
 
     def cancel_order(self, order_id: str) -> dict[str, Any]:
@@ -112,7 +112,8 @@ class LiveBroker:
             raise LiveBrokerError(f"cancel_order failed: {exc.response.text}") from exc
         except httpx.HTTPError as exc:
             raise LiveBrokerError(f"cancel_order network error: {exc}") from exc
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def cancel_all_orders(self) -> dict[str, Any]:
         if self.dry_run:
@@ -127,7 +128,8 @@ class LiveBroker:
             raise LiveBrokerError(f"cancel_all_orders failed: {exc.response.text}") from exc
         except httpx.HTTPError as exc:
             raise LiveBrokerError(f"cancel_all_orders network error: {exc}") from exc
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def get_open_orders(self) -> list[dict[str, Any]]:
         try:
@@ -141,7 +143,8 @@ class LiveBroker:
             raise LiveBrokerError(f"get_open_orders failed: {exc.response.text}") from exc
         except httpx.HTTPError as exc:
             raise LiveBrokerError(f"get_open_orders network error: {exc}") from exc
-        return resp.json()
+        result: list[dict[str, Any]] = resp.json()
+        return result
 
     def get_balance(self) -> float:
         try:
@@ -154,10 +157,10 @@ class LiveBroker:
             raise LiveBrokerError(f"get_balance failed: {exc.response.text}") from exc
         except httpx.HTTPError as exc:
             raise LiveBrokerError(f"get_balance network error: {exc}") from exc
-        data = resp.json()
+        data: dict[str, Any] = resp.json()
         return float(data.get("balance", 0.0))
 
-    def _auth_headers(self, method: str, path: str, body: dict) -> dict[str, str]:
+    def _auth_headers(self, method: str, path: str, body: dict[str, Any]) -> dict[str, str]:
         import hashlib
         import hmac
         import json

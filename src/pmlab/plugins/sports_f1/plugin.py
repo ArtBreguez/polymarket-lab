@@ -48,7 +48,7 @@ class SportsF1Plugin(MarketPlugin):
         if self._telemetry is None:
             return {"quali_gap_s": 0.0, "historical_win_rate": 0.1}
         gp: str = spec.metadata.get("gp", "")
-        return self._telemetry.get_features(gp=gp, horizon=horizon)
+        return dict(self._telemetry.get_features(gp=gp, horizon=horizon))
 
     def fetch_truth(self, spec: MarketSpec, **kwargs: Any) -> str | None:
         """Return the winning driver/team label, or None if race not completed."""
@@ -56,7 +56,8 @@ class SportsF1Plugin(MarketPlugin):
             return None
         gp: str = spec.metadata.get("gp", "")
         market_type: str = spec.metadata.get("market_type", "race_winner")
-        return self._results.get_winner(gp=gp, market_type=market_type)
+        result: str | None = self._results.get_winner(gp=gp, market_type=market_type)
+        return result
 
     def build_training_row(
         self, spec: MarketSpec, horizon: str, **kwargs: Any
@@ -83,7 +84,7 @@ class SportsF1Plugin(MarketPlugin):
         return any(kw in q for kw in ("f1", "formula 1", "grand prix", "gp winner"))
 
     def _build_spec(self, raw: dict[str, Any]) -> MarketSpec:
-        tokens: list[dict] = raw.get("tokens", []) or raw.get("outcomes", [])
+        tokens: list[dict[str, Any]] = raw.get("tokens", []) or raw.get("outcomes", [])
         bins = [
             OutcomeBin(label=str(t.get("outcome", t.get("label", t.get("name", "?")))))
             for t in tokens

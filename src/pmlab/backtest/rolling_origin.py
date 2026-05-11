@@ -3,21 +3,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, Protocol
 
+import numpy as np
 import pandas as pd
 
 from pmlab.core.pnl import Position, settle_position
 
 
+class _ModelProtocol(Protocol):
+    """Minimal protocol for forecasters used in rolling_origin_eval."""
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None: ...
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray: ...
+
+
 @dataclass
 class RollingOriginResult:
-    trades: pd.DataFrame  # columns: market_id, eval_date, outcome_label, predicted_prob, market_price, realized_pnl, edge
-    steps: list[dict] = field(default_factory=list)
+    trades: pd.DataFrame
+    steps: list[dict[str, Any]] = field(default_factory=list)
 
 
 def rolling_origin_eval(
     panel: pd.DataFrame,
-    model,  # has fit(X, y) and predict_proba(X) -> ndarray
+    model: _ModelProtocol,
     min_train_rows: int = 20,
     stride: int = 10,
     flat_stake: float = 1.0,
@@ -47,10 +56,9 @@ def rolling_origin_eval(
     sorted_dates = sorted(panel["decision_date"].unique())
     n_dates = len(sorted_dates)
 
-    all_trades: list[dict] = []
-    steps: list[dict] = []
+    all_trades: list[dict[str, Any]] = []
+    steps: list[dict[str, Any]] = []
 
-    # Walk-forward: iterate in stride steps starting after min_train_rows worth of dates
     for i in range(0, n_dates, stride):
         eval_date = sorted_dates[i]
 
@@ -72,7 +80,6 @@ def rolling_origin_eval(
         model.fit(X_train, y_train)
         proba = model.predict_proba(X_eval)
 
-        # Handle both binary (shape N,2) and single-column output
         if proba.ndim == 2 and proba.shape[1] >= 2:
             prob_positive = proba[:, 1]
         elif proba.ndim == 2:
@@ -83,7 +90,6 @@ def rolling_origin_eval(
         eval_df = eval_df.copy()
         eval_df["_predicted_prob"] = prob_positive
 
-        # Select best bin per (market_id, decision_date) by max prob
         best_idx = eval_df.groupby(["market_id", "decision_date"])["_predicted_prob"].idxmax()
         best_rows = eval_df.loc[best_idx]
 
@@ -129,13 +135,8 @@ def rolling_origin_eval(
     else:
         trades_df = pd.DataFrame(
             columns=[
-                "market_id",
-                "eval_date",
-                "outcome_label",
-                "predicted_prob",
-                "market_price",
-                "realized_pnl",
-                "edge",
+                "market_id", "eval_date", "outcome_label",
+                "predicted_prob", "market_price", "realized_pnl", "edge",
             ]
         )
 

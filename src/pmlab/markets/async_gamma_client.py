@@ -17,7 +17,7 @@ class AsyncGammaClient:
             params["tag"] = tag
         resp = await self._client.get(f"{self.base_url}/markets", params=params)
         resp.raise_for_status()
-        markets: list[dict] = resp.json()
+        markets: list[dict[str, Any]] = resp.json()
         if keyword:
             kw_lower = keyword.lower()
             markets = [m for m in markets if kw_lower in m.get("question", "").lower()]

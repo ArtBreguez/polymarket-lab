@@ -68,7 +68,7 @@ class WeatherTmaxPlugin(MarketPlugin):
         target_date: str = spec.metadata.get("target_date", "")
         if self._forecast is None:
             return {"lead_time_days": 1.0, "forecast_tmax_c": 25.0, "forecast_spread": 2.0}
-        return self._forecast.get_features(city=city, target_date=target_date, horizon=horizon)
+        return dict(self._forecast.get_features(city=city, target_date=target_date, horizon=horizon))
 
     def fetch_truth(self, spec: MarketSpec, **kwargs: Any) -> float | None:
         """Return the official maximum temperature observation in Celsius, or None."""
@@ -76,7 +76,8 @@ class WeatherTmaxPlugin(MarketPlugin):
         target_date: str = spec.metadata.get("target_date", "")
         if self._truth is None:
             return None
-        return self._truth.get_daily_max(city=city, date=target_date)
+        result: float | None = self._truth.get_daily_max(city=city, date=target_date)
+        return result
 
     def build_training_row(
         self, spec: MarketSpec, horizon: str, **kwargs: Any

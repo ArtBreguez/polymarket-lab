@@ -8,6 +8,7 @@ Domain plugins extend these via MarketPlugin in pmlab.plugins.base.
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
+from typing import Any
 
 
 class OutcomeBin(BaseModel):
@@ -59,7 +60,7 @@ class MarketSpec(BaseModel):
 
     # Optional enrichment
     tags: list[str] = Field(default_factory=list)
-    metadata: dict = Field(default_factory=dict)  # domain-specific extras
+    metadata: dict[str, Any] = Field(default_factory=dict)  # domain-specific extras
 
     def resolve_winning_bin(self, realized_value: float) -> str | None:
         """Return the label of the first bin whose range contains *realized_value*.

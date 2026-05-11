@@ -14,39 +14,28 @@ def fetch_token_prices(
     base_url: str = CLOB_API_BASE,
     client: httpx.Client | None = None,
 ) -> dict[str, float]:
-    """Fetch midpoint prices for a list of token IDs.
-
-    Args:
-        token_ids: List of Polymarket token/condition IDs.
-        base_url: Override CLOB API base URL.
-        client: Optional httpx.Client.
-
-    Returns:
-        Dict mapping token_id -> midpoint price (0.0–1.0).
-        Missing tokens are omitted from the result.
-    """
+    """Fetch midpoint prices for a list of token IDs."""
     if not token_ids:
         return {}
 
     own_client = client is None
-    if own_client:
-        client = httpx.Client(timeout=15.0)
+    _client: httpx.Client = client if client is not None else httpx.Client(timeout=15.0)
 
     prices: dict[str, float] = {}
     try:
         for token_id in token_ids:
             try:
-                resp = client.get(f"{base_url}/midpoint", params={"token_id": token_id})
+                resp = _client.get(f"{base_url}/midpoint", params={"token_id": token_id})
                 resp.raise_for_status()
-                data = resp.json()
+                data: dict[str, Any] = resp.json()
                 mid = data.get("mid")
                 if mid is not None:
                     prices[token_id] = float(mid)
             except (httpx.HTTPError, ValueError, KeyError):
-                continue  # skip failed tokens, don't crash
+                continue
     finally:
         if own_client:
-            client.close()
+            _client.close()
 
     return prices
 

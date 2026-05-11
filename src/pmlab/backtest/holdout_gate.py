@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
 
@@ -13,12 +14,12 @@ class SegmentGateResult:
     num_trades: int
     total_pnl: float
     passes: bool
-    reason: str  # "ok" | "negative_pnl" | "insufficient_trades" | "missing"
+    reason: str
 
 
 @dataclass
 class HoldoutGateResult:
-    decision: str  # "GO" | "NO_GO"
+    decision: str
     segment_results: list[SegmentGateResult]
     aggregate_pnl: float
     aggregate_trades: int
@@ -26,30 +27,22 @@ class HoldoutGateResult:
     @classmethod
     def evaluate(
         cls,
-        trades: pd.DataFrame,  # columns: realized_pnl, outcome, segment
+        trades: pd.DataFrame,
         required_segments: list[str],
         min_trades_per_segment: int = 40,
         min_pnl_per_segment: float = 0.0,
     ) -> HoldoutGateResult:
-        """Evaluate holdout gate across required segments.
-
-        Returns GO only if every required segment passes both
-        the PnL and trade-count thresholds.
-        """
+        """Evaluate holdout gate across required segments."""
         segment_results: list[SegmentGateResult] = []
 
         for seg in required_segments:
             seg_trades = trades[trades["segment"] == seg] if not trades.empty else pd.DataFrame()
 
             if seg_trades.empty and seg not in (trades["segment"].unique() if not trades.empty else []):
-                # Segment entirely missing from data
                 segment_results.append(
                     SegmentGateResult(
-                        segment=seg,
-                        num_trades=0,
-                        total_pnl=0.0,
-                        passes=False,
-                        reason="missing",
+                        segment=seg, num_trades=0, total_pnl=0.0,
+                        passes=False, reason="missing",
                     )
                 )
                 continue
@@ -69,17 +62,13 @@ class HoldoutGateResult:
 
             segment_results.append(
                 SegmentGateResult(
-                    segment=seg,
-                    num_trades=num,
-                    total_pnl=total_pnl,
-                    passes=passes,
-                    reason=reason,
+                    segment=seg, num_trades=num, total_pnl=total_pnl,
+                    passes=passes, reason=reason,
                 )
             )
 
         all_pass = all(r.passes for r in segment_results)
         decision = "GO" if all_pass else "NO_GO"
-
         agg_pnl = float(trades["realized_pnl"].sum()) if not trades.empty else 0.0
         agg_trades = len(trades)
 
@@ -90,7 +79,7 @@ class HoldoutGateResult:
             aggregate_trades=agg_trades,
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "decision": self.decision,
             "aggregate_pnl": self.aggregate_pnl,
@@ -108,7 +97,7 @@ class HoldoutGateResult:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> HoldoutGateResult:
+    def from_dict(cls, d: dict[str, Any]) -> HoldoutGateResult:
         segment_results = [
             SegmentGateResult(
                 segment=r["segment"],

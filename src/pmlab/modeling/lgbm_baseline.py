@@ -37,7 +37,8 @@ class LGBMForecaster(MarketForecaster):
         """Return probability estimates, shape (n_samples, n_classes)."""
         if self._model is None:
             raise RuntimeError("Model has not been fitted yet.")
-        return self._model.predict_proba(X)
+        result: np.ndarray = np.array(self._model.predict_proba(X))
+        return result
 
     def save(self, path: Path) -> None:
         """Pickle-serialize the model to path."""

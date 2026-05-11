@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from pmlab.core.market_spec import MarketSpec
 from pmlab.core.pnl import Position, settle_position
@@ -22,27 +23,17 @@ class SettlementEngine:
         self,
         specs: list[MarketSpec],
         today_str: str | None = None,
-    ) -> dict:
-        """Settle all unsettled trades that have a final truth available.
-
-        Args:
-            specs: List of MarketSpec objects to match against trades.
-            today_str: Today's date string (YYYY-MM-DD) for filtering future trades.
-
-        Returns:
-            Dict with keys: settled, pending, total_pnl.
-        """
+    ) -> dict[str, Any]:
+        """Settle all unsettled trades that have a final truth available."""
         if today_str is None:
             today_str = date.today().isoformat()
 
-        # Load trades
         if not self.trades_path.exists():
             return {"settled": 0, "pending": 0, "total_pnl": 0.0}
 
         data = json.loads(self.trades_path.read_text())
         trades = data.get("trades", [])
 
-        # Build spec lookup by (city, target_date)
         spec_map: dict[tuple[str, str], MarketSpec] = {}
         for spec in specs:
             city = spec.metadata.get("city", "")
@@ -52,11 +43,10 @@ class SettlementEngine:
         settled_count = 0
         pending_count = 0
         total_pnl = 0.0
-        updated_trades = []
+        updated_trades: list[dict[str, Any]] = []
 
         for trade in trades:
             if trade.get("outcome") is not None:
-                # Already settled
                 updated_trades.append(trade)
                 if trade.get("realized_pnl") is not None:
                     total_pnl += float(trade["realized_pnl"])
@@ -65,37 +55,32 @@ class SettlementEngine:
             target_date = trade.get("target_date", "")
             city_or_segment = trade.get("city_or_segment", "")
 
-            # Skip future trades
             if target_date > today_str:
                 pending_count += 1
                 updated_trades.append(trade)
                 continue
 
-            # Find matching spec
-            spec = spec_map.get((city_or_segment, target_date))
-            if spec is None:
+            maybe_spec: MarketSpec | None = spec_map.get((city_or_segment, target_date))
+            if maybe_spec is None:
                 pending_count += 1
                 updated_trades.append(trade)
                 continue
 
-            # Check if truth is final
-            if not self.plugin.is_truth_final(spec):
+            if not self.plugin.is_truth_final(maybe_spec):
                 pending_count += 1
                 updated_trades.append(trade)
                 continue
 
-            # Fetch truth and determine winning label
-            truth = self.plugin.fetch_truth(spec)
+            truth = self.plugin.fetch_truth(maybe_spec)
             if truth is None:
                 pending_count += 1
                 updated_trades.append(trade)
                 continue
 
-            # Resolve winning label
             if isinstance(truth, str):
-                winning_label = truth
+                winning_label: str | None = truth
             else:
-                winning_label = spec.resolve_winning_bin(float(truth))
+                winning_label = maybe_spec.resolve_winning_bin(float(truth))
 
             if winning_label is None:
                 pending_count += 1
@@ -107,7 +92,6 @@ class SettlementEngine:
             total_pnl += float(settled_trade["realized_pnl"])
             updated_trades.append(settled_trade)
 
-        # Rewrite trades file
         self.trades_path.write_text(json.dumps({"trades": updated_trades}, indent=2))
 
         return {
@@ -116,7 +100,7 @@ class SettlementEngine:
             "total_pnl": round(total_pnl, 6),
         }
 
-    def _settle_trade(self, trade: dict, winning_label: str) -> dict:
+    def _settle_trade(self, trade: dict[str, Any], winning_label: str) -> dict[str, Any]:
         """Compute PnL and outcome for a single trade."""
         direction = trade.get("direction", "yes")
         gamma_price = float(trade["gamma_price"])

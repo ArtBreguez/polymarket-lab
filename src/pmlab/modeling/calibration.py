@@ -24,8 +24,9 @@ class IsotonicCalibrator:
         """Calibrate probabilities, clipping output to [0, 1]."""
         if self._model is None:
             raise RuntimeError("Calibrator has not been fitted yet.")
-        calibrated = self._model.predict(probs)
-        return np.clip(calibrated, 0.0, 1.0)
+        calibrated: np.ndarray = np.array(self._model.predict(probs))
+        clipped: np.ndarray = np.clip(calibrated, 0.0, 1.0)
+        return clipped
 
     def save(self, path: Path) -> None:
         """Pickle-serialize calibrator to path."""
