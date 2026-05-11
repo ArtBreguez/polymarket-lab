@@ -1,5 +1,6 @@
 <div align="center">
 
+<img src="https://img.shields.io/pypi/v/pmlab?color=blue" alt="PyPI version">
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 <img src="https://img.shields.io/badge/coverage-95%25-brightgreen" alt="Coverage 95%">
