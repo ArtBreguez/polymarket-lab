@@ -1,6 +1,6 @@
 name: CI
 
-on:
+"on":
   push:
     branches: [main, "feat/**", "fix/**"]
   pull_request:
@@ -30,8 +30,38 @@ jobs:
       - name: Lint (ruff)
         run: uv run ruff check src/ tests/
 
+      - name: Type check (mypy)
+        run: uv run mypy src/
+
       - name: Run tests with coverage
-        run: uv run pytest --cov=src/pmlab --cov-report=term-missing --cov-fail-under=70
+        run: |
+          uv run pytest \
+            --cov=src/pmlab \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=70
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Coverage report summary
+        if: always()
+        run: |
+          echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          uv run python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          cov = float(root.attrib.get('line-rate', 0)) * 100
+          print(f'| Metric | Value |')
+          print(f'|--------|-------|')
+          print(f'| Line coverage | {cov:.1f}% |')
+          " >> $GITHUB_STEP_SUMMARY || true
 
   build:
     name: Build distribution

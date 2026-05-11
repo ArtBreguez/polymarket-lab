@@ -327,5 +327,45 @@ def promote_champion_cmd(
         raise typer.Exit(1)
 
 
+@app.command("report")
+def report_cmd(
+    trades: str = typer.Option(..., "--trades", "-t", help="Path to forward_paper_trades.json"),
+    output: str = typer.Option("pmlab_report.html", "--output", "-o", help="Output HTML path"),
+    title: str = typer.Option("pmlab Paper Trading Report", "--title", help="Report title"),
+    brier_score: Optional[float] = typer.Option(None, "--brier", help="Optional Brier score to display"),
+) -> None:
+    """Generate a self-contained HTML report from a paper trades JSON file."""
+    import json as _json
+    from pmlab.reports.html_report import generate_report
+
+    trades_path = Path(trades)
+    if not trades_path.exists():
+        rprint(f"[red]Trades file not found: {trades}[/red]")
+        raise typer.Exit(1)
+
+    raw = _json.loads(trades_path.read_text())
+    all_trades = raw.get("trades", [])
+
+    if not all_trades:
+        rprint("[yellow]No trades found in file.[/yellow]")
+
+    output_path = Path(output)
+    result = generate_report(
+        trades=all_trades,
+        output_path=output_path,
+        title=title,
+        brier_score=brier_score,
+    )
+
+    settled = [t for t in all_trades if t.get("realized_pnl") is not None]
+    open_t = [t for t in all_trades if t.get("realized_pnl") is None]
+    total_pnl = sum(t["realized_pnl"] for t in settled)
+    pnl_color = "green" if total_pnl >= 0 else "red"
+
+    rprint(f"[bold]Report generated:[/bold] {result}")
+    rprint(f"  Trades: {len(all_trades)} total ({len(settled)} settled, {len(open_t)} open)")
+    rprint(f"  Total PnL: [{pnl_color}]${total_pnl:+.2f}[/{pnl_color}]")
+
+
 if __name__ == "__main__":
     app()

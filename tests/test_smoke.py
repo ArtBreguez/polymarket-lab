@@ -9,7 +9,7 @@ from pathlib import Path
 def test_import() -> None:
     import pmlab
 
-    assert pmlab.__version__ == "0.2.0"
+    assert pmlab.__version__ == "0.3.0"
 
 
 def test_cli_version() -> None:
@@ -19,7 +19,7 @@ def test_cli_version() -> None:
     runner = CliRunner()
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0, result.output
-    assert "0.2.0" in result.output
+    assert "0.3.0" in result.output
 
 
 def test_cli_help() -> None:

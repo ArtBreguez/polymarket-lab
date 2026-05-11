@@ -1,7 +1,7 @@
 """pmlab — Generic ML framework for Polymarket prediction markets."""
 from __future__ import annotations
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
 from pmlab.backtest.metrics import BacktestMetrics, compute_metrics
@@ -24,13 +24,16 @@ from pmlab.features.transforms import (
 from pmlab.markets.async_clob_client import AsyncClobClient
 from pmlab.markets.async_gamma_client import AsyncGammaClient
 from pmlab.markets.cache import DiskCache
+from pmlab.markets.typed_cache import TypedCache
 from pmlab.markets.clob_client import ClobClient
 from pmlab.markets.gamma_client import GammaClient
 from pmlab.modeling.base import MarketForecaster
 from pmlab.modeling.champion import ChampionManifest
 from pmlab.modeling.diagnostics import BrierDecomposition, brier_decomposition, reliability_data
 from pmlab.modeling.lgbm_baseline import LGBMForecaster
+from pmlab.modeling.sklearn_forecaster import SklearnForecaster
 from pmlab.plugins.base import MarketPlugin
+from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
 from pmlab.reports.html_report import generate_report
 from pmlab.workspace.context import WorkspaceContext
@@ -49,9 +52,9 @@ __all__ = [
     # Features
     "add_lags", "add_rolling_stats", "encode_cyclical", "encode_onehot", "clip_outliers",
     # Markets
-    "GammaClient", "ClobClient", "AsyncGammaClient", "AsyncClobClient", "DiskCache",
+    "GammaClient", "ClobClient", "AsyncGammaClient", "AsyncClobClient", "DiskCache", "TypedCache",
     # Modeling
-    "MarketForecaster", "ChampionManifest", "LGBMForecaster",
+    "MarketForecaster", "ChampionManifest", "LGBMForecaster", "SklearnForecaster",
     "BrierDecomposition", "brier_decomposition", "reliability_data",
     # Backtest
     "HoldoutGateResult", "SegmentGateResult",
@@ -60,6 +63,7 @@ __all__ = [
     "generate_report",
     # Plugins / Workspace
     "MarketPlugin", "PluginRegistry",
+    "discover_plugins", "load_plugins_from_entry_points",
     "WorkspaceContext",
     # Config
     "PmlabSettings", "get_settings",
