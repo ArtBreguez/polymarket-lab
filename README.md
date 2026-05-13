@@ -3,8 +3,8 @@
 <img src="https://img.shields.io/pypi/v/pmlab?color=blue" alt="PyPI version">
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
-<img src="https://img.shields.io/badge/coverage-95%25-brightgreen" alt="Coverage 95%">
-<img src="https://img.shields.io/badge/tests-237%20passing-brightgreen" alt="237 tests">
+<img src="https://img.shields.io/badge/coverage-83%25-brightgreen" alt="Coverage 83%">
+<img src="https://img.shields.io/badge/tests-301%20passing-brightgreen" alt="301 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
 
@@ -174,13 +174,24 @@ Opens a self-contained dark-themed HTML with equity curve, per-segment breakdown
 ```python
 from pmlab import LiveBroker
 
-# Test without sending real orders
-with LiveBroker(api_key="...", api_secret="...", api_passphrase="...", dry_run=True) as broker:
+# Test without sending real orders (L1 private key + L2 API credentials)
+with LiveBroker(
+    private_key="0x...",          # L1 ECDSA private key
+    api_key="...",
+    api_secret="...",
+    api_passphrase="...",
+    dry_run=True,
+) as broker:
     receipt = broker.place_order(token_id="tok_abc", side="BUY", price=0.35, size=14.28)
     print(receipt.status)  # "dry_run"
 
 # Check balance before going live
-with LiveBroker(api_key="...", api_secret="...", api_passphrase="...") as broker:
+with LiveBroker(
+    private_key="0x...",
+    api_key="...",
+    api_secret="...",
+    api_passphrase="...",
+) as broker:
     balance = broker.get_balance()
     print(f"Available: ${balance:.2f} USDC")
 ```

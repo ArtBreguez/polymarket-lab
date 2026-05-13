@@ -2,6 +2,61 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] — 2026-05-13
+
+### Changed — LiveBroker
+- Replaced custom HMAC-SHA256 auth with `py-clob-client` (`ClobClient`) — proper L1 ECDSA + L2 API creds, matching Polymarket CLOB requirements
+- Constructor now requires `private_key` (L1, `0x`-prefixed hex) in addition to `api_key / api_secret / api_passphrase` (L2)
+- `place_order` → uses `create_order + post_order` via `ClobClient`
+- `cancel_order / cancel_all_orders` → `client.cancel / client.cancel_all`
+- `get_open_orders` → `client.get_orders`; `get_balance` → `client.get_balance_allowance`
+- `preflight()` health check added
+
+### Changed — WeatherTmaxPlugin
+- `discover_markets`: paginates Gamma API with real tmax regex filter; no fake `temperature` tag
+- `fetch_features`: canonical keys matching pmtmax training schema (`forecast_temperature_2m_max/mean/min`, dew_point, humidity, wind, cloud, lead_hours)
+- `build_training_row`: single-row output with all `feature_*` keys
+- `_build_spec`: fully parses city/date from question regex, token_ids from `clobTokenIds` JSON, outcome_schema with prices, unit C/F
+
+### Added — GammaClient
+- `TmaxMarketInfo` dataclass: `market_id`, `city`, `target_date`, `unit`, `token_ids`, `outcome_labels/prices`, `end_date`, `active`
+- `GammaClient.discover_tmax_markets()` — paginate all active markets, filter with pmtmax-identical logic, return `list[TmaxMarketInfo]`
+- `AsyncGammaClient.discover_tmax_markets()` — async variant
+
+### Infrastructure
+- PyPI publish via GitHub Actions OIDC Trusted Publisher — no secrets stored in repo, auto-publishes on `v*` tags
+- 301 tests, 83% coverage
+
+---
+
+## [0.3.0] — 2026-05-10
+
+### Added
+- `SklearnForecaster` — scikit-learn wrapper implementing `MarketForecaster` ABC (LogisticRegression, RandomForest, etc.)
+- `TypedCache[T]` — generic typed wrapper around `DiskCache` with PEP 695 compatibility
+- Plugin auto-discovery via `PluginRegistry.discover()` — scans entry points for `pmlab.plugins`
+- CLI `report` command — generates HTML report from paper trade DB without re-running backtest
+- CI coverage gate raised to 70%
+
+### Fixed
+- `TypedCache` PEP 695 syntax compatibility with Python 3.12
+- 66 ruff violations resolved across all modules (`ruff format --check` added to CI)
+
+---
+
+## [0.2.0] — 2026-05-09
+
+### Added
+- `PmlabSettings` — Pydantic settings class: `PMLAB_ARTIFACTS_DIR`, `PMLAB_LOG_LEVEL`, `PMLAB_DRY_RUN`, CLOB/Gamma API base URLs; `from_env()` classmethod
+- Full CLI (`pmlab` entry point): `version`, `status`, `scan-markets`, `record-trades`, `settle-trades`, `backtest`, `promote-champion`
+- `WorkspaceContext` — multi-workspace path isolation via `PMLAB_ARTIFACTS_DIR`
+- `scripts/pmlab-workspace` — bash wrapper to scope CLI to a named workspace
+- Retry + structured logging — all API clients use exponential backoff; `logging.getLogger("pmlab")` hierarchy
+- Gamma/CLOB pagination — `GammaClient` auto-paginates `next_cursor`; `AsyncClobClient` respects `asyncio.Semaphore`
+- mypy strict clean — `py.typed` marker, all public APIs fully typed
+
+---
+
 ## [0.1.0] — 2026-05-10
 
 ### Added — Core
