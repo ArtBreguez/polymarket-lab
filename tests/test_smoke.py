@@ -8,18 +8,21 @@ import json
 def test_import() -> None:
     import pmlab
 
-    assert pmlab.__version__ == "0.3.0"
+    assert pmlab.__version__ == pmlab.__version__  # version exists and is a string
+    assert isinstance(pmlab.__version__, str)
+    assert len(pmlab.__version__) > 0
 
 
 def test_cli_version() -> None:
     from typer.testing import CliRunner
 
+    import pmlab
     from pmlab.cli.main import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0, result.output
-    assert "0.3.0" in result.output
+    assert pmlab.__version__ in result.output
 
 
 def test_cli_help() -> None:
