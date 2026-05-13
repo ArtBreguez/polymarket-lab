@@ -1,4 +1,8 @@
-"""LiveBroker - place and manage real orders via the Polymarket CLOB API."""
+"""LiveBroker — real-money order execution via Polymarket CLOB API.
+
+Uses py-clob-client for proper L1 (ECDSA private key) + L2 (API key/secret/passphrase)
+authentication, matching the Polymarket CLOB API requirements.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
+from py_clob_client.client import ClobClient
+from py_clob_client.clob_types import ApiCreds, OrderArgs
 
 CLOB_API_BASE = "https://clob.polymarket.com"
 
@@ -27,23 +32,40 @@ class LiveBrokerError(Exception):
 
 
 class LiveBroker:
-    """Real-money order execution via the Polymarket CLOB API."""
+    """Real-money order execution via the Polymarket CLOB API.
+
+    Requires:
+      - private_key: L1 ECDSA private key (0x-prefixed hex string)
+      - api_key / api_secret / api_passphrase: L2 API credentials
+
+    In dry_run mode, no requests are made to the API.
+    """
 
     def __init__(
         self,
         api_key: str,
         api_secret: str,
         api_passphrase: str,
+        private_key: str = "",
+        chain_id: int = 137,
+        signature_type: int = 0,
+        funder_address: str | None = None,
         base_url: str = CLOB_API_BASE,
-        timeout: float = 30.0,
         dry_run: bool = False,
     ) -> None:
         self.api_key = api_key
         self.api_secret = api_secret
         self.api_passphrase = api_passphrase
+        self.private_key = private_key
+        self.chain_id = chain_id
+        self.signature_type = signature_type
+        self.funder_address = funder_address
         self.base_url = base_url
         self.dry_run = dry_run
-        self._client = httpx.Client(timeout=timeout)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def place_order(
         self,
@@ -60,17 +82,9 @@ class LiveBroker:
         if side not in ("BUY", "SELL"):
             raise ValueError(f"side must be BUY or SELL, got {side}")
 
-        payload: dict[str, Any] = {
-            "token_id": token_id,
-            "side": side,
-            "price": str(round(price, 4)),
-            "size": str(round(size, 4)),
-            "order_type": order_type,
-        }
-
         if self.dry_run:
             return OrderReceipt(
-                order_id="dry-run-" + token_id[:8],
+                order_id=f"dry-run-{token_id[:8]}",
                 token_id=token_id,
                 side=side,
                 price=price,
@@ -79,114 +93,109 @@ class LiveBroker:
             )
 
         try:
-            resp = self._client.post(
-                f"{self.base_url}/order",
-                json=payload,
-                headers=self._auth_headers("POST", "/order", payload),
+            client = self._build_client()
+            order = client.create_order(
+                OrderArgs(token_id=token_id, price=price, size=size, side=side)
             )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise LiveBrokerError(f"place_order failed: {exc.response.text}") from exc
-        except httpx.HTTPError as exc:
-            raise LiveBrokerError(f"place_order network error: {exc}") from exc
+            resp: dict[str, Any] = client.post_order(order)
+        except Exception as exc:
+            raise LiveBrokerError(f"place_order failed: {exc}") from exc
 
-        data: dict[str, Any] = resp.json()
         return OrderReceipt(
-            order_id=str(data.get("orderID", data.get("order_id", ""))),
+            order_id=str(resp.get("orderID", resp.get("order_id", ""))),
             token_id=token_id,
             side=side,
             price=price,
             size=size,
-            status=str(data.get("status", "unknown")),
+            status=str(resp.get("status", "unknown")),
         )
 
     def cancel_order(self, order_id: str) -> dict[str, Any]:
         if self.dry_run:
             return {"cancelled": order_id, "dry_run": True}
         try:
-            resp = self._client.delete(
-                f"{self.base_url}/order/{order_id}",
-                headers=self._auth_headers("DELETE", f"/order/{order_id}", {}),
-            )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise LiveBrokerError(f"cancel_order failed: {exc.response.text}") from exc
-        except httpx.HTTPError as exc:
-            raise LiveBrokerError(f"cancel_order network error: {exc}") from exc
-        result: dict[str, Any] = resp.json()
-        return result
+            client = self._build_client()
+            result: dict[str, Any] = client.cancel(order_id)
+            return result
+        except Exception as exc:
+            raise LiveBrokerError(f"cancel_order failed: {exc}") from exc
 
     def cancel_all_orders(self) -> dict[str, Any]:
         if self.dry_run:
             return {"cancelled_all": True, "dry_run": True}
         try:
-            resp = self._client.delete(
-                f"{self.base_url}/orders",
-                headers=self._auth_headers("DELETE", "/orders", {}),
-            )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise LiveBrokerError(f"cancel_all_orders failed: {exc.response.text}") from exc
-        except httpx.HTTPError as exc:
-            raise LiveBrokerError(f"cancel_all_orders network error: {exc}") from exc
-        result: dict[str, Any] = resp.json()
-        return result
+            client = self._build_client()
+            result: dict[str, Any] = client.cancel_all()
+            return result
+        except Exception as exc:
+            raise LiveBrokerError(f"cancel_all_orders failed: {exc}") from exc
 
     def get_open_orders(self) -> list[dict[str, Any]]:
         try:
-            resp = self._client.get(
-                f"{self.base_url}/orders",
-                params={"status": "OPEN"},
-                headers=self._auth_headers("GET", "/orders", {}),
-            )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise LiveBrokerError(f"get_open_orders failed: {exc.response.text}") from exc
-        except httpx.HTTPError as exc:
-            raise LiveBrokerError(f"get_open_orders network error: {exc}") from exc
-        result: list[dict[str, Any]] = resp.json()
-        return result
+            client = self._build_client()
+            result: list[dict[str, Any]] = client.get_orders()
+            return result
+        except Exception as exc:
+            raise LiveBrokerError(f"get_open_orders failed: {exc}") from exc
 
     def get_balance(self) -> float:
         try:
-            resp = self._client.get(
-                f"{self.base_url}/balance",
-                headers=self._auth_headers("GET", "/balance", {}),
-            )
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise LiveBrokerError(f"get_balance failed: {exc.response.text}") from exc
-        except httpx.HTTPError as exc:
-            raise LiveBrokerError(f"get_balance network error: {exc}") from exc
-        data: dict[str, Any] = resp.json()
-        return float(data.get("balance", 0.0))
+            client = self._build_client()
+            data = client.get_balance_allowance()
+            if isinstance(data, dict):
+                return float(data.get("balance", 0.0))
+            return float(data)
+        except Exception as exc:
+            raise LiveBrokerError(f"get_balance failed: {exc}") from exc
 
-    def _auth_headers(self, method: str, path: str, body: dict[str, Any]) -> dict[str, str]:
-        import hashlib
-        import hmac
-        import json
+    def preflight(self) -> dict[str, Any]:
+        """Run a health check against the CLOB API. Returns status dict."""
+        messages: list[str] = []
+        ok = True
 
-        ts = str(int(datetime.now(UTC).timestamp()))
-        body_str = json.dumps(body, separators=(",", ":")) if body else ""
-        message = ts + method.upper() + path + body_str
-        sig = hmac.new(
-            self.api_secret.encode(),
-            message.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        return {
-            "POLY-API-KEY": self.api_key,
-            "POLY-SIGNATURE": sig,
-            "POLY-TIMESTAMP": ts,
-            "POLY-PASSPHRASE": self.api_passphrase,
-            "Content-Type": "application/json",
-        }
+        if not self.private_key:
+            ok = False
+            messages.append("Missing private_key (L1 ECDSA key required).")
 
-    def close(self) -> None:
-        self._client.close()
+        if not all([self.api_key, self.api_secret, self.api_passphrase]):
+            ok = False
+            messages.append("Missing L2 API credentials (api_key/api_secret/api_passphrase).")
+
+        try:
+            client = self._build_client()
+            client.get_ok()
+            messages.append("CLOB health check succeeded.")
+        except Exception as exc:
+            ok = False
+            messages.append(f"CLOB health check failed: {exc}")
+
+        return {"ok": ok, "messages": messages}
+
+    # ------------------------------------------------------------------
+    # Context manager
+    # ------------------------------------------------------------------
 
     def __enter__(self) -> LiveBroker:
         return self
 
     def __exit__(self, *args: Any) -> None:
-        self.close()
+        pass
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _build_client(self) -> ClobClient:
+        creds = ApiCreds(
+            api_key=self.api_key,
+            api_secret=self.api_secret,
+            api_passphrase=self.api_passphrase,
+        )
+        return ClobClient(
+            self.base_url,
+            chain_id=self.chain_id,
+            key=self.private_key or None,
+            creds=creds,
+            signature_type=self.signature_type,
+            funder=self.funder_address or None,
+        )

@@ -1,33 +1,51 @@
-"""Tests for LiveBroker."""
+"""Tests for LiveBroker (py-clob-client implementation)."""
 
 from __future__ import annotations
 
-import httpx
+from unittest.mock import MagicMock, patch
+
 import pytest
-import respx
 
 from pmlab.execution.live_broker import LiveBroker, LiveBrokerError
+
+MOCK_CREDS = {
+    "api_key": "test-key",
+    "api_secret": "test-secret",
+    "api_passphrase": "test-pass",
+    "private_key": "0xdeadbeef",
+    "base_url": "https://mock-clob.test",
+}
 
 
 @pytest.fixture
 def broker():
-    return LiveBroker(
-        api_key="test-key",
-        api_secret="test-secret",
-        api_passphrase="test-pass",
-        base_url="https://mock-clob.test",
-    )
+    return LiveBroker(**MOCK_CREDS)
 
 
 @pytest.fixture
 def dry_broker():
-    return LiveBroker(
-        api_key="test-key",
-        api_secret="test-secret",
-        api_passphrase="test-pass",
-        base_url="https://mock-clob.test",
-        dry_run=True,
+    return LiveBroker(**MOCK_CREDS, dry_run=True)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _patch_clob(broker_fixture, **method_returns):
+    """Return a context manager that patches ClobClient on the broker's module."""
+    mock_client = MagicMock()
+    for method, retval in method_returns.items():
+        getattr(mock_client, method).return_value = retval
+    return patch(
+        "pmlab.execution.live_broker.ClobClient",
+        return_value=mock_client,
     )
+
+
+# ---------------------------------------------------------------------------
+# Dry-run
+# ---------------------------------------------------------------------------
 
 
 class TestDryRun:
@@ -43,6 +61,11 @@ class TestDryRun:
     def test_cancel_all_dry_run(self, dry_broker):
         result = dry_broker.cancel_all_orders()
         assert result["cancelled_all"] is True
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
 
 
 class TestValidation:
@@ -63,61 +86,94 @@ class TestValidation:
             broker.place_order("tok", "LONG", 0.5, 10.0)
 
 
+# ---------------------------------------------------------------------------
+# place_order
+# ---------------------------------------------------------------------------
+
+
 class TestPlaceOrder:
-    @respx.mock
     def test_success(self, broker):
-        respx.post("https://mock-clob.test/order").mock(
-            return_value=httpx.Response(200, json={"orderID": "abc123", "status": "LIVE"})
-        )
-        receipt = broker.place_order("tok", "BUY", 0.55, 10.0)
+        mock_order = MagicMock()
+        post_resp = {"orderID": "abc123", "status": "LIVE"}
+
+        with _patch_clob(broker, create_order=mock_order, post_order=post_resp):
+            mock_client = MagicMock()
+            mock_client.create_order.return_value = mock_order
+            mock_client.post_order.return_value = post_resp
+            with patch(
+                "pmlab.execution.live_broker.ClobClient",
+                return_value=mock_client,
+            ):
+                receipt = broker.place_order("tok", "BUY", 0.55, 10.0)
+
         assert receipt.order_id == "abc123"
         assert receipt.status == "LIVE"
 
-    @respx.mock
-    def test_http_error(self, broker):
-        respx.post("https://mock-clob.test/order").mock(
-            return_value=httpx.Response(400, text="Bad Request")
-        )
-        with pytest.raises(LiveBrokerError, match="place_order failed"):
+    def test_api_error_raises_live_broker_error(self, broker):
+        with (
+            patch(
+                "pmlab.execution.live_broker.ClobClient",
+                return_value=MagicMock(
+                    create_order=MagicMock(side_effect=Exception("Bad Request"))
+                ),
+            ),
+            pytest.raises(LiveBrokerError, match="place_order failed"),
+        ):
             broker.place_order("tok", "BUY", 0.55, 10.0)
 
 
+# ---------------------------------------------------------------------------
+# get_balance
+# ---------------------------------------------------------------------------
+
+
 class TestGetBalance:
-    @respx.mock
     def test_success(self, broker):
-        respx.get("https://mock-clob.test/balance").mock(
-            return_value=httpx.Response(200, json={"balance": "42.5"})
-        )
-        balance = broker.get_balance()
+        mock_client = MagicMock()
+        mock_client.get_balance_allowance.return_value = {"balance": "42.5"}
+        with patch("pmlab.execution.live_broker.ClobClient", return_value=mock_client):
+            balance = broker.get_balance()
         assert balance == pytest.approx(42.5)
 
 
+# ---------------------------------------------------------------------------
+# get_open_orders
+# ---------------------------------------------------------------------------
+
+
 class TestGetOpenOrders:
-    @respx.mock
     def test_success(self, broker):
-        respx.get("https://mock-clob.test/orders").mock(
-            return_value=httpx.Response(200, json=[{"orderID": "x"}])
-        )
-        orders = broker.get_open_orders()
+        mock_client = MagicMock()
+        mock_client.get_orders.return_value = [{"orderID": "x"}]
+        with patch("pmlab.execution.live_broker.ClobClient", return_value=mock_client):
+            orders = broker.get_open_orders()
         assert len(orders) == 1
 
 
+# ---------------------------------------------------------------------------
+# cancel_order / cancel_all_orders
+# ---------------------------------------------------------------------------
+
+
 class TestCancelOrder:
-    @respx.mock
     def test_success(self, broker):
-        respx.delete("https://mock-clob.test/order/abc").mock(
-            return_value=httpx.Response(200, json={"cancelled": "abc"})
-        )
-        result = broker.cancel_order("abc")
+        mock_client = MagicMock()
+        mock_client.cancel.return_value = {"cancelled": "abc"}
+        with patch("pmlab.execution.live_broker.ClobClient", return_value=mock_client):
+            result = broker.cancel_order("abc")
         assert result["cancelled"] == "abc"
 
-    @respx.mock
     def test_cancel_all(self, broker):
-        respx.delete("https://mock-clob.test/orders").mock(
-            return_value=httpx.Response(200, json={"count": 3})
-        )
-        result = broker.cancel_all_orders()
+        mock_client = MagicMock()
+        mock_client.cancel_all.return_value = {"count": 3}
+        with patch("pmlab.execution.live_broker.ClobClient", return_value=mock_client):
+            result = broker.cancel_all_orders()
         assert result["count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# Context manager
+# ---------------------------------------------------------------------------
 
 
 class TestContextManager:
