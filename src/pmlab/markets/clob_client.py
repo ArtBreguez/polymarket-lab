@@ -1,5 +1,6 @@
 # src/pmlab/markets/clob_client.py
 """Polymarket CLOB read client — fetch current market prices."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -60,15 +60,15 @@ class WeatherTmaxPlugin(MarketPlugin):
         raw_markets = self._gamma.fetch_markets(tag="temperature", **kwargs)
         return [self._build_spec(m) for m in raw_markets if self._is_tmax_market(m)]
 
-    def fetch_features(
-        self, spec: MarketSpec, horizon: str, **kwargs: Any
-    ) -> dict[str, float]:
+    def fetch_features(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, float]:
         """Return ECMWF-based forecast features for (city, target_date, horizon)."""
         city: str = spec.metadata.get("city", "")
         target_date: str = spec.metadata.get("target_date", "")
         if self._forecast is None:
             return {"lead_time_days": 1.0, "forecast_tmax_c": 25.0, "forecast_spread": 2.0}
-        return dict(self._forecast.get_features(city=city, target_date=target_date, horizon=horizon))
+        return dict(
+            self._forecast.get_features(city=city, target_date=target_date, horizon=horizon)
+        )
 
     def fetch_truth(self, spec: MarketSpec, **kwargs: Any) -> float | None:
         """Return the official maximum temperature observation in Celsius, or None."""
@@ -110,4 +110,5 @@ class WeatherTmaxPlugin(MarketPlugin):
     def _build_spec(self, raw: dict[str, Any]) -> MarketSpec:
         """Convert a raw Gamma API market dict to a MarketSpec."""
         from pmlab.plugins.weather_tmax._spec_builder import build_tmax_spec
+
         return build_tmax_spec(raw)

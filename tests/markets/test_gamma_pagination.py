@@ -1,9 +1,9 @@
 """Tests for GammaClient pagination."""
+
 from __future__ import annotations
 
-import pytest
-import respx
 import httpx
+import respx
 
 from pmlab.markets.gamma_client import GammaClient
 
@@ -24,6 +24,7 @@ class TestFetchMarketsAll:
     def test_two_pages(self):
         # First page full (3 items = page_size), second page partial
         call_count = 0
+
         def side_effect(request):
             nonlocal call_count
             call_count += 1
@@ -39,9 +40,7 @@ class TestFetchMarketsAll:
 
     @respx.mock
     def test_empty_response(self):
-        respx.get("https://mock-gamma.test/markets").mock(
-            return_value=httpx.Response(200, json=[])
-        )
+        respx.get("https://mock-gamma.test/markets").mock(return_value=httpx.Response(200, json=[]))
         client = GammaClient(base_url="https://mock-gamma.test")
         markets = client.fetch_markets_all()
         assert markets == []
@@ -50,10 +49,13 @@ class TestFetchMarketsAll:
     @respx.mock
     def test_keyword_filter(self):
         respx.get("https://mock-gamma.test/markets").mock(
-            return_value=httpx.Response(200, json=[
-                {"question": "Will it rain?"},
-                {"question": "Will it snow?"},
-            ])
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"question": "Will it rain?"},
+                    {"question": "Will it snow?"},
+                ],
+            )
         )
         client = GammaClient(base_url="https://mock-gamma.test")
         markets = client.fetch_markets_all(keyword="rain")

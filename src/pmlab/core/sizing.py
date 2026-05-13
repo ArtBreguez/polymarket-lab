@@ -1,4 +1,5 @@
 """Position sizing utilities: flat stake and fractional Kelly."""
+
 from __future__ import annotations
 
 __all__ = ["flat_stake_size", "kelly_fraction", "kelly_stake_size"]

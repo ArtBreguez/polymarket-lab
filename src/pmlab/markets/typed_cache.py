@@ -11,19 +11,16 @@ Example::
     cache.set("gamma:temp", markets)
     markets = cache.get("gamma:temp")  # type: list[dict] | None
 """
-from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from pmlab.markets.cache import DiskCache
 
 __all__ = ["TypedCache"]
 
-T = TypeVar("T")
 
-
-class TypedCache(DiskCache, Generic[T]):
+class TypedCache[T](DiskCache):
     """Type-safe TTL disk cache.
 
     Drop-in replacement for DiskCache with typed get/set signatures.

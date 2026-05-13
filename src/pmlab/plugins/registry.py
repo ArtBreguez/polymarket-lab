@@ -24,8 +24,7 @@ class PluginRegistry:
         """Return plugin for *family*. Raises KeyError if not found."""
         if family not in self._plugins:
             raise KeyError(
-                f"No plugin registered for family '{family}'. "
-                f"Available: {sorted(self._plugins)}"
+                f"No plugin registered for family '{family}'. Available: {sorted(self._plugins)}"
             )
         return self._plugins[family]
 

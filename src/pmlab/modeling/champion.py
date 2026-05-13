@@ -87,9 +87,7 @@ class ChampionManifest:
             data = json.load(f)
 
         gate = HoldoutGateResult.from_dict(data["publish_gate"])
-        calibrator_path = (
-            Path(data["calibrator_path"]) if data.get("calibrator_path") else None
-        )
+        calibrator_path = Path(data["calibrator_path"]) if data.get("calibrator_path") else None
 
         return cls(
             model_name=data["model_name"],
@@ -107,4 +105,5 @@ class ChampionManifest:
     def load_model(self) -> MarketForecaster:
         """Load the champion model from disk."""
         from pmlab.modeling.lgbm_baseline import LGBMForecaster
+
         return LGBMForecaster.load(self.model_path)

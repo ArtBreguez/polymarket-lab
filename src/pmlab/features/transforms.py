@@ -1,10 +1,14 @@
 """Feature engineering transforms."""
+
 from __future__ import annotations
+
 from typing import Literal
+
 import numpy as np
 import pandas as pd
 
 __all__ = ["add_lags", "add_rolling_stats", "encode_cyclical", "encode_onehot", "clip_outliers"]
+
 
 def add_lags(
     df: pd.DataFrame,
@@ -25,6 +29,7 @@ def add_lags(
                 out[new_col] = out[col].shift(lag).fillna(fill_value)
     return out
 
+
 def add_rolling_stats(
     df: pd.DataFrame,
     cols: list[str],
@@ -43,12 +48,15 @@ def add_rolling_stats(
             for stat in stats:
                 new_col = f"{col}_roll{window}_{stat}"
                 if group_by is not None:
-                    rolled_group = out.groupby(group_by)[col].rolling(window, min_periods=min_periods)
+                    rolled_group = out.groupby(group_by)[col].rolling(
+                        window, min_periods=min_periods
+                    )
                     out[new_col] = getattr(rolled_group, stat)().values
                 else:
                     rolled_plain = out[col].rolling(window, min_periods=min_periods)
                     out[new_col] = getattr(rolled_plain, stat)().values
     return out
+
 
 def encode_cyclical(series: pd.Series, period: float) -> tuple[pd.Series, pd.Series]:
     angle = 2.0 * np.pi * series / period
@@ -56,6 +64,7 @@ def encode_cyclical(series: pd.Series, period: float) -> tuple[pd.Series, pd.Ser
     sin_s = pd.Series(np.sin(angle).values, index=series.index, name=f"{name}_sin")
     cos_s = pd.Series(np.cos(angle).values, index=series.index, name=f"{name}_cos")
     return sin_s, cos_s
+
 
 def encode_onehot(
     df: pd.DataFrame,
@@ -71,6 +80,7 @@ def encode_onehot(
     out = out.drop(columns=cols)
     out = pd.concat([out, dummies], axis=1)
     return out
+
 
 def clip_outliers(
     df: pd.DataFrame,

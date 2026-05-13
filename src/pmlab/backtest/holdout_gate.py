@@ -38,11 +38,16 @@ class HoldoutGateResult:
         for seg in required_segments:
             seg_trades = trades[trades["segment"] == seg] if not trades.empty else pd.DataFrame()
 
-            if seg_trades.empty and seg not in (trades["segment"].unique() if not trades.empty else []):
+            if seg_trades.empty and seg not in (
+                trades["segment"].unique() if not trades.empty else []
+            ):
                 segment_results.append(
                     SegmentGateResult(
-                        segment=seg, num_trades=0, total_pnl=0.0,
-                        passes=False, reason="missing",
+                        segment=seg,
+                        num_trades=0,
+                        total_pnl=0.0,
+                        passes=False,
+                        reason="missing",
                     )
                 )
                 continue
@@ -62,8 +67,11 @@ class HoldoutGateResult:
 
             segment_results.append(
                 SegmentGateResult(
-                    segment=seg, num_trades=num, total_pnl=total_pnl,
-                    passes=passes, reason=reason,
+                    segment=seg,
+                    num_trades=num,
+                    total_pnl=total_pnl,
+                    passes=passes,
+                    reason=reason,
                 )
             )
 

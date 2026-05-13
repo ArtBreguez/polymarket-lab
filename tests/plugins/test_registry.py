@@ -15,10 +15,17 @@ class _Plugin(MarketPlugin):
     def __init__(self, name: str) -> None:
         self.family = name
 
-    def discover_markets(self, **kw: Any) -> list[MarketSpec]: return []
-    def fetch_features(self, s: MarketSpec, h: str, **kw: Any) -> dict[str, float]: return {}
-    def fetch_truth(self, s: MarketSpec, **kw: Any) -> float | str | None: return None
-    def build_training_row(self, s: MarketSpec, h: str, **kw: Any) -> dict | None: return None
+    def discover_markets(self, **kw: Any) -> list[MarketSpec]:
+        return []
+
+    def fetch_features(self, s: MarketSpec, h: str, **kw: Any) -> dict[str, float]:
+        return {}
+
+    def fetch_truth(self, s: MarketSpec, **kw: Any) -> float | str | None:
+        return None
+
+    def build_training_row(self, s: MarketSpec, h: str, **kw: Any) -> dict | None:
+        return None
 
 
 class TestPluginRegistry:

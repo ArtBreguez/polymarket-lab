@@ -20,6 +20,7 @@ class TestSportsF1Family:
 class TestF1DiscoverMarkets:
     def test_requires_gamma_client(self) -> None:
         import pytest
+
         plugin = SportsF1Plugin()
         with pytest.raises(RuntimeError, match="gamma_client"):
             plugin.discover_markets()
@@ -28,7 +29,8 @@ class TestF1DiscoverMarkets:
         mock_gamma = MagicMock()
         mock_gamma.fetch_markets.return_value = [
             {
-                "id": "f1_001", "slug": "f1-monaco-winner",
+                "id": "f1_001",
+                "slug": "f1-monaco-winner",
                 "question": "F1 Monaco GP winner 2026?",
                 "endDate": "2026-05-25T16:00:00Z",
                 "tokens": [
@@ -51,7 +53,8 @@ class TestF1DiscoverMarkets:
         mock_gamma = MagicMock()
         mock_gamma.fetch_markets.return_value = [
             {
-                "id": "f1_002", "slug": "f1-test",
+                "id": "f1_002",
+                "slug": "f1-test",
                 "question": "F1 test GP winner?",
                 "endDate": "2026-05-25T16:00:00Z",
                 "tokens": [{"outcome": "Verstappen"}, {"outcome": "Norris"}],
@@ -67,10 +70,14 @@ class TestF1DiscoverMarkets:
 class TestF1FetchTruth:
     def _spec(self) -> MarketSpec:
         from pmlab.core.market_spec import OutcomeBin
+
         return MarketSpec(
-            market_id="f1_001", slug="s", question="q",
+            market_id="f1_001",
+            slug="s",
+            question="q",
             outcome_bins=[OutcomeBin(label="Verstappen"), OutcomeBin(label="Norris")],
-            close_time="2026-05-25T16:00:00Z", market_family="categorical",
+            close_time="2026-05-25T16:00:00Z",
+            market_family="categorical",
             metadata={"gp": "Monaco", "market_type": "race_winner"},
         )
 
@@ -88,10 +95,14 @@ class TestF1FetchTruth:
 class TestF1BuildTrainingRow:
     def _spec(self) -> MarketSpec:
         from pmlab.core.market_spec import OutcomeBin
+
         return MarketSpec(
-            market_id="f1_001", slug="s", question="q",
+            market_id="f1_001",
+            slug="s",
+            question="q",
             outcome_bins=[OutcomeBin(label="Verstappen"), OutcomeBin(label="Norris")],
-            close_time="2026-05-25T16:00:00Z", market_family="categorical",
+            close_time="2026-05-25T16:00:00Z",
+            market_family="categorical",
             metadata={"gp": "Monaco", "market_type": "race_winner"},
         )
 

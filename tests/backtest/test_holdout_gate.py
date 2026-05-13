@@ -12,8 +12,8 @@ def _make_trades(segments_counts: dict[str, int], pnl_per_trade: float = 0.1) ->
     for seg, n in segments_counts.items():
         for _ in range(n):
             rows.append({"realized_pnl": pnl_per_trade, "outcome": "won", "segment": seg})
-    return pd.DataFrame(rows) if rows else pd.DataFrame(
-        columns=["realized_pnl", "outcome", "segment"]
+    return (
+        pd.DataFrame(rows) if rows else pd.DataFrame(columns=["realized_pnl", "outcome", "segment"])
     )
 
 

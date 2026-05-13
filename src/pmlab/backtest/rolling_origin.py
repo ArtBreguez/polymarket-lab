@@ -135,8 +135,13 @@ def rolling_origin_eval(
     else:
         trades_df = pd.DataFrame(
             columns=[
-                "market_id", "eval_date", "outcome_label",
-                "predicted_prob", "market_price", "realized_pnl", "edge",
+                "market_id",
+                "eval_date",
+                "outcome_label",
+                "predicted_prob",
+                "market_price",
+                "realized_pnl",
+                "edge",
             ]
         )
 

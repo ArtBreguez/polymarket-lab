@@ -1,4 +1,5 @@
 """Structured logging for pmlab using rich."""
+
 from __future__ import annotations
 
 import logging

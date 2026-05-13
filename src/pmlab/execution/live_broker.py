@@ -1,4 +1,5 @@
 """LiveBroker - place and manage real orders via the Polymarket CLOB API."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -164,6 +165,7 @@ class LiveBroker:
         import hashlib
         import hmac
         import json
+
         ts = str(int(datetime.now(UTC).timestamp()))
         body_str = json.dumps(body, separators=(",", ":")) if body else ""
         message = ts + method.upper() + path + body_str

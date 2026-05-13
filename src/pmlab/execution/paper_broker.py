@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from zoneinfo import ZoneInfo
-
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pmlab.core.fees import estimate_fee
 from pmlab.execution.edge_signal import EdgeSignal
@@ -61,14 +60,16 @@ class PaperBroker:
         existing_trades = self.load_trades()
         # Build set of existing keys for dedup
         existing_keys = {
-            (t["city_or_segment"], t["target_date"], t["horizon"])
-            for t in existing_trades
+            (t["city_or_segment"], t["target_date"], t["horizon"]) for t in existing_trades
         }
 
         new_trades: list[dict[str, Any]] = []
         for signal in signals:
             # 1. Segment filter
-            if self.allowed_segments is not None and signal.city_or_segment not in self.allowed_segments:
+            if (
+                self.allowed_segments is not None
+                and signal.city_or_segment not in self.allowed_segments
+            ):
                 continue
 
             # 2. Staleness check
@@ -99,9 +100,7 @@ class PaperBroker:
         result: list[dict[str, Any]] = data.get("trades", [])
         return result
 
-    def _is_stale(
-        self, signal: EdgeSignal, now_utc: datetime, city_tz: str
-    ) -> bool:
+    def _is_stale(self, signal: EdgeSignal, now_utc: datetime, city_tz: str) -> bool:
         """Return True if the signal's horizon cutoff has already passed."""
         day_offset, cutoff_hour = HORIZON_CUTOFFS.get(signal.horizon, (0, 0))
 
@@ -124,7 +123,9 @@ class PaperBroker:
 
     def _build_trade(self, signal: EdgeSignal, now_utc: datetime) -> dict[str, Any]:
         """Build a trade dict from a signal."""
-        entry_price = signal.gamma_price if signal.direction == "yes" else (1.0 - signal.gamma_price)
+        entry_price = (
+            signal.gamma_price if signal.direction == "yes" else (1.0 - signal.gamma_price)
+        )
         size = self.flat_stake / max(entry_price, 1e-9)
         fee = estimate_fee(self.flat_stake, self.taker_bps)
         return {

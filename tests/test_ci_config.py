@@ -1,7 +1,9 @@
 """Smoke tests ensuring CI configuration is sane."""
+
 from __future__ import annotations
 
 from pathlib import Path
+
 import yaml
 
 
@@ -46,7 +48,9 @@ def test_ci_has_upload_coverage_step():
     steps = ci["jobs"]["test"]["steps"]
     step_names = [s.get("name", "").lower() for s in steps]
     uses = [s.get("uses", "").lower() for s in steps]
-    has_upload = any("coverage" in n for n in step_names) or any("codecov" in u or "coverage" in u for u in uses)
+    has_upload = any("coverage" in n for n in step_names) or any(
+        "codecov" in u or "coverage" in u for u in uses
+    )
     assert has_upload, f"No coverage upload step found. Steps: {step_names}"
 
 

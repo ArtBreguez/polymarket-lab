@@ -1,11 +1,12 @@
 """Tests for LiveBroker."""
+
 from __future__ import annotations
 
+import httpx
 import pytest
 import respx
-import httpx
 
-from pmlab.execution.live_broker import LiveBroker, LiveBrokerError, OrderReceipt
+from pmlab.execution.live_broker import LiveBroker, LiveBrokerError
 
 
 @pytest.fixture

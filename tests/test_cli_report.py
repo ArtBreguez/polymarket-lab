@@ -1,4 +1,5 @@
 """TDD tests for `pmlab report` CLI command."""
+
 from __future__ import annotations
 
 import json
@@ -47,11 +48,16 @@ class TestReportCommand:
     def test_report_creates_html(self, tmp_path, trades_json):
         """pmlab report creates an HTML file."""
         out = tmp_path / "report.html"
-        result = runner.invoke(app, [
-            "report",
-            "--trades", str(trades_json),
-            "--output", str(out),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "report",
+                "--trades",
+                str(trades_json),
+                "--output",
+                str(out),
+            ],
+        )
         assert result.exit_code == 0, result.output
         assert out.exists()
         assert out.suffix == ".html"
@@ -66,21 +72,32 @@ class TestReportCommand:
     def test_report_with_title(self, tmp_path, trades_json):
         """--title is reflected in the HTML."""
         out = tmp_path / "report.html"
-        runner.invoke(app, [
-            "report",
-            "--trades", str(trades_json),
-            "--output", str(out),
-            "--title", "My Custom Title",
-        ])
+        runner.invoke(
+            app,
+            [
+                "report",
+                "--trades",
+                str(trades_json),
+                "--output",
+                str(out),
+                "--title",
+                "My Custom Title",
+            ],
+        )
         assert "My Custom Title" in out.read_text()
 
     def test_report_missing_trades_file(self, tmp_path):
         """Exits 1 when trades file does not exist."""
-        result = runner.invoke(app, [
-            "report",
-            "--trades", str(tmp_path / "nope.json"),
-            "--output", str(tmp_path / "r.html"),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "report",
+                "--trades",
+                str(tmp_path / "nope.json"),
+                "--output",
+                str(tmp_path / "r.html"),
+            ],
+        )
         assert result.exit_code == 1
 
     def test_report_default_output_path(self, tmp_path, trades_json, monkeypatch):
@@ -93,9 +110,14 @@ class TestReportCommand:
     def test_report_prints_output_path(self, tmp_path, trades_json):
         """CLI prints where the report was saved."""
         out = tmp_path / "report.html"
-        result = runner.invoke(app, [
-            "report",
-            "--trades", str(trades_json),
-            "--output", str(out),
-        ])
+        result = runner.invoke(
+            app,
+            [
+                "report",
+                "--trades",
+                str(trades_json),
+                "--output",
+                str(out),
+            ],
+        )
         assert str(out) in result.output or "report" in result.output.lower()

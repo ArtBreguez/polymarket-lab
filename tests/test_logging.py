@@ -1,6 +1,9 @@
 """Tests for pmlab.logging module."""
+
 from __future__ import annotations
+
 import logging
+
 from pmlab.logging import get_logger, setup_logging
 
 

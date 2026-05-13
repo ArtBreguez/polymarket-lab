@@ -74,7 +74,9 @@ class TestMarketSpec:
     def test_resolve_winning_bin_returns_matching_label(self) -> None:
         bins = [
             OutcomeBin(label="cold", upper=15.0, upper_inclusive=False),
-            OutcomeBin(label="warm", lower=15.0, upper=25.0, lower_inclusive=True, upper_inclusive=False),
+            OutcomeBin(
+                label="warm", lower=15.0, upper=25.0, lower_inclusive=True, upper_inclusive=False
+            ),
             OutcomeBin(label="hot", lower=25.0, lower_inclusive=True),
         ]
         spec = MarketSpec(
@@ -103,7 +105,11 @@ class TestMarketSpec:
 
     def test_resolve_categorical_label(self) -> None:
         """For categorical outcomes, bins have no numeric bounds — match by label."""
-        bins = [OutcomeBin(label="Verstappen"), OutcomeBin(label="Hamilton"), OutcomeBin(label="Norris")]
+        bins = [
+            OutcomeBin(label="Verstappen"),
+            OutcomeBin(label="Hamilton"),
+            OutcomeBin(label="Norris"),
+        ]
         spec = MarketSpec(
             market_id="f1_winner",
             slug="f1-winner",

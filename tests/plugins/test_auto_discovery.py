@@ -1,14 +1,14 @@
 """TDD tests for plugin auto-discovery via entry_points."""
+
 from __future__ import annotations
 
-import pytest
-from unittest.mock import patch, MagicMock
-
-# This import must exist but discover_plugins must not be there yet
-from pmlab.plugins.registry import PluginRegistry
+from unittest.mock import MagicMock, patch
 
 # This import MUST fail before implementation (RED)
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
+
+# This import must exist but discover_plugins must not be there yet
+from pmlab.plugins.registry import PluginRegistry
 
 
 class TestDiscoverPlugins:
@@ -27,14 +27,21 @@ class TestDiscoverPlugins:
     def test_load_plugins_loads_valid_plugin(self):
         """load_plugins_from_entry_points loads a plugin class and registers it."""
         from pmlab.plugins.base import MarketPlugin
-        from pmlab.core.market_spec import MarketSpec
 
         class _FakePlugin(MarketPlugin):
             family = "fake_discovery"
-            def discover_markets(self, **kwargs): return []
-            def fetch_features(self, spec, horizon, **kwargs): return {}
-            def fetch_truth(self, spec, **kwargs): return None
-            def build_training_row(self, spec, horizon, **kwargs): return None
+
+            def discover_markets(self, **kwargs):
+                return []
+
+            def fetch_features(self, spec, horizon, **kwargs):
+                return {}
+
+            def fetch_truth(self, spec, **kwargs):
+                return None
+
+            def build_training_row(self, spec, horizon, **kwargs):
+                return None
 
         mock_ep = MagicMock()
         mock_ep.name = "fake_discovery"
@@ -60,6 +67,7 @@ class TestDiscoverPlugins:
 
     def test_load_plugins_skips_non_plugin_class(self):
         """A class that doesn't subclass MarketPlugin is skipped."""
+
         class _NotAPlugin:
             family = "not_real"
 

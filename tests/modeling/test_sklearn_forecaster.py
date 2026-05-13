@@ -1,4 +1,5 @@
 """TDD tests for SklearnForecaster — written BEFORE implementation."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -12,10 +13,12 @@ from pmlab.modeling.sklearn_forecaster import SklearnForecaster
 @pytest.fixture
 def sample_data() -> tuple[pd.DataFrame, pd.Series]:
     rng = np.random.default_rng(42)
-    X = pd.DataFrame({
-        "feature_a": rng.normal(0, 1, 100),
-        "feature_b": rng.normal(0, 1, 100),
-    })
+    X = pd.DataFrame(
+        {
+            "feature_a": rng.normal(0, 1, 100),
+            "feature_b": rng.normal(0, 1, 100),
+        }
+    )
     y = pd.Series((X["feature_a"] + rng.normal(0, 0.1, 100) > 0).astype(int))
     return X, y
 
@@ -60,6 +63,7 @@ class TestSklearnForecasterEstimators:
 
     def test_custom_sklearn_estimator(self, sample_data):
         from sklearn.tree import DecisionTreeClassifier
+
         X, y = sample_data
         f = SklearnForecaster(estimator=DecisionTreeClassifier(max_depth=3))
         f.fit(X, y)
@@ -115,5 +119,6 @@ class TestSklearnForecasterFeatureNames:
 class TestSklearnForecasterIsMarketForecaster:
     def test_is_market_forecaster(self):
         from pmlab.modeling.base import MarketForecaster
+
         f = SklearnForecaster()
         assert isinstance(f, MarketForecaster)

@@ -45,8 +45,13 @@ def test_produces_trades():
     assert isinstance(result, RollingOriginResult)
     assert not result.trades.empty
     expected_cols = {
-        "market_id", "eval_date", "outcome_label",
-        "predicted_prob", "market_price", "realized_pnl", "edge"
+        "market_id",
+        "eval_date",
+        "outcome_label",
+        "predicted_prob",
+        "market_price",
+        "realized_pnl",
+        "edge",
     }
     assert expected_cols.issubset(set(result.trades.columns))
 
@@ -57,6 +62,7 @@ def test_no_lookahead():
 
     class LookaheadDetector:
         """Records the max training date seen at each step."""
+
         def __init__(self):
             self.violations = []
             self._dates_seen = []
@@ -115,8 +121,15 @@ def test_empty_result_when_no_steps_qualify():
     result = rolling_origin_eval(panel, model, min_train_rows=100, stride=1)
     assert result.trades.empty
     # Must still have required columns even when empty
-    required = {"market_id", "eval_date", "outcome_label", "predicted_prob",
-                "market_price", "realized_pnl", "edge"}
+    required = {
+        "market_id",
+        "eval_date",
+        "outcome_label",
+        "predicted_prob",
+        "market_price",
+        "realized_pnl",
+        "edge",
+    }
     assert required.issubset(set(result.trades.columns))
     assert result.steps == []
 

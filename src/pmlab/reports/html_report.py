@@ -1,6 +1,8 @@
 """HTML report generator for paper trading sessions."""
+
 from __future__ import annotations
-from datetime import datetime, UTC
+
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,13 +44,12 @@ def generate_report(
     total_pnl = sum(t["realized_pnl"] for t in settled)
     hit_rate = (
         sum(1 for t in settled if (t.get("realized_pnl") or 0) > 0) / len(settled)
-        if settled else 0.0
+        if settled
+        else 0.0
     )
     total_staked = sum(t.get("flat_stake", 0) for t in settled)
     roi = (total_pnl / total_staked * 100) if total_staked > 0 else 0.0
-    avg_edge = (
-        sum(t.get("edge_after_fee", 0) for t in settled) / len(settled) if settled else 0.0
-    )
+    avg_edge = sum(t.get("edge_after_fee", 0) for t in settled) / len(settled) if settled else 0.0
 
     generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -63,8 +64,8 @@ def generate_report(
         "<div class='cards'>",
         _card("Total PnL", f"${total_pnl:+.2f}", "pos" if total_pnl >= 0 else "neg"),
         _card("ROI", f"{roi:+.1f}%", "pos" if roi >= 0 else "neg"),
-        _card("Hit Rate", f"{hit_rate*100:.1f}%"),
-        _card("Avg Edge", f"{avg_edge*100:.2f}%"),
+        _card("Hit Rate", f"{hit_rate * 100:.1f}%"),
+        _card("Avg Edge", f"{avg_edge * 100:.2f}%"),
         _card("Settled", str(len(settled))),
     ]
     if brier_score is not None:
@@ -105,30 +106,38 @@ def _equity_curve_svg(settled: list[dict[str, Any]]) -> str:
     W, H, pad = 800, 200, 40
     min_v, max_v = min(cumulative), max(cumulative)
     if min_v == max_v:
-        min_v -= 1; max_v += 1
+        min_v -= 1
+        max_v += 1
     x_scale = (W - 2 * pad) / max(len(cumulative) - 1, 1)
     y_scale = (H - 2 * pad) / (max_v - min_v)
+
     def to_xy(i: int, v: float) -> tuple[float, float]:
         return pad + i * x_scale, H - pad - (v - min_v) * y_scale
+
     points = [to_xy(i, v) for i, v in enumerate(cumulative)]
     polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
     final_color = "#4ade80" if cumulative[-1] >= 0 else "#f87171"
     zero_y = H - pad - (0 - min_v) * y_scale
-    zero_line = f"<line x1='{pad}' y1='{zero_y:.1f}' x2='{W-pad}' y2='{zero_y:.1f}' stroke='#334155' stroke-width='1' stroke-dasharray='4'/>" if pad <= zero_y <= H - pad else ""
+    zero_line = (
+        f"<line x1='{pad}' y1='{zero_y:.1f}' x2='{W - pad}' y2='{zero_y:.1f}' stroke='#334155' stroke-width='1' stroke-dasharray='4'/>"
+        if pad <= zero_y <= H - pad
+        else ""
+    )
     fx, fy = points[-1]
     return (
         f"<svg width='{W}' height='{H}' viewBox='0 0 {W} {H}' xmlns='http://www.w3.org/2000/svg'>"
         f"{zero_line}"
         f"<polyline points='{polyline}' fill='none' stroke='{final_color}' stroke-width='2'/>"
-        f"<text x='{fx+4:.1f}' y='{fy:.1f}' fill='{final_color}' font-size='11'>${cumulative[-1]:+.2f}</text>"
-        f"<text x='{pad}' y='{H-4}' fill='#475569' font-size='10'>Trade #1</text>"
-        f"<text x='{W-pad}' y='{H-4}' fill='#475569' font-size='10' text-anchor='end'>Trade #{len(cumulative)}</text>"
+        f"<text x='{fx + 4:.1f}' y='{fy:.1f}' fill='{final_color}' font-size='11'>${cumulative[-1]:+.2f}</text>"
+        f"<text x='{pad}' y='{H - 4}' fill='#475569' font-size='10'>Trade #1</text>"
+        f"<text x='{W - pad}' y='{H - 4}' fill='#475569' font-size='10' text-anchor='end'>Trade #{len(cumulative)}</text>"
         f"</svg>"
     )
 
 
 def _segment_table(settled: list[dict[str, Any]]) -> str:
     from collections import defaultdict
+
     seg_data: dict[str, dict[str, Any]] = defaultdict(lambda: {"pnl": 0.0, "count": 0, "wins": 0})
     for t in settled:
         seg = t.get("city_or_segment", "unknown")
@@ -141,8 +150,14 @@ def _segment_table(settled: list[dict[str, Any]]) -> str:
     for seg, d in sorted(seg_data.items()):
         hit = d["wins"] / d["count"] * 100 if d["count"] else 0
         pnl_class = "pos" if d["pnl"] >= 0 else "neg"
-        rows.append(f"<tr><td>{seg}</td><td>{d['count']}</td><td class='{pnl_class}'>${d['pnl']:+.2f}</td><td>{hit:.0f}%</td></tr>")
-    return "<table><thead><tr><th>Segment</th><th>Trades</th><th>PnL</th><th>Hit Rate</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+        rows.append(
+            f"<tr><td>{seg}</td><td>{d['count']}</td><td class='{pnl_class}'>${d['pnl']:+.2f}</td><td>{hit:.0f}%</td></tr>"
+        )
+    return (
+        "<table><thead><tr><th>Segment</th><th>Trades</th><th>PnL</th><th>Hit Rate</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+    )
 
 
 def _trade_table(trades: list[dict[str, Any]]) -> str:
@@ -154,12 +169,14 @@ def _trade_table(trades: list[dict[str, Any]]) -> str:
         price = t.get("gamma_price", "")
         price_str = f"{price:.3f}" if isinstance(price, float) else str(price)
         rows.append(
-            f"<tr><td>{t.get('target_date','')}</td><td>{t.get('city_or_segment','')}</td>"
-            f"<td>{t.get('direction','')}</td><td>{t.get('outcome_label','')}</td>"
-            f"<td>{price_str}</td><td>{t.get('edge_after_fee',0)*100:.2f}%</td>"
+            f"<tr><td>{t.get('target_date', '')}</td><td>{t.get('city_or_segment', '')}</td>"
+            f"<td>{t.get('direction', '')}</td><td>{t.get('outcome_label', '')}</td>"
+            f"<td>{price_str}</td><td>{t.get('edge_after_fee', 0) * 100:.2f}%</td>"
             f"<td class='{pnl_class}'>{pnl_str}</td></tr>"
         )
     return (
         "<table><thead><tr><th>Date</th><th>Segment</th><th>Dir</th><th>Outcome</th>"
-        "<th>Price</th><th>Edge</th><th>PnL</th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+        "<th>Price</th><th>Edge</th><th>PnL</th></tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
     )

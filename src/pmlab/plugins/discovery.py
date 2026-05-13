@@ -9,6 +9,7 @@ to their pyproject.toml:
 Then calling ``discover_plugins()`` (or ``load_plugins_from_entry_points()``)
 will automatically instantiate and register each plugin.
 """
+
 from __future__ import annotations
 
 import logging
@@ -48,7 +49,8 @@ def load_plugins_from_entry_points(
         except Exception as exc:
             _logger.warning(
                 "Failed to load pmlab plugin entry_point '%s': %s",
-                ep.name, exc,
+                ep.name,
+                exc,
             )
             continue
 
@@ -71,7 +73,8 @@ def load_plugins_from_entry_points(
         except Exception as exc:
             _logger.warning(
                 "Failed to instantiate plugin '%s' from entry_point: %s",
-                ep.name, exc,
+                ep.name,
+                exc,
             )
 
     return registry

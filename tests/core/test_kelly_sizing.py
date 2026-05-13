@@ -1,7 +1,9 @@
 """Tests for kelly sizing utilities."""
+
 from __future__ import annotations
 
 import pytest
+
 from pmlab.core.sizing import flat_stake_size, kelly_fraction, kelly_stake_size
 
 

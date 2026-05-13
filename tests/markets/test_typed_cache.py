@@ -1,7 +1,6 @@
 """TDD tests for TypedCache[T] — written BEFORE implementation."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 # This import MUST fail before implementation (RED)
 from pmlab.markets.typed_cache import TypedCache
@@ -60,6 +59,7 @@ class TestTypedCacheClear:
 class TestTypedCacheExpiry:
     def test_expired_returns_none(self, tmp_path):
         import time
+
         c: TypedCache[str] = TypedCache(tmp_path / "c", ttl_seconds=1)
         c.set("k", "v")
         time.sleep(1.1)
@@ -69,5 +69,6 @@ class TestTypedCacheExpiry:
 class TestTypedCacheIsDiskCache:
     def test_is_diskcache_subclass(self, tmp_path):
         from pmlab.markets.cache import DiskCache
+
         c = TypedCache[str](tmp_path / "c")
         assert isinstance(c, DiskCache)

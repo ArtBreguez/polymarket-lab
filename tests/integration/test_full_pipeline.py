@@ -1,4 +1,5 @@
 """Integration test: full pipeline with DummyPlugin."""
+
 from __future__ import annotations
 
 from datetime import UTC
@@ -22,6 +23,7 @@ from pmlab.plugins.registry import PluginRegistry
 # --- Minimal concrete plugin for testing ---
 class IntegrationPlugin(MarketPlugin):
     family = "integration_test"
+
     def __init__(self, truth_value: float = 25.0):
         self._truth = truth_value
 
@@ -40,16 +42,28 @@ class IntegrationPlugin(MarketPlugin):
         if truth is None:
             return None
         winning_label = spec.resolve_winning_bin(float(truth))
-        return {"market_id": spec.market_id, "decision_horizon": horizon,
-                "winning_label": winning_label, "market_price": 0.3, **features}
+        return {
+            "market_id": spec.market_id,
+            "decision_horizon": horizon,
+            "winning_label": winning_label,
+            "market_price": 0.3,
+            **features,
+        }
 
     def _make_spec(self) -> MarketSpec:
         return MarketSpec(
-            market_id="int_test_001", slug="test",
+            market_id="int_test_001",
+            slug="test",
             question="Test market?",
             outcome_bins=[
                 OutcomeBin(label="cold", upper=20.0, upper_inclusive=False),
-                OutcomeBin(label="warm", lower=20.0, upper=30.0, lower_inclusive=True, upper_inclusive=False),
+                OutcomeBin(
+                    label="warm",
+                    lower=20.0,
+                    upper=30.0,
+                    lower_inclusive=True,
+                    upper_inclusive=False,
+                ),
                 OutcomeBin(label="hot", lower=30.0),
             ],
             close_time="2026-05-10T20:00:00Z",
@@ -60,17 +74,19 @@ class IntegrationPlugin(MarketPlugin):
 
 def _make_synthetic_panel(n: int = 100) -> pd.DataFrame:
     rng = np.random.default_rng(42)
-    dates = [f"2026-0{i//10 + 1}-{i%28 + 1:02d}" for i in range(n)]
-    return pd.DataFrame({
-        "market_id": [f"m{i%10}" for i in range(n)],
-        "decision_date": dates,
-        "outcome_label": ["warm" if i % 2 == 0 else "hot" for i in range(n)],
-        "winning_label": ["warm" if i % 3 != 0 else "hot" for i in range(n)],
-        "market_price": rng.uniform(0.2, 0.7, n),
-        "segment": ["TestCity"] * n,
-        "feature_temp": rng.normal(25, 3, n),
-        "feature_lead_days": rng.uniform(1, 5, n),
-    })
+    dates = [f"2026-0{i // 10 + 1}-{i % 28 + 1:02d}" for i in range(n)]
+    return pd.DataFrame(
+        {
+            "market_id": [f"m{i % 10}" for i in range(n)],
+            "decision_date": dates,
+            "outcome_label": ["warm" if i % 2 == 0 else "hot" for i in range(n)],
+            "winning_label": ["warm" if i % 3 != 0 else "hot" for i in range(n)],
+            "market_price": rng.uniform(0.2, 0.7, n),
+            "segment": ["TestCity"] * n,
+            "feature_temp": rng.normal(25, 3, n),
+            "feature_lead_days": rng.uniform(1, 5, n),
+        }
+    )
 
 
 class TestFullPipeline:
@@ -92,21 +108,26 @@ class TestFullPipeline:
     def test_champion_publish_requires_go(self, tmp_path):
         """HoldoutGate blocks champion publish on NO_GO."""
         from pmlab.backtest.holdout_gate import SegmentGateResult
+
         bad_gate = HoldoutGateResult(
             decision="NO_GO",
             segment_results=[SegmentGateResult("A", 10, -5.0, False, "insufficient_trades")],
-            aggregate_pnl=-5.0, aggregate_trades=10,
+            aggregate_pnl=-5.0,
+            aggregate_trades=10,
         )
         model = LGBMForecaster()
         X = pd.DataFrame({"f": [1.0, 2.0, 3.0]})
         y = pd.Series([0, 1, 0])
         model.fit(X, y)
         with pytest.raises(ValueError, match="NO_GO"):
-            ChampionManifest.publish(model=model, gate=bad_gate, output_dir=tmp_path, plugin_family="test")
+            ChampionManifest.publish(
+                model=model, gate=bad_gate, output_dir=tmp_path, plugin_family="test"
+            )
 
     def test_paper_broker_records_and_settlement(self, tmp_path):
         """PaperBroker records signals; SettlementEngine settles them."""
         from datetime import datetime
+
         broker = PaperBroker(
             trades_path=tmp_path / "trades.json",
             allowed_segments=None,

@@ -1,8 +1,8 @@
 """Calibration diagnostics: Brier score decomposition and reliability data."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray

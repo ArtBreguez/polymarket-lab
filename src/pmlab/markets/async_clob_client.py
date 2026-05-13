@@ -1,14 +1,20 @@
 """Async Polymarket CLOB read client."""
+
 from __future__ import annotations
+
 import asyncio
 from typing import Any
+
 import httpx
 
 CLOB_API_BASE = "https://clob.polymarket.com"
 __all__ = ["AsyncClobClient"]
 
+
 class AsyncClobClient:
-    def __init__(self, base_url: str = CLOB_API_BASE, timeout: float = 15.0, concurrency: int = 10) -> None:
+    def __init__(
+        self, base_url: str = CLOB_API_BASE, timeout: float = 15.0, concurrency: int = 10
+    ) -> None:
         self.base_url = base_url
         self._client = httpx.AsyncClient(timeout=timeout)
         self._sem = asyncio.Semaphore(concurrency)
@@ -24,7 +30,9 @@ class AsyncClobClient:
     async def _fetch_one(self, token_id: str, results: dict[str, float]) -> None:
         async with self._sem:
             try:
-                resp = await self._client.get(f"{self.base_url}/midpoint", params={"token_id": token_id})
+                resp = await self._client.get(
+                    f"{self.base_url}/midpoint", params={"token_id": token_id}
+                )
                 resp.raise_for_status()
                 data = resp.json()
                 mid = data.get("mid")
@@ -36,7 +44,7 @@ class AsyncClobClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def __aenter__(self) -> "AsyncClobClient":
+    async def __aenter__(self) -> AsyncClobClient:
         return self
 
     async def __aexit__(self, *args: Any) -> None:

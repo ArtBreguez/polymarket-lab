@@ -23,10 +23,12 @@ def test_fetch_prices_empty_list():
 @respx.mock
 def test_fetch_prices_skips_failed_tokens():
     # First token fails, second succeeds — use side_effect for reliable ordering
-    respx.get(f"{CLOB_API_BASE}/midpoint").mock(side_effect=[
-        httpx.Response(404),
-        httpx.Response(200, json={"mid": "0.60"}),
-    ])
+    respx.get(f"{CLOB_API_BASE}/midpoint").mock(
+        side_effect=[
+            httpx.Response(404),
+            httpx.Response(200, json={"mid": "0.60"}),
+        ]
+    )
     prices = fetch_token_prices(["bad", "good"])
     assert "bad" not in prices
     assert "good" in prices

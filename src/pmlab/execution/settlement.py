@@ -109,7 +109,9 @@ class SettlementEngine:
         entry_price = gamma_price if direction == "yes" else (1.0 - gamma_price)
         size = flat_stake / max(entry_price, 1e-9)
         side = "buy" if direction == "yes" else "sell"
-        pos = Position(outcome_label=trade["outcome_label"], price=entry_price, size=size, side=side)
+        pos = Position(
+            outcome_label=trade["outcome_label"], price=entry_price, size=size, side=side
+        )
         pnl = settle_position(pos, winning_label=winning_label, fee_paid=fee_paid)
         outcome = "won" if trade["outcome_label"] == winning_label else "lost"
         return {**trade, "outcome": outcome, "realized_pnl": round(pnl, 6)}

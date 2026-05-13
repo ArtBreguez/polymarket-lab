@@ -30,7 +30,9 @@ class DummyPlugin(MarketPlugin):
     def fetch_truth(self, spec: MarketSpec, **kwargs: Any) -> str | None:
         return self._truth
 
-    def build_training_row(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, Any] | None:
+    def build_training_row(
+        self, spec: MarketSpec, horizon: str, **kwargs: Any
+    ) -> dict[str, Any] | None:
         return None
 
 
@@ -196,7 +198,7 @@ def test_already_settled_trade_counted_in_pnl(tmp_path: Path) -> None:
     write_trades(trades_file, [already_settled])
     engine = SettlementEngine(plugin=DummyPlugin(), trades_path=trades_file)
     result = engine.settle_all(specs=[], today_str="2024-01-16")
-    assert result["settled"] == 0   # not newly settled
+    assert result["settled"] == 0  # not newly settled
     assert abs(result["total_pnl"] - 0.697) < 1e-6
 
 
@@ -221,9 +223,7 @@ def test_truth_not_final_stays_pending(tmp_path: Path) -> None:
     trades_file = tmp_path / "trades.json"
     write_trades(trades_file, [base_trade()])
     engine = SettlementEngine(plugin=NotFinalPlugin(), trades_path=trades_file)
-    result = engine.settle_all(
-        specs=[make_spec()], today_str="2024-01-16"
-    )
+    result = engine.settle_all(specs=[make_spec()], today_str="2024-01-16")
     assert result["pending"] == 1
 
 
@@ -231,9 +231,7 @@ def test_truth_none_stays_pending(tmp_path: Path) -> None:
     """Lines 90-92: fetch_truth returns None → pending."""
     trades_file = tmp_path / "trades.json"
     write_trades(trades_file, [base_trade()])
-    engine = SettlementEngine(
-        plugin=DummyPlugin(truth=None), trades_path=trades_file
-    )
+    engine = SettlementEngine(plugin=DummyPlugin(truth=None), trades_path=trades_file)
     result = engine.settle_all(specs=[make_spec()], today_str="2024-01-16")
     assert result["pending"] == 1
 

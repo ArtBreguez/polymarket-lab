@@ -5,17 +5,18 @@ with named presets for common algorithms.
 
 Useful as a quick baseline before committing to LightGBM.
 """
+
 from __future__ import annotations
 
 import pickle
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from sklearn.base import ClassifierMixin
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 
 from pmlab.modeling.base import MarketForecaster
 
@@ -50,7 +51,7 @@ class SklearnForecaster(MarketForecaster):
 
     def __init__(
         self,
-        estimator: Union[str, ClassifierMixin] = "logistic_regression",
+        estimator: str | ClassifierMixin = "logistic_regression",
         **kwargs: Any,
     ) -> None:
         if isinstance(estimator, str):
@@ -77,9 +78,7 @@ class SklearnForecaster(MarketForecaster):
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         """Return probability estimates, shape (n_samples, n_classes)."""
         if not self._fitted:
-            raise RuntimeError(
-                "SklearnForecaster has not been fitted yet. Call fit() first."
-            )
+            raise RuntimeError("SklearnForecaster has not been fitted yet. Call fit() first.")
         result: np.ndarray = np.array(self._estimator.predict_proba(X))
         return result
 

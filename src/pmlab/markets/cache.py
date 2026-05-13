@@ -1,5 +1,7 @@
 """TTL disk cache for Polymarket API responses."""
+
 from __future__ import annotations
+
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
@@ -8,6 +10,7 @@ from typing import Any
 
 __all__ = ["DiskCache"]
 _SENTINEL = object()
+
 
 class DiskCache:
     def __init__(self, cache_dir: Path | str, ttl_seconds: int = 3600) -> None:

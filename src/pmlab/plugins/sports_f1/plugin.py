@@ -41,9 +41,7 @@ class SportsF1Plugin(MarketPlugin):
         raw_markets = self._gamma.fetch_markets(tag="f1", **kwargs)
         return [self._build_spec(m) for m in raw_markets if self._is_f1_market(m)]
 
-    def fetch_features(
-        self, spec: MarketSpec, horizon: str, **kwargs: Any
-    ) -> dict[str, float]:
+    def fetch_features(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, float]:
         """Return session-based features for this F1 market at *horizon*."""
         if self._telemetry is None:
             return {"quali_gap_s": 0.0, "historical_win_rate": 0.1}

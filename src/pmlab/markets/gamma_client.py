@@ -1,5 +1,6 @@
 # src/pmlab/markets/gamma_client.py
 """Polymarket Gamma API client — fetch open markets by tag/keyword."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -87,9 +88,13 @@ class GammaClient:
                 return cached
 
         result = fetch_gamma_markets(
-            tag=tag, keyword=keyword, limit=limit,
-            active=active, closed=closed,
-            base_url=self.base_url, client=self._client,
+            tag=tag,
+            keyword=keyword,
+            limit=limit,
+            active=active,
+            closed=closed,
+            base_url=self.base_url,
+            client=self._client,
         )
 
         if self._cache is not None:
@@ -124,6 +129,7 @@ class GammaClient:
             All matching markets up to max_results.
         """
         from pmlab.logging import get_logger
+
         _log = get_logger(__name__)
 
         all_markets: list[dict[str, Any]] = []

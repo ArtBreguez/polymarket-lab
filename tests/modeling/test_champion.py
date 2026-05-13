@@ -26,9 +26,7 @@ def _make_go_gate() -> HoldoutGateResult:
 def _make_nogo_gate() -> HoldoutGateResult:
     rows = [{"realized_pnl": -0.1, "outcome": "lost", "segment": "A"}]
     trades = pd.DataFrame(rows)
-    return HoldoutGateResult.evaluate(
-        trades, required_segments=["A"], min_trades_per_segment=40
-    )
+    return HoldoutGateResult.evaluate(trades, required_segments=["A"], min_trades_per_segment=40)
 
 
 def _make_fitted_lgbm() -> LGBMForecaster:
@@ -157,6 +155,7 @@ def test_load_model_returns_forecaster(tmp_path):
     loaded_model = manifest.load_model()
     assert hasattr(loaded_model, "predict_proba")
     import pandas as pd
+
     X = pd.DataFrame({"f1": [1.0, 2.0], "f2": [0.5, 0.3]})
     proba = loaded_model.predict_proba(X)
     assert proba.shape[1] == 2
