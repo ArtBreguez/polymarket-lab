@@ -103,20 +103,15 @@ class WeatherTmaxPlugin(MarketPlugin):
                 "Pass one at construction or mock for testing."
             )
 
-        limit: int = kwargs.pop("limit", 100)
-        offset: int = 0
-        all_raw: list[dict[str, Any]] = []
+        page_size: int = kwargs.pop("limit", 100)
+        max_results: int = kwargs.pop("max_results", 1000)
 
-        while True:
-            page: list[dict[str, Any]] = self._gamma.fetch_markets(
-                offset=offset, limit=limit, **kwargs
-            )
-            if not page:
-                break
-            all_raw.extend(page)
-            if len(page) < limit:
-                break  # reached the last page
-            offset += limit
+        # Use the client's offset-based pagination helper. (Calling
+        # fetch_markets(offset=...) directly is wrong — the single-page
+        # fetch_markets() has no offset parameter and raises TypeError.)
+        all_raw: list[dict[str, Any]] = self._gamma.fetch_markets_all(
+            page_size=page_size, max_results=max_results, **kwargs
+        )
 
         return [self._build_spec(m) for m in all_raw if self._is_tmax_market(m)]
 

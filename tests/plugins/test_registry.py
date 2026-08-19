@@ -65,3 +65,39 @@ class TestPluginRegistry:
     def test_unregister_nonexistent_is_noop(self) -> None:
         registry = PluginRegistry()
         registry.unregister("never_existed")  # should not raise
+
+
+class TestBuildPlugin:
+    """The resolver the CLI uses to turn a --plugin name into a live plugin."""
+
+    def test_builds_builtin_weather_with_gamma_client(self) -> None:
+        from pmlab.plugins.registry import build_plugin
+        from pmlab.plugins.weather_tmax.plugin import WeatherTmaxPlugin
+
+        sentinel = object()
+        plugin = build_plugin("weather_tmax", gamma_client=sentinel)
+        assert isinstance(plugin, WeatherTmaxPlugin)
+        assert plugin._gamma is sentinel  # gamma client is injected, not ignored
+
+    def test_builds_builtin_sports_f1_with_gamma_client(self) -> None:
+        from pmlab.plugins.registry import build_plugin
+        from pmlab.plugins.sports_f1.plugin import SportsF1Plugin
+
+        sentinel = object()
+        plugin = build_plugin("sports_f1", gamma_client=sentinel)
+        assert isinstance(plugin, SportsF1Plugin)
+        assert plugin._gamma is sentinel
+
+    def test_unknown_family_raises_with_available_list(self) -> None:
+        from pmlab.plugins.registry import build_plugin
+
+        with pytest.raises(KeyError, match="No plugin registered for family 'banana'"):
+            build_plugin("banana")
+
+    def test_available_families_includes_builtins(self) -> None:
+        from pmlab.plugins.registry import available_families
+
+        fams = available_families()
+        assert "weather_tmax" in fams
+        assert "sports_f1" in fams
+        assert fams == sorted(fams)  # returned sorted
