@@ -29,7 +29,7 @@ class TestDiscoverMarkets:
 
     def test_filters_non_tmax_markets(self) -> None:
         mock_gamma = MagicMock()
-        mock_gamma.fetch_markets.return_value = [
+        mock_gamma.fetch_markets_all.return_value = [
             {
                 "id": "a",
                 "question": "Highest temperature in NYC on May 10?",
@@ -52,7 +52,7 @@ class TestDiscoverMarkets:
 
     def test_returns_market_spec_objects(self) -> None:
         mock_gamma = MagicMock()
-        mock_gamma.fetch_markets.return_value = [
+        mock_gamma.fetch_markets_all.return_value = [
             {
                 "id": "t1",
                 "question": "Highest temperature in Paris on May 12?",
@@ -66,6 +66,33 @@ class TestDiscoverMarkets:
         assert all(isinstance(m, MarketSpec) for m in markets)
         assert markets[0].market_family == "range"
         assert "weather" in markets[0].tags
+
+    def test_uses_paginating_fetch_not_single_page(self) -> None:
+        """Regression: discover_markets must call fetch_markets_all (which
+        paginates via offset), NOT fetch_markets(offset=...) which has no offset
+        param and raises TypeError against the real GammaClient. A MagicMock
+        hides this because it accepts any kwargs; a spec'd fake does not.
+        """
+        from unittest.mock import create_autospec
+
+        from pmlab.markets.gamma_client import GammaClient
+
+        fake_gamma = create_autospec(GammaClient, instance=True)
+        fake_gamma.fetch_markets_all.return_value = [
+            {
+                "id": "t1",
+                "question": "Highest temperature in Tokyo on May 15?",
+                "slug": "tmax-tokyo",
+                "endDate": "2026-05-15T20:00:00Z",
+                "tokens": [{"outcome": "24°C"}, {"outcome": "25°C"}],
+            },
+        ]
+        plugin = WeatherTmaxPlugin(gamma_client=fake_gamma)
+        markets = plugin.discover_markets(limit=100)
+        assert len(markets) == 1
+        fake_gamma.fetch_markets_all.assert_called_once()
+        # The single-page fetch_markets must NOT be used for discovery.
+        fake_gamma.fetch_markets.assert_not_called()
 
 
 class TestFetchFeatures:

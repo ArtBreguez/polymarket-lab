@@ -108,6 +108,7 @@ def scan_markets_cmd(
     """Discover open markets from Polymarket Gamma API."""
     from pmlab.config import get_settings
     from pmlab.markets.gamma_client import GammaClient
+    from pmlab.plugins.registry import available_families, build_plugin
 
     settings = get_settings()
     rprint(
@@ -116,27 +117,39 @@ def scan_markets_cmd(
 
     with GammaClient(base_url=settings.gamma_api_base) as client:
         try:
-            markets = client.fetch_markets(tag=tag, keyword=keyword, limit=limit)
-        except Exception as e:
-            rprint(f"[red]Error fetching markets: {e}[/red]")
+            market_plugin = build_plugin(plugin, gamma_client=client)
+        except KeyError as e:
+            rprint(f"[red]{e}[/red]")
+            rprint(f"[dim]Available plugins: {available_families()}[/dim]")
             raise typer.Exit(1) from e
 
-    if not markets:
-        rprint("[yellow]No markets found.[/yellow]")
+        # Delegate discovery to the plugin so results are filtered to its market
+        # family (e.g. weather_tmax returns only temperature markets, not
+        # whatever the raw Gamma feed happens to surface).
+        discover_kwargs: dict[str, object] = {"limit": limit}
+        if tag is not None:
+            discover_kwargs["tag"] = tag
+        if keyword is not None:
+            discover_kwargs["keyword"] = keyword
+        try:
+            specs = market_plugin.discover_markets(**discover_kwargs)
+        except Exception as e:
+            rprint(f"[red]Error discovering markets: {e}[/red]")
+            raise typer.Exit(1) from e
+
+    if not specs:
+        rprint(f"[yellow]No open '{plugin}' markets found right now.[/yellow]")
         return
 
-    table = Table(title=f"{len(markets)} markets found")
+    table = Table(title=f"{len(specs)} '{plugin}' markets found")
     table.add_column("Question", max_width=60)
-    table.add_column("Condition ID", max_width=20)
-    table.add_column("Active")
-    for m in markets[:50]:  # show first 50
-        cid = m.get("conditionId", m.get("condition_id", ""))
-        q = m.get("question", "?")[:60]
-        active = "[green]yes[/green]" if m.get("active") else "[red]no[/red]"
-        table.add_row(q, str(cid)[:18], active)
+    table.add_column("Market ID", max_width=20)
+    table.add_column("Family")
+    for s in specs[:50]:  # show first 50
+        table.add_row(s.question[:60], str(s.market_id)[:18], s.market_family)
     console.print(table)
-    if len(markets) > 50:
-        rprint(f"[dim]... and {len(markets) - 50} more[/dim]")
+    if len(specs) > 50:
+        rprint(f"[dim]... and {len(specs) - 50} more[/dim]")
 
 
 @app.command("record-trades")
