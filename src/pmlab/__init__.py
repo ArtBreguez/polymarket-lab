@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
+from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
 from pmlab.backtest.metrics import BacktestMetrics, compute_metrics
 from pmlab.config import PmlabSettings, get_settings
@@ -33,14 +34,23 @@ from pmlab.modeling.base import MarketForecaster
 from pmlab.modeling.calibration import (
     CalibratedForecaster,
     IsotonicCalibrator,
+    MulticlassCalibrator,
     SigmoidCalibrator,
 )
 from pmlab.modeling.champion import ChampionManifest
 from pmlab.modeling.conformal import ConformalForecaster
-from pmlab.modeling.diagnostics import BrierDecomposition, brier_decomposition, reliability_data
+from pmlab.modeling.diagnostics import (
+    BrierDecomposition,
+    MulticlassBrier,
+    brier_decomposition,
+    multiclass_brier,
+    reliability_data,
+    reliability_data_multiclass,
+)
 from pmlab.modeling.ensemble import EnsembleForecaster
 from pmlab.modeling.lgbm_baseline import LGBMForecaster
 from pmlab.modeling.sklearn_forecaster import SklearnForecaster
+from pmlab.modeling.tuning import TunedForecaster
 from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
@@ -89,14 +99,21 @@ __all__ = [
     "CalibratedForecaster",
     "IsotonicCalibrator",
     "SigmoidCalibrator",
+    "MulticlassCalibrator",
+    "TunedForecaster",
     "BrierDecomposition",
     "brier_decomposition",
     "reliability_data",
+    "MulticlassBrier",
+    "multiclass_brier",
+    "reliability_data_multiclass",
     # Backtest
     "HoldoutGateResult",
     "SegmentGateResult",
     "BacktestMetrics",
     "compute_metrics",
+    "purged_kfold",
+    "embargoed_split",
     # Reports
     "generate_report",
     # Plugins / Workspace

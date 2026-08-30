@@ -12,12 +12,12 @@ as of **v0.5.0**.
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.5.0) | Biggest gap |
+| Stage | Today (v0.6.0) | Biggest gap |
 |---|---|---|
 | 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins | No feature store / panel versioning |
 | 2. Feature engineering | 5 transforms, per-plugin features | No feature registry, no leakage checks |
-| 3. Modeling | LGBM, sklearn, ensemble, conformal, calibration | Multiclass calibration, tuning |
-| 4. Validation | rolling-origin, holdout gate, Brier | No CV utilities, no drift/stability |
+| 3. Modeling | LGBM, sklearn, ensemble, conformal, calibration (binary+multiclass), tuning | ✅ core complete |
+| 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV | No drift/stability report |
 | 5. Model management | ChampionManifest hard gate | No experiment tracking / model registry |
 | 6. Execution | Paper + Live broker, settlement | No realistic slippage/latency model |
 | 7. Monitoring | — | No drift/calibration monitoring in prod |
@@ -25,21 +25,20 @@ as of **v0.5.0**.
 
 ---
 
-## v0.6.0 — Finish the modeling layer
+## v0.6.0 — Finish the modeling layer ✅ SHIPPED
 
-The v0.5.0 additions are binary-first. Close that gap and make tuning first-class.
+The v0.5.0 additions were binary-first. This release closed that gap and made
+tuning first-class.
 
-- ▢ **Multiclass calibration.** `CalibratedForecaster` is binary-only today
-  (raises on >2 classes). Add per-class (one-vs-rest) isotonic/sigmoid so F1 and
+- ✅ **Multiclass calibration.** `CalibratedForecaster` now supports >2 classes
+  via one-vs-rest (`MulticlassCalibrator`), isotonic/sigmoid — F1 and
   multi-outcome political markets are calibrated too.
-- ▢ **Multiclass Brier / calibration diagnostics.** `brier_decomposition` and
-  `reliability_data` assume a single positive class; generalize to the full
-  probability vector (multiclass Brier, per-class reliability).
-- ▢ **`TunedForecaster` / `tune()`** — hyperparameter search (Optuna) that wraps
-  any `MarketForecaster` and **respects the no-lookahead contract** by scoring
-  folds through `rolling_origin_eval`, never a random shuffle. This is the single
-  most requested modeling capability and the easiest to get subtly wrong.
-- ▢ **Cross-validation utilities** — `purged_kfold` / `embargoed_split` for time
+- ✅ **Multiclass Brier / calibration diagnostics.** `multiclass_brier` (with a
+  climatology skill score) and `reliability_data_multiclass` (per-class curves).
+- ✅ **`TunedForecaster` / `tune()`** — Optuna hyperparameter search that
+  **respects the no-lookahead contract** by scoring trials through
+  `rolling_origin_eval`, never a random shuffle. Optuna is an optional extra.
+- ✅ **Cross-validation utilities** — `purged_kfold` / `embargoed_split` for time
   series (López de Prado style) so tuning and model selection don't leak.
 
 ## v0.7.0 — Data & feature engineering as a first-class stage

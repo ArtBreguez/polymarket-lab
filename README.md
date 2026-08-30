@@ -4,7 +4,7 @@
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 <img src="https://img.shields.io/badge/coverage-85%25-brightgreen" alt="Coverage 85%">
-<img src="https://img.shields.io/badge/tests-333%20passing-brightgreen" alt="333 tests">
+<img src="https://img.shields.io/badge/tests-376%20passing-brightgreen" alt="376 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
 
@@ -247,8 +247,8 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
 | `pmlab.plugins.weather_tmax` | Reference implementation — temperature markets |
 | `pmlab.plugins.sports_f1` | Categorical outcome plugin — F1 race markets |
 | `pmlab.markets` | `GammaClient`, `ClobClient`, `AsyncGammaClient`, `AsyncClobClient`, `DiskCache` |
-| `pmlab.backtest` | `rolling_origin_eval`, `HoldoutGateResult`, `BacktestMetrics` |
-| `pmlab.modeling` | `MarketForecaster` ABC, `LGBMForecaster`, `SklearnForecaster`, `EnsembleForecaster`, `ConformalForecaster`, `CalibratedForecaster`, `IsotonicCalibrator`, `SigmoidCalibrator`, `ChampionManifest`, `brier_decomposition`, `reliability_data` |
+| `pmlab.backtest` | `rolling_origin_eval`, `HoldoutGateResult`, `BacktestMetrics`, `purged_kfold`, `embargoed_split` |
+| `pmlab.modeling` | `MarketForecaster` ABC, `LGBMForecaster`, `SklearnForecaster`, `EnsembleForecaster`, `ConformalForecaster`, `CalibratedForecaster`, `TunedForecaster`, `IsotonicCalibrator`, `SigmoidCalibrator`, `MulticlassCalibrator`, `ChampionManifest`, `brier_decomposition`, `multiclass_brier`, `reliability_data` |
 | `pmlab.execution` | `EdgeSignal`, `PaperBroker`, `SettlementEngine`, `LiveBroker` |
 | `pmlab.reports` | `generate_report` — self-contained HTML report |
 | `pmlab.workspace` | `WorkspaceContext` — multi-workspace path isolation |
@@ -442,6 +442,59 @@ sets = clf.predict_set(X_test)   # list[set[int]] — e.g. {1}, {0, 1}, {0}
 proba = clf.predict_proba(X_test)  # still a drop-in forecaster
 ```
 
+### Multiclass calibration
+
+Calibration extends to multi-outcome markets (F1 winner, multi-candidate races)
+via one-vs-rest — just pass a multiclass target:
+
+```python
+from pmlab import CalibratedForecaster, SklearnForecaster, multiclass_brier
+
+clf = CalibratedForecaster(SklearnForecaster("random_forest"), method="isotonic")
+clf.fit(X_train, y_train)          # y has 3+ classes
+proba = clf.predict_proba(X_test)  # calibrated (n, n_classes), rows sum to 1
+
+score = multiclass_brier(y_test, proba)   # Brier + climatology skill score
+print(score.brier_score, score.skill_score)
+```
+
+### Hyperparameter tuning (no-lookahead)
+
+`TunedForecaster` searches with Optuna but scores every trial through
+`rolling_origin_eval`, so model selection is walk-forward — it never shuffles the
+future into the past. Requires the `tune` extra (`pip install pmlab[tune]`):
+
+```python
+from pmlab import TunedForecaster, SklearnForecaster
+
+tuner = TunedForecaster(
+    build_fn=lambda p: SklearnForecaster(estimator="random_forest", **p),
+    param_space=lambda t: {"n_estimators": t.suggest_int("n_estimators", 50, 400, step=50)},
+    n_trials=30,
+    metric="total_pnl",      # or "mean_pnl" / "hit_rate"
+)
+tuner.tune(panel)            # panel = the same format rolling_origin_eval expects
+print(tuner.best_params_, tuner.best_score_)
+proba = tuner.predict_proba(X_test)   # refit on the full panel, ready to use
+```
+
+### Leakage-aware cross-validation
+
+For time-series model selection outside the backtest, use splitters that respect
+time instead of `sklearn.KFold`:
+
+```python
+import numpy as np
+from pmlab import purged_kfold, embargoed_split
+
+idx = np.arange(len(panel))            # rows sorted by decision_date
+for train, test in purged_kfold(idx, n_splits=5, embargo=3):
+    ...   # test is a contiguous block; train purges an embargo band around it
+
+for train, test in embargoed_split(idx, n_splits=5, embargo=3):
+    ...   # expanding-origin walk-forward: train is always strictly earlier
+```
+
 ---
 
 ## Bundled Plugins
@@ -526,12 +579,17 @@ scripts/pmlab-workspace historical_real pmlab backtest --plugin weather_tmax --s
 | `SklearnForecaster` | Any sklearn classifier (presets: logistic/RF/gradient-boosting) |
 | `EnsembleForecaster` | Weighted-average blend of N member forecasters |
 | `ConformalForecaster` | Split-conformal prediction sets with coverage ≥ 1−alpha |
-| `CalibratedForecaster` | Wrap a forecaster; calibrate positive-class prob (isotonic/sigmoid) |
+| `CalibratedForecaster` | Wrap a forecaster; calibrate probabilities (binary or multiclass, isotonic/sigmoid) |
+| `TunedForecaster` | Optuna hyperparameter search scored walk-forward (no-lookahead); needs `pmlab[tune]` |
 | `IsotonicCalibrator` | Non-parametric monotonic probability calibration |
 | `SigmoidCalibrator` | Platt scaling (1-D logistic) probability calibration |
+| `MulticlassCalibrator` | One-vs-rest multiclass probability calibration |
 | `ChampionManifest` | Publish/load champion model with hard NO_GO gate |
-| `brier_decomposition(y_true, y_prob)` | Murphy (1973) Brier score decomposition |
+| `brier_decomposition(y_true, y_prob)` | Murphy (1973) Brier score decomposition (binary) |
+| `multiclass_brier(y_true, y_prob)` | Multiclass Brier score + climatology skill score |
 | `reliability_data(y_true, y_prob)` | Reliability diagram data (bin centers, mean pred, frac pos) |
+| `reliability_data_multiclass(...)` | Per-class reliability curves (one-vs-rest) |
+| `purged_kfold` / `embargoed_split` | Leakage-aware time-series CV splitters |
 | `BrierDecomposition` | Dataclass: uncertainty, resolution, reliability, skill_score |
 
 ### Execution
