@@ -41,20 +41,22 @@ tuning first-class.
 - ✅ **Cross-validation utilities** — `purged_kfold` / `embargoed_split` for time
   series (López de Prado style) so tuning and model selection don't leak.
 
-## v0.7.0 — Data & feature engineering as a first-class stage
+## v0.7.0 — Data & feature engineering as a first-class stage ✅ SHIPPED (2026-08-30)
 
 Turn the empty `pmlab.data` package into the backbone of reproducibility.
 
-- ▢ **Feature store** — persist/version the `feature_*` rows a plugin produces
-  (parquet + manifest), keyed by (family, market, decision_horizon), so a retrain
-  reuses exactly the features a prior run saw. Kills silent feature drift between
-  training and serving.
-- ▢ **Panel builder** — a typed `build_panel(plugin, specs)` that assembles the
-  training panel from plugin rows with schema validation and dtype enforcement.
-- ▢ **Leakage guards** — assertions that no feature column is computed from
-  post-decision data; wire into `build_training_row` review and CI.
+- ✅ **Feature store** — `FeatureSnapshotStore`: append-only, point-in-time
+  parquet snapshots keyed by `(market_id, captured_at)` per family, with an
+  `as_of(cutoff)` no-lookahead read. Kills silent feature drift between training
+  and serving, and lets ingestion honor the no-lookahead principle.
+- ✅ **Panel builder** — typed `build_panel(rows)` that assembles the training
+  panel from plugin rows with schema validation and dtype enforcement (and an
+  optional leakage check).
+- ✅ **Leakage guards** — `check_no_leakage`: scores each feature's separation of
+  the label and raises `LeakageError` on suspicious columns. Found by dogfooding
+  (a feature derived from the outcome had reported AUC 1.000 silently).
 - ▢ **More transforms** — target encoding (with CV folds), interaction terms,
-  missing-value indicators; all copy-on-write like the existing five.
+  missing-value indicators; all copy-on-write like the existing five. *(deferred)*
 
 ## v0.8.0 — Validation & model management
 

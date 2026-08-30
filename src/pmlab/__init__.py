@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.6.1"
+__version__ = "0.7.0"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
@@ -13,6 +13,14 @@ from pmlab.core.fees import estimate_fee
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
 from pmlab.core.pnl import Position, settle_position
 from pmlab.core.sizing import flat_stake_size, kelly_fraction, kelly_stake_size
+from pmlab.data import (
+    FeatureSnapshotStore,
+    LeakageError,
+    LeakageReport,
+    PanelSchemaError,
+    build_panel,
+    check_no_leakage,
+)
 from pmlab.execution.edge_signal import EdgeSignal
 from pmlab.execution.live_broker import LiveBroker, LiveBrokerError, OrderReceipt
 from pmlab.execution.paper_broker import PaperBroker
@@ -114,6 +122,13 @@ __all__ = [
     "compute_metrics",
     "purged_kfold",
     "embargoed_split",
+    # Data & feature layer
+    "FeatureSnapshotStore",
+    "build_panel",
+    "PanelSchemaError",
+    "check_no_leakage",
+    "LeakageError",
+    "LeakageReport",
     # Reports
     "generate_report",
     # Plugins / Workspace

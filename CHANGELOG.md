@@ -2,6 +2,41 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0] — 2026-08-30
+
+### Added — Data & feature layer (`pmlab.data`)
+
+Turns the previously empty `pmlab.data` package into the reproducibility
+backbone. Motivated directly by dogfooding the library against the live
+Polymarket API, which exposed that the framework could not honor its own
+no-lookahead principle during ingestion, and silently accepted a leaking
+feature (AUC 1.000, no warning).
+
+- **`FeatureSnapshotStore`** — append-only, point-in-time store of per-market
+  feature snapshots (one parquet file per family), keyed and de-duplicated on
+  `(market_id, captured_at)`. `as_of(family, cutoff)` returns the latest snapshot
+  per market captured strictly before the cutoff, so a retrain uses the features
+  a decision could actually have seen — never the post-resolution state. This is
+  the missing piece that lets ingestion be no-lookahead.
+- **`check_no_leakage` / `LeakageError` / `LeakageReport`** — scores each
+  `feature_*` column by how well it alone separates the label (`max(auc, 1-auc)`)
+  and flags any above `max_auc` (default 0.97). Catches the exact trap from the
+  dogfood (a feature derived from the outcome) instead of failing silently.
+- **`build_panel`** — typed panel builder that assembles plugin rows into a
+  validated training panel: enforces the required schema (`market_id`,
+  `decision_date` as YYYY-MM-DD, `outcome_label`, `winning_label`,
+  `market_price`, ≥1 `feature_*`), coerces features to float, drops `None` rows,
+  and optionally runs the leakage guard. Validates `market_price` too (rejects
+  non-numeric and all-NaN — it drives PnL/edge). Turns a KeyError-deep-in-the-
+  backtest into a clear error at build time.
+
+### Changed
+- **`publish.yml` now creates a GitHub Release automatically** on `v*` tag, right
+  after the PyPI upload (auto-generated notes, wheel + sdist attached, marked
+  latest). Tagging is now the single action that ships a version end to end.
+
+100% test coverage on the new package.
+
 ## [0.6.1] — 2026-08-30
 
 ### Fixed — Lifecycle composition (found by dogfooding as a real user)
