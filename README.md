@@ -4,7 +4,7 @@
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 <img src="https://img.shields.io/badge/coverage-85%25-brightgreen" alt="Coverage 85%">
-<img src="https://img.shields.io/badge/tests-387%20passing-brightgreen" alt="387 tests">
+<img src="https://img.shields.io/badge/tests-421%20passing-brightgreen" alt="421 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
 
@@ -257,6 +257,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
 | `pmlab.plugins.sports_f1` | Categorical outcome plugin — F1 race markets |
 | `pmlab.markets` | `GammaClient`, `ClobClient`, `AsyncGammaClient`, `AsyncClobClient`, `DiskCache` |
 | `pmlab.backtest` | `rolling_origin_eval`, `HoldoutGateResult`, `BacktestMetrics`, `purged_kfold`, `embargoed_split` |
+| `pmlab.data` | `FeatureSnapshotStore` (point-in-time), `build_panel`, `check_no_leakage` |
 | `pmlab.modeling` | `MarketForecaster` ABC, `LGBMForecaster`, `SklearnForecaster`, `EnsembleForecaster`, `ConformalForecaster`, `CalibratedForecaster`, `TunedForecaster`, `IsotonicCalibrator`, `SigmoidCalibrator`, `MulticlassCalibrator`, `ChampionManifest`, `brier_decomposition`, `multiclass_brier`, `reliability_data` |
 | `pmlab.execution` | `EdgeSignal`, `PaperBroker`, `SettlementEngine`, `LiveBroker` |
 | `pmlab.reports` | `generate_report` — self-contained HTML report |
@@ -323,6 +324,35 @@ df = clip_outliers(df, cols=["temp", "humidity"], method="iqr", iqr_factor=3.0)
 ```
 
 All transforms return a copy — originals are never mutated.
+
+---
+
+## Data Layer — reproducibility & no-lookahead ingestion
+
+`pmlab.data` is the reproducibility backbone: point-in-time snapshots, a typed
+panel builder, and leakage guards.
+
+```python
+from pmlab import FeatureSnapshotStore, build_panel, check_no_leakage
+
+# 1. Capture point-in-time snapshots of OPEN markets over time. When a market
+#    later resolves, join its truth to the snapshot taken before decision time —
+#    the features a decision could actually have seen.
+store = FeatureSnapshotStore("~/.pmlab/snapshots")
+store.append("politics", [
+    {"market_id": "m1", "captured_at": "2025-01-05T00:00:00Z",
+     "feature_spread": 0.02, "feature_vol": 1.2e6},
+])
+seen = store.as_of("politics", cutoff="2025-01-06")   # latest snapshot per market before the cutoff
+
+# 2. Assemble a schema-validated panel from plugin rows (drops None, coerces
+#    features to float, raises a clear error on missing columns / bad dates).
+panel = build_panel(plugin.build_training_row(s, "resolution") for s in specs)
+
+# 3. Guard against label leakage — the silent killer. Raises LeakageError on any
+#    feature that separates the outcome suspiciously well.
+check_no_leakage(panel)                    # or build_panel(rows, check_leakage=True)
+```
 
 ---
 

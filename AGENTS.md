@@ -21,6 +21,7 @@ Use this file as the shared contract for all agents (Codex, Claude, etc).
 | `src/pmlab/plugins/weather_tmax/` | Weather/temperature market plugin (reference implementation) |
 | `src/pmlab/plugins/sports_f1/` | F1 race outcome plugin |
 | `src/pmlab/backtest/` | Rolling-origin eval, metrics, HoldoutGate — no lookahead |
+| `src/pmlab/data/` | FeatureSnapshotStore (point-in-time), build_panel, leakage guards |
 | `src/pmlab/modeling/` | MarketForecaster ABC, LGBMForecaster, calibration, ChampionManifest |
 | `src/pmlab/execution/` | EdgeSignal, PaperBroker, SettlementEngine |
 | `src/pmlab/workspace/` | WorkspaceContext — multi-workspace path isolation |
