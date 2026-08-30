@@ -118,6 +118,11 @@ def rolling_origin_eval(
                     "market_price": price,
                     "realized_pnl": pnl,
                     "edge": edge,
+                    # Derived/passthrough columns so the trade log composes directly
+                    # with compute_metrics ("outcome") and HoldoutGateResult.evaluate
+                    # ("segment") — no manual glue required downstream.
+                    "outcome": "won" if pnl > 0 else "lost",
+                    "segment": str(row["segment"]) if "segment" in row else "all",
                 }
             )
 
@@ -142,6 +147,8 @@ def rolling_origin_eval(
                 "market_price",
                 "realized_pnl",
                 "edge",
+                "outcome",
+                "segment",
             ]
         )
 

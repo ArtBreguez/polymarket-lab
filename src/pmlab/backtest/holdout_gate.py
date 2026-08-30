@@ -28,11 +28,45 @@ class HoldoutGateResult:
     def evaluate(
         cls,
         trades: pd.DataFrame,
-        required_segments: list[str],
+        required_segments: list[str] | None = None,
         min_trades_per_segment: int = 40,
         min_pnl_per_segment: float = 0.0,
     ) -> HoldoutGateResult:
-        """Evaluate holdout gate across required segments."""
+        """Evaluate the holdout gate.
+
+        Args:
+            trades: Backtest trade log (as produced by ``rolling_origin_eval``).
+            required_segments: Segments that must each pass. When ``None`` (the
+                default), the gate is evaluated on a single aggregate ``"all"``
+                segment — so the output of ``rolling_origin_eval`` can be graded
+                directly without splitting into segments first.
+            min_trades_per_segment: Minimum trades a segment needs to pass.
+            min_pnl_per_segment: Minimum total PnL a segment needs to pass.
+        """
+        # Aggregate mode: no segmentation requested — grade the whole trade log.
+        if required_segments is None:
+            num = len(trades)
+            total_pnl = float(trades["realized_pnl"].sum()) if not trades.empty else 0.0
+            if num < min_trades_per_segment:
+                passes, reason = False, "insufficient_trades"
+            elif total_pnl < min_pnl_per_segment:
+                passes, reason = False, "negative_pnl"
+            else:
+                passes, reason = True, "ok"
+            seg_result = SegmentGateResult(
+                segment="all",
+                num_trades=num,
+                total_pnl=total_pnl,
+                passes=passes,
+                reason=reason,
+            )
+            return cls(
+                decision="GO" if passes else "NO_GO",
+                segment_results=[seg_result],
+                aggregate_pnl=total_pnl,
+                aggregate_trades=num,
+            )
+
         segment_results: list[SegmentGateResult] = []
 
         for seg in required_segments:

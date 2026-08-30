@@ -4,7 +4,7 @@
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 <img src="https://img.shields.io/badge/coverage-85%25-brightgreen" alt="Coverage 85%">
-<img src="https://img.shields.io/badge/tests-376%20passing-brightgreen" alt="376 tests">
+<img src="https://img.shields.io/badge/tests-387%20passing-brightgreen" alt="387 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
 
@@ -89,6 +89,15 @@ result = rolling_origin_eval(panel, model, stride=30, min_train_rows=100)
 print(f"Total trades: {len(result.trades)}")
 print(f"Total PnL:    {result.trades['realized_pnl'].sum():.2f}")
 print(f"Hit rate:     {(result.trades['realized_pnl'] > 0).mean():.1%}")
+
+# The trade log composes straight into metrics and the go/no-go gate —
+# no manual column wrangling.
+from pmlab import compute_metrics
+from pmlab.backtest.holdout_gate import HoldoutGateResult
+
+metrics = compute_metrics(result.trades)          # derives outcome from PnL
+gate = HoldoutGateResult.evaluate(result.trades)  # aggregate GO / NO_GO
+print(metrics, "->", gate.decision)
 ```
 
 ### 3. Evaluate calibration
