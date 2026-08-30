@@ -52,9 +52,7 @@ class TestPredictProba:
 
 
 class TestPredictionSets:
-    def test_prediction_set_is_list_of_sets(
-        self, data: tuple[pd.DataFrame, pd.Series]
-    ) -> None:
+    def test_prediction_set_is_list_of_sets(self, data: tuple[pd.DataFrame, pd.Series]) -> None:
         X, y = data
         clf = ConformalForecaster(SklearnForecaster(), alpha=0.1)
         clf.fit(X, y)
@@ -64,9 +62,7 @@ class TestPredictionSets:
         # Every set is a subset of the label space {0, 1}
         assert all(s <= {0, 1} for s in sets)
 
-    def test_empirical_coverage_meets_guarantee(
-        self, data: tuple[pd.DataFrame, pd.Series]
-    ) -> None:
+    def test_empirical_coverage_meets_guarantee(self, data: tuple[pd.DataFrame, pd.Series]) -> None:
         # Split-conformal guarantees marginal coverage >= 1 - alpha on exchangeable
         # data. Hold out a fresh test set and check the realized coverage.
         X, y = data
@@ -85,9 +81,7 @@ class TestPredictionSets:
         # Allow a small finite-sample slack below the 1 - alpha target.
         assert coverage >= (1 - alpha) - 0.05
 
-    def test_smaller_alpha_gives_larger_sets(
-        self, data: tuple[pd.DataFrame, pd.Series]
-    ) -> None:
+    def test_smaller_alpha_gives_larger_sets(self, data: tuple[pd.DataFrame, pd.Series]) -> None:
         X, y = data
         strict = ConformalForecaster(SklearnForecaster(), alpha=0.01, random_state=1)
         loose = ConformalForecaster(SklearnForecaster(), alpha=0.30, random_state=1)
@@ -98,9 +92,7 @@ class TestPredictionSets:
         # Higher confidence (smaller alpha) => larger average set size.
         assert strict_sz >= loose_sz
 
-    def test_predict_set_before_fit_raises(
-        self, data: tuple[pd.DataFrame, pd.Series]
-    ) -> None:
+    def test_predict_set_before_fit_raises(self, data: tuple[pd.DataFrame, pd.Series]) -> None:
         X, _ = data
         clf = ConformalForecaster(SklearnForecaster())
         with pytest.raises(RuntimeError, match="fit"):

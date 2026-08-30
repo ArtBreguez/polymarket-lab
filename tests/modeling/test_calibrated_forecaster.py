@@ -80,9 +80,7 @@ def data() -> tuple[pd.DataFrame, pd.Series]:
 
 
 class TestCalibratedForecaster:
-    def test_predict_proba_shape_and_normalized(
-        self, data: tuple[pd.DataFrame, pd.Series]
-    ) -> None:
+    def test_predict_proba_shape_and_normalized(self, data: tuple[pd.DataFrame, pd.Series]) -> None:
         X, y = data
         base = SklearnForecaster(estimator="random_forest", n_estimators=30)
         clf = CalibratedForecaster(base, method="isotonic")

@@ -90,9 +90,7 @@ class TestEnsemblePredict:
         expected = (3.0 * p0 + 1.0 * p1) / 4.0
         np.testing.assert_allclose(ens.predict_proba(X), expected, atol=1e-9)
 
-    def test_predict_before_fit_raises(
-        self, sample_data: tuple[pd.DataFrame, pd.Series]
-    ) -> None:
+    def test_predict_before_fit_raises(self, sample_data: tuple[pd.DataFrame, pd.Series]) -> None:
         X, _ = sample_data
         ens = EnsembleForecaster(forecasters=_members())
         with pytest.raises(RuntimeError, match="fit"):
@@ -134,9 +132,7 @@ class TestEnsemblePersistence:
 
         np.testing.assert_allclose(loaded.predict_proba(X), before, atol=1e-12)
 
-    def test_feature_names_from_members(
-        self, sample_data: tuple[pd.DataFrame, pd.Series]
-    ) -> None:
+    def test_feature_names_from_members(self, sample_data: tuple[pd.DataFrame, pd.Series]) -> None:
         X, y = sample_data
         ens = EnsembleForecaster(forecasters=_members())
         ens.fit(X, y)

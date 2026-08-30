@@ -117,9 +117,7 @@ class ConformalForecaster(MarketForecaster):
 
         out: list[set[object]] = []
         for row_scores in scores:
-            members = {
-                _label(k) for k in range(len(classes)) if row_scores[k] <= self._qhat
-            }
+            members = {_label(k) for k in range(len(classes)) if row_scores[k] <= self._qhat}
             if not members:  # numerical edge: keep the single best class
                 members = {_label(int(np.argmin(row_scores)))}
             out.append(members)
