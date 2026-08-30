@@ -11,9 +11,12 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
   `compute_metrics(result.trades)` raised `KeyError: 'outcome'` — the two central
   public functions did not compose, and even the CLI worked around it by hand.
 - **`HoldoutGateResult.evaluate` gains an aggregate mode.** `required_segments`
-  is now optional; when omitted the whole trade log is graded as a single `"all"`
-  segment, so a backtest can be turned into a GO/NO_GO decision without first
-  splitting into segments or hand-building the dataclass.
+  is now optional; when omitted (or an empty list) the whole trade log is graded
+  as a single `"all"` segment, so a backtest can be turned into a GO/NO_GO
+  decision without first splitting into segments or hand-building the dataclass.
+  An empty `required_segments=[]` now falls back to this aggregate grade instead
+  of auto-passing (`all([]) == True` would have returned GO on zero segments —
+  a champion hard-gate breach).
 
 ### Changed
 - **`rolling_origin_eval` trade log now includes `outcome` and `segment`

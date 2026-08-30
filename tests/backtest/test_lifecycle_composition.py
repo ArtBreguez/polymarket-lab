@@ -123,6 +123,16 @@ class TestComputeMetricsBackwardCompatible:
 
 
 class TestGateAggregateMode:
+    def test_empty_required_segments_does_not_auto_pass(self) -> None:
+        # Safety regression: evaluate(trades, required_segments=[]) must NOT
+        # return GO on an empty segment list (that would let a losing model be
+        # published — violates the champion hard-gate). Empty falls back to the
+        # aggregate grade, so a -PnL log is correctly NO_GO.
+        losing = pd.DataFrame({"realized_pnl": [-1.0] * 100, "segment": ["x"] * 100})
+        gate = HoldoutGateResult.evaluate(losing, required_segments=[])
+        assert gate.decision == "NO_GO"
+        assert len(gate.segment_results) == 1  # aggregate, not zero segments
+
     def test_evaluate_without_segments_uses_aggregate(self) -> None:
         rows = [{"realized_pnl": 0.1, "outcome": "won"} for _ in range(50)]
         trades = pd.DataFrame(rows)

@@ -36,15 +36,18 @@ class HoldoutGateResult:
 
         Args:
             trades: Backtest trade log (as produced by ``rolling_origin_eval``).
-            required_segments: Segments that must each pass. When ``None`` (the
-                default), the gate is evaluated on a single aggregate ``"all"``
+            required_segments: Segments that must each pass. When ``None`` or an
+                empty list, the gate is evaluated on a single aggregate ``"all"``
                 segment — so the output of ``rolling_origin_eval`` can be graded
                 directly without splitting into segments first.
             min_trades_per_segment: Minimum trades a segment needs to pass.
             min_pnl_per_segment: Minimum total PnL a segment needs to pass.
         """
-        # Aggregate mode: no segmentation requested — grade the whole trade log.
-        if required_segments is None:
+        # Aggregate mode: no segmentation requested (None or empty list) — grade
+        # the whole trade log. An empty list must NOT auto-pass: falling through
+        # to the segment loop would yield zero results and all([]) == True → GO,
+        # which would let a losing model be published (champion hard-gate breach).
+        if not required_segments:
             num = len(trades)
             total_pnl = float(trades["realized_pnl"].sum()) if not trades.empty else 0.0
             if num < min_trades_per_segment:
