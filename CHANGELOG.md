@@ -26,8 +26,14 @@ feature (AUC 1.000, no warning).
   validated training panel: enforces the required schema (`market_id`,
   `decision_date` as YYYY-MM-DD, `outcome_label`, `winning_label`,
   `market_price`, ≥1 `feature_*`), coerces features to float, drops `None` rows,
-  and optionally runs the leakage guard. Turns a KeyError-deep-in-the-backtest
-  into a clear error at build time.
+  and optionally runs the leakage guard. Validates `market_price` too (rejects
+  non-numeric and all-NaN — it drives PnL/edge). Turns a KeyError-deep-in-the-
+  backtest into a clear error at build time.
+
+### Changed
+- **`publish.yml` now creates a GitHub Release automatically** on `v*` tag, right
+  after the PyPI upload (auto-generated notes, wheel + sdist attached, marked
+  latest). Tagging is now the single action that ships a version end to end.
 
 100% test coverage on the new package.
 

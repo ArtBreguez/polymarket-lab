@@ -87,7 +87,18 @@ def build_panel(
             )
         df[col] = coerced.astype(float)
 
-    df["market_price"] = pd.to_numeric(df["market_price"], errors="coerce").astype(float)
+    price_raw = df["market_price"]
+    price = pd.to_numeric(price_raw, errors="coerce")
+    newly_nan_price = price.isna() & price_raw.notna()
+    if bool(newly_nan_price.any()):
+        offending = price_raw[newly_nan_price].iloc[0]
+        raise PanelSchemaError(f"Column 'market_price' is not numeric; got e.g. {offending!r}.")
+    if bool(price.isna().all()):
+        raise PanelSchemaError(
+            "Column 'market_price' is entirely missing/NaN — it drives PnL and edge; "
+            "a panel cannot be backtested without it."
+        )
+    df["market_price"] = price.astype(float)
 
     if check_leakage:
         check_no_leakage(df, max_auc=max_auc, raise_on_leak=True)

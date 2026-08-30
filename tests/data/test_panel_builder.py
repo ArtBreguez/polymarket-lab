@@ -92,6 +92,23 @@ class TestBuildPanelValidation:
         with pytest.raises(PanelSchemaError):
             build_panel(rows)
 
+    def test_all_nan_market_price_raises(self):
+        # market_price is required and drives PnL/edge; an all-NaN column must
+        # fail loud at build time, not produce NaN trades deep in the backtest.
+        rows = _rows(5)
+        for r in rows:
+            r["market_price"] = None
+        with pytest.raises(PanelSchemaError) as exc:
+            build_panel(rows)
+        assert "market_price" in str(exc.value)
+
+    def test_non_numeric_market_price_raises(self):
+        rows = _rows(5)
+        rows[0]["market_price"] = "cheap"  # coerces to NaN silently otherwise
+        with pytest.raises(PanelSchemaError) as exc:
+            build_panel(rows)
+        assert "market_price" in str(exc.value)
+
 
 class TestBuildPanelLeakageIntegration:
     def test_leakage_check_runs_when_requested(self):
