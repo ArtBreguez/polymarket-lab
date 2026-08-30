@@ -20,10 +20,11 @@ def compute_metrics(trades: pd.DataFrame) -> BacktestMetrics:
     """Compute backtest metrics from a trades DataFrame.
 
     Args:
-        trades: DataFrame with columns:
-            - realized_pnl (float)
-            - outcome ("won" | "lost")
-            - edge (float)
+        trades: DataFrame with column ``realized_pnl`` (float). Optional columns:
+            - ``outcome`` ("won" | "lost") — if absent, derived from the sign of
+              ``realized_pnl`` so the output of ``rolling_origin_eval`` composes
+              here directly.
+            - ``edge`` (float) — averaged when present, otherwise reported as 0.
 
     Returns:
         BacktestMetrics with aggregated stats. All zeros if trades is empty.
@@ -39,10 +40,13 @@ def compute_metrics(trades: pd.DataFrame) -> BacktestMetrics:
 
     n = len(trades)
     total_pnl = float(trades["realized_pnl"].sum())
-    won = (trades["outcome"] == "won").sum()
+    if "outcome" in trades.columns:
+        won = (trades["outcome"] == "won").sum()
+    else:
+        won = (trades["realized_pnl"] > 0).sum()
     hit_rate = float(won / n)
     avg_pnl = total_pnl / n
-    avg_edge = float(trades["edge"].mean())
+    avg_edge = float(trades["edge"].mean()) if "edge" in trades.columns else 0.0
 
     return BacktestMetrics(
         num_trades=n,

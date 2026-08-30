@@ -2,6 +2,31 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.1] — 2026-08-30
+
+### Fixed — Lifecycle composition (found by dogfooding as a real user)
+- **`compute_metrics` now accepts the `rolling_origin_eval` trade log directly.**
+  It derives the win/loss `outcome` from the sign of `realized_pnl` when the
+  column is absent (and treats `edge` as optional). Previously
+  `compute_metrics(result.trades)` raised `KeyError: 'outcome'` — the two central
+  public functions did not compose, and even the CLI worked around it by hand.
+- **`HoldoutGateResult.evaluate` gains an aggregate mode.** `required_segments`
+  is now optional; when omitted (or an empty list) the whole trade log is graded
+  as a single `"all"` segment, so a backtest can be turned into a GO/NO_GO
+  decision without first splitting into segments or hand-building the dataclass.
+  An empty `required_segments=[]` now falls back to this aggregate grade instead
+  of auto-passing (`all([]) == True` would have returned GO on zero segments —
+  a champion hard-gate breach).
+
+### Changed
+- **`rolling_origin_eval` trade log now includes `outcome` and `segment`
+  columns.** `outcome` is derived from PnL sign; `segment` is passed through from
+  the panel when present, else defaults to `"all"`. This lets the trade log flow
+  straight into `compute_metrics` and `HoldoutGateResult.evaluate` — closing the
+  `backtest → metrics → gate → champion` loop with no manual glue.
+
+---
+
 ## [0.6.0] — 2026-08-30
 
 ### Added — Modeling

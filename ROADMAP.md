@@ -17,7 +17,7 @@ as of **v0.5.0**.
 | 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins | No feature store / panel versioning |
 | 2. Feature engineering | 5 transforms, per-plugin features | No feature registry, no leakage checks |
 | 3. Modeling | LGBM, sklearn, ensemble, conformal, calibration (binary+multiclass), tuning | ✅ core complete |
-| 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV | No drift/stability report |
+| 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV; trade log composes into metrics + gate (0.6.1) | No drift/stability report |
 | 5. Model management | ChampionManifest hard gate | No experiment tracking / model registry |
 | 6. Execution | Paper + Live broker, settlement | No realistic slippage/latency model |
 | 7. Monitoring | — | No drift/calibration monitoring in prod |
