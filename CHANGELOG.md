@@ -2,6 +2,24 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.1] — 2026-08-30
+
+### Added — Closed training loop
+
+- **`build_panel_from_snapshots(store, family, resolutions)`** — assembles a
+  no-lookahead training panel by joining point-in-time snapshots
+  (`FeatureSnapshotStore`) with realized market truth. For each resolved market
+  it uses the latest snapshot captured *strictly before* that market's
+  `decision_date`, so no feature can originate after the decision — no lookahead
+  by construction. This closes the loop the data layer was built for:
+  capture open markets over time → markets resolve → build the panel → train →
+  backtest → gate.
+
+Validated end-to-end against live Polymarket data (376 political markets, a
+two-day snapshot-capture simulation of a cron): the `as_of` join correctly
+selected the pre-decision snapshot, the leakage guard passed on honest features,
+and the panel flowed through backtest → gate. 100% coverage on the new code.
+
 ## [0.7.0] — 2026-08-30
 
 ### Added — Data & feature layer (`pmlab.data`)

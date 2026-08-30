@@ -4,7 +4,7 @@
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 <img src="https://img.shields.io/badge/coverage-85%25-brightgreen" alt="Coverage 85%">
-<img src="https://img.shields.io/badge/tests-421%20passing-brightgreen" alt="421 tests">
+<img src="https://img.shields.io/badge/tests-433%20passing-brightgreen" alt="433 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
 
@@ -257,7 +257,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
 | `pmlab.plugins.sports_f1` | Categorical outcome plugin — F1 race markets |
 | `pmlab.markets` | `GammaClient`, `ClobClient`, `AsyncGammaClient`, `AsyncClobClient`, `DiskCache` |
 | `pmlab.backtest` | `rolling_origin_eval`, `HoldoutGateResult`, `BacktestMetrics`, `purged_kfold`, `embargoed_split` |
-| `pmlab.data` | `FeatureSnapshotStore` (point-in-time), `build_panel`, `check_no_leakage` |
+| `pmlab.data` | `FeatureSnapshotStore` (point-in-time), `build_panel`, `build_panel_from_snapshots`, `check_no_leakage` |
 | `pmlab.modeling` | `MarketForecaster` ABC, `LGBMForecaster`, `SklearnForecaster`, `EnsembleForecaster`, `ConformalForecaster`, `CalibratedForecaster`, `TunedForecaster`, `IsotonicCalibrator`, `SigmoidCalibrator`, `MulticlassCalibrator`, `ChampionManifest`, `brier_decomposition`, `multiclass_brier`, `reliability_data` |
 | `pmlab.execution` | `EdgeSignal`, `PaperBroker`, `SettlementEngine`, `LiveBroker` |
 | `pmlab.reports` | `generate_report` — self-contained HTML report |
@@ -352,6 +352,15 @@ panel = build_panel(plugin.build_training_row(s, "resolution") for s in specs)
 # 3. Guard against label leakage — the silent killer. Raises LeakageError on any
 #    feature that separates the outcome suspiciously well.
 check_no_leakage(panel)                    # or build_panel(rows, check_leakage=True)
+
+# 4. Close the loop: when markets resolve, build a no-lookahead panel by joining
+#    each market's pre-decision snapshot to its realized truth.
+from pmlab import build_panel_from_snapshots
+
+resolutions = pd.DataFrame([
+    {"market_id": "m1", "decision_date": "2025-01-10", "winning_label": "Yes"},
+])
+train = build_panel_from_snapshots(store, "politics", resolutions)  # uses snapshot < decision_date
 ```
 
 ---

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
@@ -19,6 +19,7 @@ from pmlab.data import (
     LeakageReport,
     PanelSchemaError,
     build_panel,
+    build_panel_from_snapshots,
     check_no_leakage,
 )
 from pmlab.execution.edge_signal import EdgeSignal
@@ -125,6 +126,7 @@ __all__ = [
     # Data & feature layer
     "FeatureSnapshotStore",
     "build_panel",
+    "build_panel_from_snapshots",
     "PanelSchemaError",
     "check_no_leakage",
     "LeakageError",
