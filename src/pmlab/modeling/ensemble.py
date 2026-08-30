@@ -81,8 +81,19 @@ class EnsembleForecaster(MarketForecaster):
         if not self._fitted:
             raise RuntimeError("EnsembleForecaster has not been fitted yet. Call fit() first.")
         blended: np.ndarray | None = None
-        for weight, member in zip(self._weights, self.forecasters, strict=True):
+        expected_shape: tuple[int, ...] | None = None
+        for idx, (weight, member) in enumerate(
+            zip(self._weights, self.forecasters, strict=True)
+        ):
             proba = np.asarray(member.predict_proba(X), dtype=float)
+            if expected_shape is None:
+                expected_shape = proba.shape
+            elif proba.shape != expected_shape:
+                raise ValueError(
+                    "Ensemble members disagree on probability shape: member 0 returned "
+                    f"{expected_shape} but member {idx} returned {proba.shape}. All members "
+                    "must be trained on the same classes so their columns align."
+                )
             contribution = weight * proba
             blended = contribution if blended is None else blended + contribution
         assert blended is not None  # guaranteed: >=1 member

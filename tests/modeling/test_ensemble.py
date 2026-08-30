@@ -98,6 +98,26 @@ class TestEnsemblePredict:
         with pytest.raises(RuntimeError, match="fit"):
             ens.predict_proba(X)
 
+    def test_mismatched_member_shapes_raise_clearly(
+        self, sample_data: tuple[pd.DataFrame, pd.Series]
+    ) -> None:
+        # Regression: blending members with different class counts must raise a
+        # clear error, not a cryptic numpy broadcast failure.
+        X, _ = sample_data
+
+        class _Binary(SklearnForecaster):
+            def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+                return np.tile([0.5, 0.5], (len(X), 1))
+
+        class _Ternary(SklearnForecaster):
+            def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+                return np.tile([0.3, 0.3, 0.4], (len(X), 1))
+
+        ens = EnsembleForecaster(forecasters=[_Binary(), _Ternary()])
+        ens._fitted = True
+        with pytest.raises(ValueError, match="shape"):
+            ens.predict_proba(X)
+
 
 class TestEnsemblePersistence:
     def test_save_load_roundtrip(

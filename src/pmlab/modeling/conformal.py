@@ -96,24 +96,32 @@ class ConformalForecaster(MarketForecaster):
             raise RuntimeError("ConformalForecaster has not been fitted yet. Call fit() first.")
         return np.asarray(self.base.predict_proba(X), dtype=float)
 
-    def predict_set(self, X: pd.DataFrame) -> list[set[int]]:
+    def predict_set(self, X: pd.DataFrame) -> list[set[object]]:
         """Return one prediction set per row: classes with 1 - p_k <= qhat.
 
         Every set is guaranteed non-empty (the argmax class always qualifies),
-        so a downstream consumer never has to special-case the empty set.
+        so a downstream consumer never has to special-case the empty set. Label
+        types are preserved (int, str, etc.) — categorical markets (e.g. F1 driver
+        names) get their real labels back, not coerced integers.
         """
         if not self._fitted or self._qhat is None or self._classes is None:
             raise RuntimeError("ConformalForecaster has not been fitted yet. Call fit() first.")
         proba = np.asarray(self.base.predict_proba(X), dtype=float)
         scores = 1.0 - proba  # (n, n_classes)
         classes = self._classes
-        out: list[set[int]] = []
+
+        def _label(k: int) -> object:
+            # Return a native Python scalar (int/str/float), never a numpy type.
+            val = classes[k]
+            return val.item() if hasattr(val, "item") else val
+
+        out: list[set[object]] = []
         for row_scores in scores:
             members = {
-                int(classes[k]) for k in range(len(classes)) if row_scores[k] <= self._qhat
+                _label(k) for k in range(len(classes)) if row_scores[k] <= self._qhat
             }
             if not members:  # numerical edge: keep the single best class
-                members = {int(classes[int(np.argmin(row_scores))])}
+                members = {_label(int(np.argmin(row_scores)))}
             out.append(members)
         return out
 

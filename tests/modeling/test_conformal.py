@@ -129,3 +129,49 @@ class TestPersistence:
         clf = ConformalForecaster(SklearnForecaster())
         clf.fit(X, y)
         assert clf.feature_names() == ["a", "b"]
+
+
+class TestCategoricalLabels:
+    """Regression: predict_set must preserve non-integer labels (F1/politics)."""
+
+    def test_string_labels_returned_verbatim(self) -> None:
+        rng = np.random.default_rng(11)
+        n = 600
+        X = pd.DataFrame({"a": rng.normal(0, 1, n), "b": rng.normal(0, 1, n)})
+        y = pd.Series(np.where(X["a"] > 0, "UP", "DOWN"))
+        clf = ConformalForecaster(
+            SklearnForecaster(estimator="random_forest", n_estimators=40), alpha=0.2
+        )
+        clf.fit(X, y)
+        sets = clf.predict_set(X.head(10))
+        assert len(sets) == 10
+        # Labels come back as the original strings, not coerced ints.
+        for s in sets:
+            assert s <= {"UP", "DOWN"}
+            assert all(isinstance(label, str) for label in s)
+
+    def test_multiclass_string_coverage(self) -> None:
+        rng = np.random.default_rng(12)
+        n = 1500
+        X = pd.DataFrame({"a": rng.normal(0, 1, n), "b": rng.normal(0, 1, n)})
+        # 3-way categorical target driven by feature a.
+        y = pd.Series(
+            np.select(
+                [X["a"] < -0.4, X["a"] > 0.4],
+                ["LOW", "HIGH"],
+                default="MID",
+            )
+        )
+        X_tr, y_tr = X.iloc[:1100], y.iloc[:1100]
+        X_te, y_te = X.iloc[1100:], y.iloc[1100:]
+        alpha = 0.1
+        clf = ConformalForecaster(
+            SklearnForecaster(estimator="random_forest", n_estimators=80),
+            alpha=alpha,
+            random_state=0,
+        )
+        clf.fit(X_tr, y_tr)
+        sets = clf.predict_set(X_te)
+        covered = [yt in s for yt, s in zip(y_te.tolist(), sets, strict=True)]
+        assert float(np.mean(covered)) >= (1 - alpha) - 0.05
+        assert all(s <= {"LOW", "MID", "HIGH"} for s in sets)
