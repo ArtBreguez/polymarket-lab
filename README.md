@@ -12,7 +12,7 @@
 
 **A generic, plugin-based ML framework for Polymarket prediction markets.**
 
-[Installation](#installation) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Writing a Plugin](#writing-a-plugin) · [CLI](#cli-reference) · [API Reference](#api-reference) · [Contributing](#contributing)
+[Installation](#installation) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Writing a Plugin](#writing-a-plugin) · [CLI](#cli-reference) · [API Reference](#api-reference) · [Roadmap](ROADMAP.md) · [Contributing](#contributing)
 
 </div>
 
