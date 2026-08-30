@@ -2,6 +2,34 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.6.0] — 2026-08-30
+
+### Added — Modeling
+- **Multiclass calibration.** `CalibratedForecaster` now supports >2 classes via
+  one-vs-rest (new `MulticlassCalibrator`), so F1 / multi-outcome political
+  markets are calibrated too. Binary behavior is unchanged.
+- **Multiclass diagnostics.** `multiclass_brier` (with a climatology skill score,
+  `MulticlassBrier` dataclass) and `reliability_data_multiclass` (per-class
+  reliability curves) complement the existing binary Brier decomposition.
+- **`TunedForecaster`** — Optuna hyperparameter search that scores every trial
+  through `rolling_origin_eval`, so model selection is **walk-forward and
+  lookahead-free** (never a random shuffle). Optimizes `total_pnl`, `mean_pnl`,
+  or `hit_rate`. Optuna is an optional dependency: `pip install pmlab[tune]`.
+
+### Added — Backtest
+- **Leakage-aware CV.** `purged_kfold` (contiguous test blocks with an embargo
+  band, López de Prado style) and `embargoed_split` (expanding-origin walk-forward
+  with an embargo gap) in `pmlab.backtest.cv`.
+
+### Changed
+- `CalibratedForecaster` raises on <2 classes (was: raised on >2). Multiclass is
+  now first-class.
+
+### Infrastructure
+- New optional extra `tune` (Optuna). 376 tests, high coverage on new modules.
+
+---
+
 ## [0.5.0] — 2026-08-30
 
 ### Added — Modeling

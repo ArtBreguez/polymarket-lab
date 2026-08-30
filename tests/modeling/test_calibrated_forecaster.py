@@ -105,12 +105,23 @@ class TestCalibratedForecaster:
         with pytest.raises(RuntimeError, match="fit"):
             clf.predict_proba(X)
 
-    def test_only_binary_supported(self) -> None:
+    def test_multiclass_now_supported(self) -> None:
+        # v0.6: multiclass is supported via one-vs-rest calibration (was a hard
+        # error in v0.5). A degenerate single-class target still raises.
         rng = np.random.default_rng(3)
-        X = pd.DataFrame({"a": rng.normal(0, 1, 90)})
-        y = pd.Series(rng.integers(0, 3, 90))  # 3 classes
+        X = pd.DataFrame({"a": rng.normal(0, 1, 300), "b": rng.normal(0, 1, 300)})
+        y = pd.Series(rng.integers(0, 3, 300))  # 3 classes
         clf = CalibratedForecaster(SklearnForecaster())
-        with pytest.raises(ValueError, match="binary"):
+        clf.fit(X, y)
+        proba = clf.predict_proba(X)
+        assert proba.shape == (300, 3)
+        np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-9)
+
+    def test_single_class_raises(self) -> None:
+        X = pd.DataFrame({"a": [0.1, 0.2, 0.3], "b": [1.0, 1.0, 1.0]})
+        y = pd.Series([1, 1, 1])
+        clf = CalibratedForecaster(SklearnForecaster())
+        with pytest.raises(ValueError, match="at least 2 classes"):
             clf.fit(X, y)
 
     def test_save_load_roundtrip(
