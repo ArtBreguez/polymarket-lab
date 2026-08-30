@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
 from pmlab.backtest.metrics import BacktestMetrics, compute_metrics
@@ -30,8 +30,15 @@ from pmlab.markets.clob_client import ClobClient
 from pmlab.markets.gamma_client import GammaClient
 from pmlab.markets.typed_cache import TypedCache
 from pmlab.modeling.base import MarketForecaster
+from pmlab.modeling.calibration import (
+    CalibratedForecaster,
+    IsotonicCalibrator,
+    SigmoidCalibrator,
+)
 from pmlab.modeling.champion import ChampionManifest
+from pmlab.modeling.conformal import ConformalForecaster
 from pmlab.modeling.diagnostics import BrierDecomposition, brier_decomposition, reliability_data
+from pmlab.modeling.ensemble import EnsembleForecaster
 from pmlab.modeling.lgbm_baseline import LGBMForecaster
 from pmlab.modeling.sklearn_forecaster import SklearnForecaster
 from pmlab.plugins.base import MarketPlugin
@@ -77,6 +84,11 @@ __all__ = [
     "ChampionManifest",
     "LGBMForecaster",
     "SklearnForecaster",
+    "EnsembleForecaster",
+    "ConformalForecaster",
+    "CalibratedForecaster",
+    "IsotonicCalibrator",
+    "SigmoidCalibrator",
     "BrierDecomposition",
     "brier_decomposition",
     "reliability_data",

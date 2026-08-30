@@ -3,8 +3,8 @@
 <img src="https://img.shields.io/pypi/v/pmlab?color=blue" alt="PyPI version">
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
-<img src="https://img.shields.io/badge/coverage-83%25-brightgreen" alt="Coverage 83%">
-<img src="https://img.shields.io/badge/tests-301%20passing-brightgreen" alt="301 tests">
+<img src="https://img.shields.io/badge/coverage-85%25-brightgreen" alt="Coverage 85%">
+<img src="https://img.shields.io/badge/tests-333%20passing-brightgreen" alt="333 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
 
@@ -12,7 +12,7 @@
 
 **A generic, plugin-based ML framework for Polymarket prediction markets.**
 
-[Installation](#installation) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Writing a Plugin](#writing-a-plugin) · [CLI](#cli-reference) · [API Reference](#api-reference) · [Contributing](#contributing)
+[Installation](#installation) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Writing a Plugin](#writing-a-plugin) · [CLI](#cli-reference) · [API Reference](#api-reference) · [Roadmap](ROADMAP.md) · [Contributing](#contributing)
 
 </div>
 
@@ -248,7 +248,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
 | `pmlab.plugins.sports_f1` | Categorical outcome plugin — F1 race markets |
 | `pmlab.markets` | `GammaClient`, `ClobClient`, `AsyncGammaClient`, `AsyncClobClient`, `DiskCache` |
 | `pmlab.backtest` | `rolling_origin_eval`, `HoldoutGateResult`, `BacktestMetrics` |
-| `pmlab.modeling` | `MarketForecaster` ABC, `LGBMForecaster`, `ChampionManifest`, `brier_decomposition`, `reliability_data` |
+| `pmlab.modeling` | `MarketForecaster` ABC, `LGBMForecaster`, `SklearnForecaster`, `EnsembleForecaster`, `ConformalForecaster`, `CalibratedForecaster`, `IsotonicCalibrator`, `SigmoidCalibrator`, `ChampionManifest`, `brier_decomposition`, `reliability_data` |
 | `pmlab.execution` | `EdgeSignal`, `PaperBroker`, `SettlementEngine`, `LiveBroker` |
 | `pmlab.reports` | `generate_report` — self-contained HTML report |
 | `pmlab.workspace` | `WorkspaceContext` — multi-workspace path isolation |
@@ -377,6 +377,73 @@ stake = kelly_stake_size(
 
 ---
 
+## Advanced Modeling
+
+Every forecaster below implements the same `MarketForecaster` interface
+(`fit` / `predict_proba` / `save` / `load`), so they compose freely and drop into
+the backtest, champion gate, and brokers unchanged.
+
+### Ensembles
+
+Blend several models to cut variance — a weighted average of member probabilities:
+
+```python
+from pmlab import EnsembleForecaster, LGBMForecaster, SklearnForecaster
+
+ens = EnsembleForecaster(
+    forecasters=[
+        LGBMForecaster(),
+        SklearnForecaster(estimator="random_forest", n_estimators=200),
+        SklearnForecaster(estimator="logistic_regression"),
+    ],
+    weights=[2.0, 1.0, 1.0],  # optional; defaults to equal weight
+)
+ens.fit(X_train, y_train)
+proba = ens.predict_proba(X_test)
+```
+
+### Probability calibration
+
+Edge is computed from probabilities, so calibration matters. Wrap any forecaster
+to calibrate its positive-class output on a held-out split:
+
+```python
+from pmlab import CalibratedForecaster, LGBMForecaster
+
+clf = CalibratedForecaster(LGBMForecaster(), method="isotonic")  # or "sigmoid" (Platt)
+clf.fit(X_train, y_train)
+calibrated = clf.predict_proba(X_test)  # calibrated (n, 2) probabilities
+```
+
+Or calibrate raw scores directly:
+
+```python
+from pmlab import SigmoidCalibrator, IsotonicCalibrator
+
+cal = SigmoidCalibrator()          # Platt scaling — sample-efficient
+cal.fit(raw_scores, true_labels)
+p = cal.transform(new_scores)
+```
+
+### Conformal prediction sets
+
+Turn a point probability into a **prediction set** with a distribution-free
+coverage guarantee: on exchangeable data, the set contains the true label with
+probability ≥ 1 − alpha, no matter how well-specified the base model is. A
+singleton set is a confident call; a full set is the model saying "toss-up".
+
+```python
+from pmlab import ConformalForecaster, LGBMForecaster
+
+clf = ConformalForecaster(LGBMForecaster(), alpha=0.1)  # target 90% coverage
+clf.fit(X_train, y_train)
+
+sets = clf.predict_set(X_test)   # list[set[int]] — e.g. {1}, {0, 1}, {0}
+proba = clf.predict_proba(X_test)  # still a drop-in forecaster
+```
+
+---
+
 ## Bundled Plugins
 
 ### `WeatherTmaxPlugin`
@@ -456,6 +523,12 @@ scripts/pmlab-workspace historical_real pmlab backtest --plugin weather_tmax --s
 |---|---|
 | `MarketForecaster` | Abstract base — implement `fit`, `predict_proba`, `save`, `load` |
 | `LGBMForecaster` | LightGBM binary/multiclass forecaster |
+| `SklearnForecaster` | Any sklearn classifier (presets: logistic/RF/gradient-boosting) |
+| `EnsembleForecaster` | Weighted-average blend of N member forecasters |
+| `ConformalForecaster` | Split-conformal prediction sets with coverage ≥ 1−alpha |
+| `CalibratedForecaster` | Wrap a forecaster; calibrate positive-class prob (isotonic/sigmoid) |
+| `IsotonicCalibrator` | Non-parametric monotonic probability calibration |
+| `SigmoidCalibrator` | Platt scaling (1-D logistic) probability calibration |
 | `ChampionManifest` | Publish/load champion model with hard NO_GO gate |
 | `brier_decomposition(y_true, y_prob)` | Murphy (1973) Brier score decomposition |
 | `reliability_data(y_true, y_prob)` | Reliability diagram data (bin centers, mean pred, frac pos) |
