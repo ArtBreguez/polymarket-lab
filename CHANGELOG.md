@@ -2,6 +2,27 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.0] — 2026-08-30
+
+### Added — Modeling
+- `EnsembleForecaster` — weighted-average blend of any N `MarketForecaster` members
+  behind the same interface (drop-in for backtest/champion/brokers). Validates
+  weights (non-negative, positive sum), renormalizes rows, pickles members.
+- `ConformalForecaster` — split-conformal classification with a distribution-free
+  marginal coverage guarantee. `predict_set()` returns per-row prediction sets
+  containing the true label with probability ≥ 1 − alpha; `predict_proba()` still
+  passes through so it stays a drop-in forecaster. Non-empty sets guaranteed.
+- `CalibratedForecaster` — wraps any binary `MarketForecaster` and calibrates its
+  positive-class probability on a held-out split (`isotonic` or `sigmoid`).
+- `SigmoidCalibrator` — Platt scaling (1-D logistic) calibrator; more
+  sample-efficient than isotonic on small calibration sets.
+
+### Infrastructure
+- Untracked committed `.pyc` / `__pycache__` files (already in `.gitignore`).
+- 333 tests, 85% coverage.
+
+---
+
 ## [0.4.0] — 2026-05-13
 
 ### Changed — LiveBroker
