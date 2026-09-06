@@ -60,9 +60,11 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
 
 ## v0.8.0 — Validation & model management
 
-- ▢ **Experiment tracking (pluggable)** — a thin `ExperimentTracker` protocol with
-  a local-JSON default and optional MLflow backend, so every backtest logs params,
-  metrics, and the gate decision. No heavy dependency forced on users.
+- ✅ **Experiment tracking (pluggable)** — an `ExperimentTracker` protocol with a
+  zero-dependency `LocalJSONTracker` default (one append-only JSON record per run)
+  and an optional `MLflowTracker` behind the `track` extra. Every backtest can log
+  params, metrics, and the gate decision; `BacktestMetrics` and `HoldoutGateResult`
+  log directly with no manual glue. Runs are listable/loadable point-in-time.
 - ▢ **Model registry** — extend `ChampionManifest` into a versioned registry
   (list, diff, roll back champions) rather than a single `champion.json`.
 - ▢ **Stability report** — bootstrap confidence intervals on backtest PnL / hit
