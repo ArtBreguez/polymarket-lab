@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.7.1"
+__version__ = "0.8.0"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
@@ -64,6 +64,7 @@ from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
 from pmlab.reports.html_report import generate_report
+from pmlab.tracking import ActiveRun, ExperimentTracker, LocalJSONTracker, RunRecord
 from pmlab.workspace.context import WorkspaceContext
 
 __all__ = [
@@ -133,6 +134,11 @@ __all__ = [
     "LeakageReport",
     # Reports
     "generate_report",
+    # Tracking
+    "ExperimentTracker",
+    "ActiveRun",
+    "LocalJSONTracker",
+    "RunRecord",
     # Plugins / Workspace
     "MarketPlugin",
     "PluginRegistry",

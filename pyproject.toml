@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pmlab"
-version = "0.7.1"
+version = "0.8.0"
 description = "A generic, plugin-based ML framework for Polymarket prediction markets."
 readme = "README.md"
 license = { text = "MIT" }
@@ -39,6 +39,9 @@ dependencies = [
 [project.optional-dependencies]
 tune = [
   "optuna>=3.6",
+]
+track = [
+  "mlflow>=2.14",
 ]
 dev = [
   "pytest>=8.0",

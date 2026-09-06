@@ -261,6 +261,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
 | `pmlab.modeling` | `MarketForecaster` ABC, `LGBMForecaster`, `SklearnForecaster`, `EnsembleForecaster`, `ConformalForecaster`, `CalibratedForecaster`, `TunedForecaster`, `IsotonicCalibrator`, `SigmoidCalibrator`, `MulticlassCalibrator`, `ChampionManifest`, `brier_decomposition`, `multiclass_brier`, `reliability_data` |
 | `pmlab.execution` | `EdgeSignal`, `PaperBroker`, `SettlementEngine`, `LiveBroker` |
 | `pmlab.reports` | `generate_report` — self-contained HTML report |
+| `pmlab.tracking` | `LocalJSONTracker`, `MLflowTracker` (extra), `ExperimentTracker` — log params/metrics/gate per run |
 | `pmlab.workspace` | `WorkspaceContext` — multi-workspace path isolation |
 
 ---
