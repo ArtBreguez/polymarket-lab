@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from pmlab.tracking import ActiveRun, RunRecord, _to_plain_dict
+from pmlab.tracking import ActiveRun, RunRecord, _json_safe, _to_plain_dict
 
 if TYPE_CHECKING:  # pragma: no cover
     pass
@@ -110,18 +110,25 @@ class _MLflowActiveRun(ActiveRun):
         self._mlflow = tracker._mlflow
 
     def log_params(self, params: dict[str, Any]) -> None:
-        self._record.params.update(params)
-        self._mlflow.log_params(params)
+        safe = _json_safe(params)
+        self._record.params.update(safe)
+        self._mlflow.log_params(safe)
 
     def log_metrics(self, metrics: Any) -> None:
-        plain = _to_plain_dict(metrics)
+        plain = _json_safe(_to_plain_dict(metrics))
         self._record.metrics.update(plain)
-        numeric = {k: v for k, v in plain.items() if isinstance(v, (int, float))}
+        # np.int64 is normalized to int by _json_safe, so it's no longer silently
+        # dropped by this numeric filter; non-finite floats became None -> skipped.
+        numeric = {
+            k: v
+            for k, v in plain.items()
+            if isinstance(v, (int, float)) and not isinstance(v, bool)
+        }
         if numeric:
             self._mlflow.log_metrics(numeric)
 
     def log_gate(self, gate: Any) -> None:
-        plain = _to_plain_dict(gate)
+        plain = _json_safe(_to_plain_dict(gate))
         self._record.gate = plain
         decision = plain.get("decision")
         if decision is not None:
