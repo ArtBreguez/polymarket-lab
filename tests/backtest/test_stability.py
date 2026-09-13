@@ -108,6 +108,45 @@ def test_invalid_n_boot_raises():
         stability_report(_winning_trades(), n_boot=0)
 
 
+def test_nan_pnl_raises_not_silently_corrupts():
+    """Regression (found by e2e dogfooding): a NaN in realized_pnl (an unsettled
+    trade) must raise, not silently produce a (nan,nan,nan) CI + invalid JSON.
+
+    numpy sum/percentile propagate NaN, so without this guard the report and its
+    to_dict() would quietly poison the ExperimentTracker."""
+    df = pd.DataFrame({"realized_pnl": [0.5, -0.3, np.nan, 0.8]})
+    with pytest.raises(ValueError, match="non-finite"):
+        stability_report(df, n_boot=100, seed=1)
+
+
+def test_inf_pnl_raises():
+    """Inf is equally poisonous (invalid JSON, meaningless percentiles)."""
+    df = pd.DataFrame({"realized_pnl": [0.5, np.inf, -0.3]})
+    with pytest.raises(ValueError, match="non-finite"):
+        stability_report(df, n_boot=100, seed=1)
+
+
+def test_single_trade_degenerate_ci():
+    """n=1: every resample is the same trade, so each CI collapses to the point
+    value. Mathematically correct — assert it stays finite and consistent."""
+    rep = stability_report(pd.DataFrame({"realized_pnl": [0.7]}), n_boot=200, seed=1)
+    assert rep.num_trades == 1
+    assert rep.total_pnl_ci == (0.7, 0.7, 0.7)
+    assert rep.hit_rate_ci == (1.0, 1.0, 1.0)
+    assert rep.prob_positive_pnl == 1.0
+
+
+def test_to_dict_is_json_serializable():
+    """to_dict() feeds the ExperimentTracker, which writes JSON — it must never
+    emit bare NaN/Infinity. On clean data the output round-trips through json."""
+    import json
+
+    rep = stability_report(_winning_trades(), n_boot=200, seed=1)
+    restored = json.loads(json.dumps(rep.to_dict()))
+    assert restored["num_trades"] == 200
+    assert restored["prob_positive_pnl"] == rep.prob_positive_pnl
+
+
 def test_to_dict_roundtrips_fields():
     rep = stability_report(_winning_trades(), n_boot=200, seed=1)
     d = rep.to_dict()

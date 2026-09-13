@@ -81,6 +81,10 @@ def stability_report(
     Returns:
         StabilityReport. For an empty trade log every interval is (0, 0, 0) and
         ``prob_positive_pnl`` is 0.0.
+
+    Raises:
+        ValueError: if ``ci`` is not in (0, 1), ``n_boot`` <= 0, or
+            ``realized_pnl`` contains any non-finite value (NaN/Inf).
     """
     if not (0.0 < ci < 1.0):
         raise ValueError(f"ci must be in (0, 1), got {ci}")
@@ -101,6 +105,18 @@ def stability_report(
         )
 
     pnl = trades["realized_pnl"].to_numpy(dtype=float)
+    # Fail loud on non-finite PnL. A NaN (e.g. an unsettled trade) or Inf would
+    # silently poison every statistic — numpy's sum/percentile propagate NaN,
+    # producing a (nan, nan, nan) interval and an understated prob_positive_pnl,
+    # and to_dict() would then emit invalid JSON (bare NaN/Infinity) into the
+    # ExperimentTracker. A stability report over non-finite data is meaningless,
+    # so surface it instead of hiding it.
+    if not np.isfinite(pnl).all():
+        n_bad = int((~np.isfinite(pnl)).sum())
+        raise ValueError(
+            f"realized_pnl contains {n_bad} non-finite value(s) (NaN/Inf); "
+            "clean or drop unsettled trades before computing a stability report"
+        )
     won = _won_mask(trades).astype(float)
 
     rng = np.random.default_rng(seed)
