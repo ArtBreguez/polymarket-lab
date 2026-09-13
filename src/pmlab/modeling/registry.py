@@ -87,11 +87,27 @@ class ModelRegistry:
             json.dump(entries, f, indent=2)
         tmp.replace(self._index_path)  # atomic
 
-    @staticmethod
-    def _version_id(manifest: ChampionManifest) -> str:
-        # published_at is ISO-8601 → lexicographically sortable. Slug both parts
-        # so the id is a safe single path segment.
-        return f"{_slug(manifest.published_at)}__{_slug(manifest.model_name)}"
+    def _version_id(self, manifest: ChampionManifest) -> str:
+        """Build a unique version_id for this manifest.
+
+        The base id is `published_at` (ISO-8601, lexicographically sortable) plus
+        the slugged model name. Because `published_at` has finite resolution, two
+        champions promoted in the same instant (a same-tick retrain, or a
+        coarse-clock host) would collide — which would silently overwrite the
+        earlier archive and drop it from the index, the exact history loss this
+        registry exists to prevent. So if the base id is already taken, append a
+        numeric suffix (`-2`, `-3`, …) until it's unique.
+        """
+        base = f"{_slug(manifest.published_at)}__{_slug(manifest.model_name)}"
+        existing = {e["version_id"] for e in self._read_index()}
+        if base not in existing and not (self.registry_dir / base).exists():
+            return base
+        n = 2
+        while True:
+            candidate = f"{base}-{n}"
+            if candidate not in existing and not (self.registry_dir / candidate).exists():
+                return candidate
+            n += 1
 
     # ── public API ───────────────────────────────────────────────────────
     def record(self, manifest: ChampionManifest) -> str:

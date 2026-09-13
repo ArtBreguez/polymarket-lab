@@ -149,6 +149,62 @@ def test_registry_persists_across_instances(tmp_path):
     assert [v.version_id for v in reg2.list()] == [vid]
 
 
+def test_same_published_at_does_not_collide(tmp_path):
+    """Two distinct champions promoted at the SAME published_at must both be kept.
+
+    Regression test for a bug found by e2e dogfooding: version_id derived only
+    from published_at + model_name collides when two publishes share a timestamp
+    (same-tick retrain / coarse clock), silently overwriting the earlier archive
+    and dropping it from the index — the exact history loss the registry prevents.
+    """
+    registry = ModelRegistry(tmp_path / "registry")
+    gate = _make_go_gate()
+
+    m1 = _make_fitted_lgbm(seed=1)
+    man1 = ChampionManifest.publish(
+        model=m1,
+        gate=gate,
+        output_dir=tmp_path / "o1",
+        plugin_family="fam",
+        model_name="champ",
+    )
+    m2 = _make_fitted_lgbm(seed=2)
+    man2 = ChampionManifest.publish(
+        model=m2,
+        gate=gate,
+        output_dir=tmp_path / "o2",
+        plugin_family="fam",
+        model_name="champ",
+    )
+    # Force an identical timestamp (simulates a same-instant retrain).
+    man2.published_at = man1.published_at
+
+    v1 = registry.record(man1)
+    v2 = registry.record(man2)
+
+    assert v1 != v2, "same-timestamp publishes must get distinct version_ids"
+    assert len(registry.list()) == 2, "both versions must be preserved"
+    # Both archives are independently loadable (no artifact was overwritten).
+    assert registry.get(v1).model_name == "champ"
+    assert registry.get(v2).model_name == "champ"
+
+    # A THIRD same-timestamp publish must also survive (exercises the suffix
+    # loop past its first iteration → champ-3).
+    m3 = _make_fitted_lgbm(seed=3)
+    man3 = ChampionManifest.publish(
+        model=m3,
+        gate=gate,
+        output_dir=tmp_path / "o3",
+        plugin_family="fam",
+        model_name="champ",
+    )
+    man3.published_at = man1.published_at
+    v3 = registry.record(man3)
+    assert v3 not in (v1, v2)
+    assert len({v1, v2, v3}) == 3
+    assert len(registry.list()) == 3
+
+
 def test_calibrator_archived_and_restored(tmp_path):
     """A champion WITH a calibrator round-trips through record + rollback.
 
