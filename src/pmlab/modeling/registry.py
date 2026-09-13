@@ -171,9 +171,10 @@ class ModelRegistry:
     def diff(self, version_a: str, version_b: str) -> dict[str, object]:
         """Compare two versions field by field.
 
-        Each differing field maps to a (a_value, b_value) tuple; the gate
-        summary (decision, pnl, trades, allowed segments) is always included so
-        a reviewer sees the promotion-time evidence side by side.
+        Every field maps to an ``(a_value, b_value)`` tuple (equal fields
+        included), so a reviewer sees the full promotion-time evidence — gate
+        decision, PnL, trades, allowed segments — side by side. Compare the two
+        elements of each tuple to spot what actually changed.
         """
         a = self.get(version_a)
         b = self.get(version_b)
