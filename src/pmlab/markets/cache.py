@@ -69,5 +69,8 @@ class DiskCache:
         return self.get(key, _SENTINEL) is not _SENTINEL
 
     def _key_path(self, key: str) -> Path:
-        h = hashlib.md5(key.encode()).hexdigest()
+        # MD5 here is a cache-key digest, not a security primitive — collisions
+        # only ever map two cache keys to one file, never a trust boundary.
+        # usedforsecurity=False documents that and satisfies bandit B324.
+        h = hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()
         return self.cache_dir / f"{h}.json"

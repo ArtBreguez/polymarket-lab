@@ -89,3 +89,80 @@ jobs:
 
       - name: Verify dist contents
         run: ls -la dist/
+
+  # ── Security ───────────────────────────────────────────────────────────
+  # SCA + SAST + secret-scanning, mirroring the backtesting-framework CI so both
+  # repos share one security bar. pmlab publishes to PyPI, so the supply-chain
+  # surface (deps) and any committed secret matter.
+
+  deps-audit:
+    name: SCA (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Export locked dependencies
+        # Audit the fully-resolved, pinned set (what users actually install),
+        # not the loose ranges in pyproject.
+        run: uv export --format requirements-txt --no-emit-project > requirements-audit.txt
+
+      - name: Audit dependencies for known CVEs
+        # Fails on any known vulnerability. If a vuln has no upstream fix and is
+        # assessed as not-exploitable in our usage, add a documented
+        # `--ignore-vuln <ID>` here with a comment explaining why.
+        run: uvx pip-audit -r requirements-audit.txt --strict --progress-spinner off
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need history to diff the PR/push range
+      # Run the gitleaks CLI directly, NOT gitleaks/gitleaks-action@v2: that
+      # action requires a paid GITLEAKS_LICENSE for GitHub organizations and
+      # hard-fails without one. The binary is Apache-2.0 and unrestricted.
+      - name: Install gitleaks
+        run: |
+          VERSION=8.21.2
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+      # Scan only the commits introduced by THIS push/PR, not full history.
+      # Range: base..head for PRs, before..after for pushes.
+      - name: Scan new commits for secrets
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No base ref (first push) — scanning HEAD commit only."
+            RANGE="$HEAD~1..$HEAD"
+          else
+            RANGE="$BASE..$HEAD"
+          fi
+          echo "Scanning range: $RANGE"
+          gitleaks git --log-opts="$RANGE" --redact --verbose --exit-code 1
+
+  sast:
+    name: SAST (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Run bandit
+        # -r recursive over the package; -ll = report only medium+ severity to
+        # keep signal high. Config (tool.bandit in pyproject) documents the one
+        # suppression (B301 pickle — model persistence by design). Blocking (no
+        # --exit-zero): the baseline is clean, so keep it clean.
+        run: uvx --from "bandit[toml]" bandit -c pyproject.toml -r src -ll

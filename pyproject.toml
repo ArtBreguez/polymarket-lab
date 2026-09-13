@@ -94,3 +94,15 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 fail_under = 70
+
+[tool.bandit]
+# Recurse the package; the test tree is assert-heavy and not shipped.
+exclude_dirs = ["tests"]
+# B301 (pickle load): model persistence in pmlab.modeling (LGBM/sklearn/
+# calibration/ensemble/conformal/tuning) is pickle-based by design — that's how
+# these libraries serialize estimators. The "untrusted data" threat does not
+# apply: users load their OWN champion artifacts, produced by their own runs.
+# Suppressed project-wide with this rationale rather than scattering nine
+# per-line `# nosec` comments. All other tests (incl. B324 hashing) stay active.
+skips = ["B301"]
+
