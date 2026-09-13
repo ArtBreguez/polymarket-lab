@@ -2515,7 +2515,7 @@ wheels = [
 
 [[package]]
 name = "pmlab"
-version = "0.8.0"
+version = "0.8.2"
 source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
