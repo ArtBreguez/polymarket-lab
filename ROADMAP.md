@@ -70,8 +70,13 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
   with `list` / `get` / `diff` / `rollback`, replacing the single overwrite-in-place
   `champion.json`. The hard gate is re-asserted on `record()`, so a NO_GO can
   never enter the registry, and rollback preserves history (no version deleted).
-- ▢ **Stability report** — bootstrap confidence intervals on backtest PnL / hit
-  rate so a "GO" is judged on a distribution, not a point estimate.
+- ✅ **Stability report** *(v0.8.2)* — `stability_report(trades)` bootstraps the
+  trade log (resample with replacement) to put a confidence interval around
+  total PnL, avg PnL/trade, and hit rate, plus `prob_positive_pnl`. A "GO" is now
+  judged on a distribution, not a point estimate — two books with identical point
+  PnL but different consistency get visibly different intervals. Pure function,
+  deterministic by seed, `to_dict()` for the tracker; does not touch
+  `rolling_origin_eval`.
 - ▢ **Backtest realism** — model slippage, order-book depth, and fees in
   `rolling_origin_eval` (today fills are frictionless), gated behind a `costs=`
   argument so existing results stay reproducible.
