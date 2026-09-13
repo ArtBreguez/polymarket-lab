@@ -65,8 +65,11 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
   and an optional `MLflowTracker` behind the `track` extra. Every backtest can log
   params, metrics, and the gate decision; `BacktestMetrics` and `HoldoutGateResult`
   log directly with no manual glue. Runs are listable/loadable point-in-time.
-- ▢ **Model registry** — extend `ChampionManifest` into a versioned registry
-  (list, diff, roll back champions) rather than a single `champion.json`.
+- ✅ **Model registry** *(v0.8.1)* — `ModelRegistry` versions every promoted
+  champion (archived model + calibrator + manifest under `registry/<version_id>/`)
+  with `list` / `get` / `diff` / `rollback`, replacing the single overwrite-in-place
+  `champion.json`. The hard gate is re-asserted on `record()`, so a NO_GO can
+  never enter the registry, and rollback preserves history (no version deleted).
 - ▢ **Stability report** — bootstrap confidence intervals on backtest PnL / hit
   rate so a "GO" is judged on a distribution, not a point estimate.
 - ▢ **Backtest realism** — model slippage, order-book depth, and fees in
