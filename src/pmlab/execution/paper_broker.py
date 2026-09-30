@@ -56,7 +56,11 @@ class PaperBroker:
         self.trades_path = trades_path
         self.allowed_segments = allowed_segments
         self.flat_stake = flat_stake
-        self.costs = costs if costs is not None else CostModel(taker_bps=taker_bps or 30.0)
+        self.costs = (
+            costs
+            if costs is not None
+            else CostModel(taker_bps=30.0 if taker_bps is None else taker_bps)
+        )
         # Kept so existing callers reading broker.taker_bps keep working.
         self.taker_bps = self.costs.taker_bps
 

@@ -102,6 +102,29 @@ class TestBackwardCompatibility:
                 costs=CostModel(taker_bps=10.0),
             )
 
+    def test_taker_bps_zero_means_zero_not_the_default(self, tmp_path: Path) -> None:
+        """`taker_bps or 30.0` silently charged 30bps on an explicit 0.0.
+
+        Found in review: 0.0 is falsy, so the `or` swallowed it. That made
+        PaperBroker disagree with rolling_origin_eval, which uses an `is None`
+        check — the exact divergence this change exists to remove.
+        """
+        broker = PaperBroker(trades_path=tmp_path / "t.json", flat_stake=10.0, taker_bps=0.0)
+        assert broker.costs.taker_bps == 0.0
+        assert broker.costs.fee(10.0) == 0.0
+        trade = broker.record([_signal(0.40)], city_timezones={"politics": "UTC"}, now_utc=_NOW)[0]
+        assert trade["fee_paid"] == 0.0
+
+    def test_zero_fee_agrees_with_the_backtest(self, tmp_path: Path) -> None:
+        """The same explicit zero must mean the same thing on both sides."""
+        backtest = rolling_origin_eval(
+            _panel(0.40), _Flat(), min_train_rows=4, stride=2, flat_stake=10.0, taker_bps=0.0
+        )
+        broker = PaperBroker(trades_path=tmp_path / "t.json", flat_stake=10.0, taker_bps=0.0)
+        live = broker.record([_signal(0.40)], city_timezones={"politics": "UTC"}, now_utc=_NOW)[0]
+        assert live["fill_price"] == pytest.approx(float(backtest.trades.iloc[0]["fill_price"]))
+        assert live["fee_paid"] == 0.0
+
 
 class TestFillPriceOnTheLivePath:
     """The live side must pay the spread too, and record what it paid."""
