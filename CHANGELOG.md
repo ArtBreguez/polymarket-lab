@@ -2,6 +2,51 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.5] — 2026-09-30
+
+### Added — Live calibration tracking
+
+Closes #13. The gate says a model was calibrated on history; nothing said whether
+it still is on money at risk.
+
+- **`CalibrationTracker`** (`pmlab.monitoring`) — rolling Brier, Murphy
+  decomposition and reliability curves over realized trades. `overall()`,
+  `rolling(window=N)`, `by_segment()`, `from_path()`. Reuses the existing
+  `brier_decomposition` / `reliability_data` diagnostics rather than
+  reimplementing them.
+- **`CalibrationWindow`** — frozen, `to_dict()`/`from_dict()`, JSON-safe (no numpy
+  scalars leak into the report).
+- **`PaperBroker` now records `model_prob`** in the trade log. Without the forecast
+  there is nothing to score an outcome against, so calibration on realized trades
+  was impossible before this.
+
+### Notes on semantics
+
+- **`outcome` means "the label occurred", not "this trade profited."**
+  `SettlementEngine` computes it without reference to `direction`, so a
+  `direction="no"` trade whose label occurs is `"won"` with a negative
+  `realized_pnl` (measured: `outcome="won"`, `realized_pnl=-6.6967`). Calibration
+  wants the former. `_label_occurred` is named for what it means.
+- **Calibration and PnL are independent** — a calibrated model can lose money and
+  a miscalibrated one can win for a while. `docs/live-calibration.md` spells this
+  out.
+- **Unscoreable ≠ zero.** Open trades and pre-0.8.5 rows without `model_prob` are
+  excluded and counted in `n_skipped`; treating a missing forecast as `0.0` would
+  manufacture miscalibration. `overall()` returns `None` on an empty history.
+- **Windows order by `target_date`, not `recorded_at`** — a forecast is scored when
+  its truth lands, not when the row was written. Matters for backfilled logs.
+- No alerting thresholds here; that is the watchdog's job (#14). Thresholds are a
+  policy choice and burying one in a metrics module would hide it.
+
+### Verification
+
+569 passed, mypy `--strict` clean on 65 files, ruff check + format clean, 100%
+coverage on `calibration_tracker.py` and `paper_broker.py`.
+
+Five mutations tested. One **survived** initially — sorting by `recorded_at`
+instead of `target_date` passed every test, because the fixtures moved both dates
+together. Added a backfill case where they disagree; it now fails.
+
 ## [0.8.4] — 2026-09-30
 
 ### Added — One cost model across backtest and live

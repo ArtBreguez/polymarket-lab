@@ -168,6 +168,9 @@ class PaperBroker:
             "direction": signal.direction,
             "gamma_price": signal.gamma_price,
             "fill_price": round(fill, 8),
+            # The forecast itself, kept so calibration can be scored later. A
+            # trade log without it records what we did but not what we believed.
+            "model_prob": signal.model_prob,
             "edge_after_fee": round(signal.best_edge, 6),
             "horizon": signal.horizon,
             "flat_stake": self.flat_stake,

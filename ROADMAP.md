@@ -6,13 +6,13 @@ tested, and reproducible.
 
 This roadmap is organized by the ML lifecycle. Each stage lists what **exists
 today** (✅) and what's **planned** (▢), with the target release. Status current
-as of **v0.8.4**.
+as of **v0.8.5**.
 
 ---
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.8.4) | Biggest gap |
+| Stage | Today (v0.8.5) | Biggest gap |
 |---|---|---|
 | 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning |
 | 2. Feature engineering | 5 transforms, per-plugin features, `build_panel`, leakage guards | No feature registry; more transforms deferred (#19) |
@@ -20,7 +20,7 @@ as of **v0.8.4**.
 | 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV, bootstrap stability report, **cost model** | ✅ core complete |
 | 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
 | 6. Execution | Paper + Live broker, settlement, one cost model shared with the backtest | No latency model; costs are an approximation, not a book walk |
-| 7. Monitoring | cost assumptions travel with the champion | No drift/calibration monitoring in prod |
+| 7. Monitoring | cost assumptions travel with the champion; live calibration on realized trades | No feature/prediction drift detection; no alerting |
 | 8. Reproducibility & DX | CLI (8 cmds), typed, docs | No end-to-end tutorial, no seeds/config capture |
 
 ---
@@ -96,8 +96,10 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
   movement with two different cost definitions.
 - ▢ **Drift monitoring** — PSI / KL on feature and prediction distributions
   vs the training panel; surfaces when the world has moved under the champion.
-- ▢ **Live calibration tracking** — rolling Brier / reliability on realized paper
-  and live trades, so miscalibration is caught before it drains the bankroll.
+- ✅ **Live calibration tracking** *(v0.8.5)* — `CalibrationTracker` scores rolling
+  Brier, Murphy reliability and reliability curves on realized trades, overall and
+  per segment; `PaperBroker` now persists `model_prob` so the forecast is on record.
+  Computes numbers only — thresholds belong to the watchdog.
 - ▢ **Watchdog CLI** — `pmlab monitor` producing a health report (drift, calib,
   PnL vs backtest), designed to run on a schedule and stay silent when healthy.
 
