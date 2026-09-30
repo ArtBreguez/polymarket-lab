@@ -8,6 +8,7 @@ from typing import Any, Protocol
 import numpy as np
 import pandas as pd
 
+from pmlab.core.costs import CostModel
 from pmlab.core.pnl import Position, settle_position
 
 
@@ -30,7 +31,8 @@ def rolling_origin_eval(
     min_train_rows: int = 20,
     stride: int = 10,
     flat_stake: float = 1.0,
-    taker_bps: float = 30.0,
+    taker_bps: float | None = None,
+    costs: CostModel | None = None,
 ) -> RollingOriginResult:
     """Walk-forward evaluation on a panel dataset.
 
@@ -45,9 +47,30 @@ def rolling_origin_eval(
         - Select best bin per (market_id, decision_date) by max predicted_prob
         - Compute PnL using settle_position
 
+    Args:
+        panel: Training/eval panel (see column contract above).
+        model: Anything with sklearn-style ``fit`` / ``predict_proba``.
+        min_train_rows: Skip an eval date until this many training rows exist.
+        stride: Evaluate every Nth distinct decision_date.
+        flat_stake: Notional USDC risked per trade.
+        taker_bps: Legacy fee-only knob. Mutually exclusive with ``costs``.
+        costs: Full :class:`~pmlab.core.costs.CostModel` (fee + slippage + depth).
+            Omit both arguments for the historical default (30bps, fill at quote).
+
     Returns:
         RollingOriginResult with all trade records and step metadata.
+
+    Raises:
+        ValueError: If both ``taker_bps`` and ``costs`` are supplied, which would
+            give the fee two conflicting sources of truth.
     """
+    if taker_bps is not None and costs is not None:
+        raise ValueError(
+            "pass either taker_bps or costs, not both — costs.taker_bps already carries the fee"
+        )
+    if costs is None:
+        costs = CostModel() if taker_bps is None else CostModel(taker_bps=taker_bps)
+
     panel = panel.copy()
     panel["decision_date"] = panel["decision_date"].astype(str)
 
@@ -93,18 +116,19 @@ def rolling_origin_eval(
         best_idx = eval_df.groupby(["market_id", "decision_date"])["_predicted_prob"].idxmax()
         best_rows = eval_df.loc[best_idx]
 
-        fee_rate = taker_bps / 10_000.0
-
         for _, row in best_rows.iterrows():
             price = float(row["market_price"])
             prob = float(row["_predicted_prob"])
-            edge = prob - price
-            fee_paid = flat_stake * fee_rate
+            # Fill at the costed price, not the quote: edge measured against the
+            # quote overstates every trade by whatever the spread and depth cost.
+            fill = costs.fill_price(price, stake=flat_stake)
+            edge = prob - fill
+            fee_paid = costs.fee(flat_stake)
 
             pos = Position(
                 outcome_label=str(row["outcome_label"]),
-                price=price,
-                size=flat_stake / price if price > 0 else 0.0,
+                price=fill,
+                size=flat_stake / fill if fill > 0 else 0.0,
                 side="buy",
             )
             pnl = settle_position(pos, str(row["winning_label"]), fee_paid=fee_paid)
@@ -116,6 +140,7 @@ def rolling_origin_eval(
                     "outcome_label": row["outcome_label"],
                     "predicted_prob": prob,
                     "market_price": price,
+                    "fill_price": fill,
                     "realized_pnl": pnl,
                     "edge": edge,
                     # Derived/passthrough columns so the trade log composes directly

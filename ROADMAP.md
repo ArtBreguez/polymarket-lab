@@ -6,20 +6,20 @@ tested, and reproducible.
 
 This roadmap is organized by the ML lifecycle. Each stage lists what **exists
 today** (✅) and what's **planned** (▢), with the target release. Status current
-as of **v0.5.0**.
+as of **v0.8.3**.
 
 ---
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.6.0) | Biggest gap |
+| Stage | Today (v0.8.3) | Biggest gap |
 |---|---|---|
-| 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins | No feature store / panel versioning |
-| 2. Feature engineering | 5 transforms, per-plugin features | No feature registry, no leakage checks |
+| 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning |
+| 2. Feature engineering | 5 transforms, per-plugin features, `build_panel`, leakage guards | No feature registry; more transforms deferred (#19) |
 | 3. Modeling | LGBM, sklearn, ensemble, conformal, calibration (binary+multiclass), tuning | ✅ core complete |
-| 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV; trade log composes into metrics + gate (0.6.1) | No drift/stability report |
-| 5. Model management | ChampionManifest hard gate | No experiment tracking / model registry |
-| 6. Execution | Paper + Live broker, settlement | No realistic slippage/latency model |
+| 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV, bootstrap stability report, **cost model** | ✅ core complete |
+| 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
+| 6. Execution | Paper + Live broker, settlement, backtest cost model | No latency model; costs are an approximation, not a book walk |
 | 7. Monitoring | — | No drift/calibration monitoring in prod |
 | 8. Reproducibility & DX | CLI (8 cmds), typed, docs | No end-to-end tutorial, no seeds/config capture |
 
@@ -77,9 +77,14 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
   PnL but different consistency get visibly different intervals. Pure function,
   deterministic by seed, `to_dict()` for the tracker; does not touch
   `rolling_origin_eval`.
-- ▢ **Backtest realism** — model slippage, order-book depth, and fees in
-  `rolling_origin_eval` (today fills are frictionless), gated behind a `costs=`
-  argument so existing results stay reproducible.
+- ✅ **Backtest realism** *(v0.8.3)* — `CostModel` (fee + price-proportional
+  slippage + fixed slippage + a linear depth penalty) behind a `costs=` argument
+  on `rolling_origin_eval`. Fills now happen at the costed price and `edge` is
+  measured against that fill, not the quote, so `avg_edge` — the number the gate
+  reads — can no longer overstate an unexecutable trade. The default reproduces
+  the previous behaviour exactly (30bps, fill at quote); passing both `costs=`
+  and the legacy `taker_bps=` raises rather than double-charging. Trade logs gain
+  a `fill_price` column so a backtest shows the price it actually paid.
 
 ## v0.9.0 — Monitoring & the production loop
 
