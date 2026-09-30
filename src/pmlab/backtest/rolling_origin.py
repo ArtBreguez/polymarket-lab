@@ -66,8 +66,7 @@ def rolling_origin_eval(
     """
     if taker_bps is not None and costs is not None:
         raise ValueError(
-            "pass either taker_bps or costs, not both — costs.taker_bps already "
-            "carries the fee"
+            "pass either taker_bps or costs, not both — costs.taker_bps already carries the fee"
         )
     if costs is None:
         costs = CostModel() if taker_bps is None else CostModel(taker_bps=taker_bps)

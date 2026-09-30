@@ -66,9 +66,7 @@ class CostModel:
             if value < 0:
                 raise ValueError(f"{name} must be >= 0, got {value}")
         if self.depth_reference_stake <= 0:
-            raise ValueError(
-                f"depth_reference_stake must be > 0, got {self.depth_reference_stake}"
-            )
+            raise ValueError(f"depth_reference_stake must be > 0, got {self.depth_reference_stake}")
 
     @classmethod
     def frictionless(cls) -> CostModel:
