@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-__version__ = "0.8.0"
+__version__ = "0.8.3"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
 from pmlab.backtest.metrics import BacktestMetrics, compute_metrics
 from pmlab.config import PmlabSettings, get_settings
+from pmlab.core.costs import CostModel
 from pmlab.core.edge import compute_edge
 from pmlab.core.fees import estimate_fee
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
@@ -76,6 +77,7 @@ __all__ = [
     "settle_position",
     "compute_edge",
     "estimate_fee",
+    "CostModel",
     "flat_stake_size",
     "kelly_fraction",
     "kelly_stake_size",

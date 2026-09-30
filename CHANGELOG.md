@@ -2,6 +2,39 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.3] — 2026-09-30
+
+### Added — Backtest realism (`costs=`)
+
+- **`CostModel`** (`pmlab.core.costs`) — execution costs applied to a backtest
+  fill: taker fee, price-proportional slippage (bps), fixed slippage in
+  probability units, and a depth penalty that grows linearly with stake above a
+  reference size. Frozen dataclass, validated on construction, `to_dict()` for
+  the experiment tracker. `CostModel.frictionless()` gives a zero-cost upper
+  bound.
+
+- **`rolling_origin_eval(..., costs=CostModel(...))`** — fills now happen at the
+  costed price instead of the quote, and `edge` is computed against that fill.
+  This matters beyond PnL: `compute_metrics` averages `edge` into `avg_edge`,
+  which the holdout gate reads, so a book whose edge exists only at the mid can
+  no longer pass the gate. Trade logs gain a **`fill_price`** column.
+
+### Compatibility
+
+- **The default is unchanged behaviour.** Calling `rolling_origin_eval` without
+  `costs=` applies a 30bps taker fee and fills at the quote, exactly as before —
+  every result published prior to this release stays reproducible. Verified by a
+  test asserting frame equality between the legacy call and `costs=CostModel()`.
+- Passing both `taker_bps=` and `costs=` raises `ValueError` rather than silently
+  charging the fee twice.
+
+### Notes
+
+The depth term is a documented linear approximation, not a book walk: pmlab does
+not carry L2 depth in the training panel, so the model is explicit about
+approximating rather than pretending to measure. Coverage: 100% on `core/costs.py`,
+95% on `backtest/rolling_origin.py`.
+
 ## [0.7.1] — 2026-08-30
 
 ### Added — Closed training loop
