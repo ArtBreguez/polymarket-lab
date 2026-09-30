@@ -2,6 +2,47 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.8.4] — 2026-09-30
+
+### Added — One cost model across backtest and live
+
+v0.8.3 gave the backtest a `CostModel`; the live path still filled at the quote
+with a fee-only adjustment. Two cost definitions for the same trade means live-vs-
+backtest PnL differs for two reasons at once — the market, and our own arithmetic —
+which would make the planned v0.9.0 watchdog unable to tell them apart.
+
+- **`PaperBroker(costs=CostModel(...))`** — fills at the costed price using the same
+  arithmetic as `rolling_origin_eval`, sizes off that fill rather than the quote, and
+  records a **`fill_price`** field next to `gamma_price`. Works on both sides of a
+  market: a `no` direction fills against `1 - gamma_price` with slippage still
+  against the buyer.
+- **`ChampionManifest.publish(costs=...)`** — persists the cost model in
+  `champion.json`, so the friction a gate was computed under travels with the model
+  and a live run can read it back instead of having it retyped.
+- **`ModelRegistry.record()`** carries `costs` into the archived version, so a
+  rollback restores a champion whose cost assumptions are known rather than lost.
+
+### Compatibility
+
+- `PaperBroker` without `costs=` behaves exactly as before (30bps fee, fill at the
+  quote); `taker_bps=` still works on its own and `PaperBroker.taker_bps` now reads
+  through to `costs.taker_bps` so code inspecting it keeps working. Passing both
+  raises `ValueError`.
+- `ChampionManifest.load()` uses `.get("costs")`, so manifests written before this
+  release still load with `costs=None` — meaning "assumptions unknown", not "no
+  costs".
+
+### Notes
+
+The deliverable is an equivalence, not a feature: for the same quote and stake, the
+backtest and the paper broker produce the **same fill price**, asserted across a grid
+of 4 prices × 3 stakes. `LiveBroker` is deliberately untouched — it takes price and
+size from its caller and does no fill accounting of its own.
+
+Found by mutation testing: `ModelRegistry.record()` rebuilds `champion.json` field by
+field instead of copying it, so the new field was silently dropped on archive until a
+test pinned it.
+
 ## [0.8.3] — 2026-09-30
 
 ### Added — Backtest realism (`costs=`)

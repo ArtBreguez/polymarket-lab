@@ -142,6 +142,10 @@ class ModelRegistry:
             "published_at": manifest.published_at,
             "plugin_family": manifest.plugin_family,
             "publish_gate": manifest.gate.to_dict(),
+            # Carried through, not recomputed: an archived version has to remember
+            # the friction its gate was computed under, or a rollback restores a
+            # champion whose cost assumptions are unknown.
+            "costs": manifest.costs.to_dict() if manifest.costs is not None else None,
         }
         with open(vdir / "champion.json", "w") as f:
             json.dump(json_data, f, indent=2)

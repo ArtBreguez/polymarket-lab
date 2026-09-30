@@ -93,7 +93,8 @@ champion that loses money live.
 
 ## Where costs propagate
 
-Costs are not cosmetic — they flow into the promotion decision:
+Costs are not cosmetic — they flow into the promotion decision, and (since v0.8.4)
+into the live path too:
 
 1. `rolling_origin_eval` fills at `fill_price` instead of `market_price`, and
    records that column in the trade log.
@@ -104,6 +105,50 @@ Costs are not cosmetic — they flow into the promotion decision:
    mid can no longer pass the gate.**
 5. `stability_report` bootstraps the post-cost PnL, so the confidence interval is
    around what you would actually have earned.
+6. `ChampionManifest.publish(costs=...)` records the model in `champion.json`, and
+   `ModelRegistry.record()` carries it into the archived version — so a rollback
+   restores a champion whose cost assumptions are known.
+7. `PaperBroker(costs=...)` fills at the same price the backtest would, and records
+   `fill_price` next to `gamma_price`.
+
+---
+
+## Using one cost model for backtest and live
+
+This is the whole point of steps 6 and 7. If the backtest models 50bps of slippage
+and the paper broker fills at the quote, then live-vs-backtest PnL differ for two
+reasons at once — the market, and your own arithmetic — and a drift alarm cannot
+separate them.
+
+```python
+costs = CostModel(taker_bps=30.0, slippage_bps=50.0)
+
+# 1. validate under that friction
+result = rolling_origin_eval(panel, model, flat_stake=25.0, costs=costs)
+gate = HoldoutGateResult.evaluate(result.trades, required_segments=[...])
+
+# 2. record it with the champion, so the assumption travels with the model
+manifest = ChampionManifest.publish(
+    model=model, gate=gate, output_dir=out, plugin_family="weather_tmax", costs=costs,
+)
+
+# 3. trade under the same friction — read it back rather than retyping it
+broker = PaperBroker(
+    trades_path=trades, flat_stake=25.0,
+    allowed_segments=manifest.get_allowed_segments(),
+    costs=manifest.costs,
+)
+```
+
+Step 3 is the part worth insisting on: take `costs` from the manifest instead of
+constructing a second `CostModel` by hand. Two hand-written models drift the moment
+someone edits one of them.
+
+For the same quote and stake, both sides produce the same fill — asserted across a
+grid of prices and stakes in `tests/execution/test_cost_model_unified.py`.
+
+`manifest.costs` is `None` for champions published before v0.8.4. Treat that as
+"cost assumptions unknown" rather than "no costs".
 
 ---
 
@@ -111,9 +156,12 @@ Costs are not cosmetic — they flow into the promotion decision:
 
 - No `costs=` argument → 30bps fee, fill at the quote. Byte-identical to the old
   behaviour; there is a test asserting frame equality.
-- `taker_bps=` still works on its own for fee-only adjustments.
+- `taker_bps=` still works on its own for fee-only adjustments, on both
+  `rolling_origin_eval` and `PaperBroker`.
 - Passing **both** `taker_bps=` and `costs=` raises `ValueError`. Two sources of
   truth for the fee would silently double-charge it.
+- `PaperBroker.taker_bps` still exists and reads through to `costs.taker_bps`, so
+  code inspecting it keeps working.
 
 ## Reproducibility
 
