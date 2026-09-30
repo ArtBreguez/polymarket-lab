@@ -6,21 +6,21 @@ tested, and reproducible.
 
 This roadmap is organized by the ML lifecycle. Each stage lists what **exists
 today** (✅) and what's **planned** (▢), with the target release. Status current
-as of **v0.8.3**.
+as of **v0.8.4**.
 
 ---
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.8.3) | Biggest gap |
+| Stage | Today (v0.8.4) | Biggest gap |
 |---|---|---|
 | 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning |
 | 2. Feature engineering | 5 transforms, per-plugin features, `build_panel`, leakage guards | No feature registry; more transforms deferred (#19) |
 | 3. Modeling | LGBM, sklearn, ensemble, conformal, calibration (binary+multiclass), tuning | ✅ core complete |
 | 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV, bootstrap stability report, **cost model** | ✅ core complete |
 | 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
-| 6. Execution | Paper + Live broker, settlement, backtest cost model | No latency model; costs are an approximation, not a book walk |
-| 7. Monitoring | — | No drift/calibration monitoring in prod |
+| 6. Execution | Paper + Live broker, settlement, one cost model shared with the backtest | No latency model; costs are an approximation, not a book walk |
+| 7. Monitoring | cost assumptions travel with the champion | No drift/calibration monitoring in prod |
 | 8. Reproducibility & DX | CLI (8 cmds), typed, docs | No end-to-end tutorial, no seeds/config capture |
 
 ---
@@ -88,6 +88,12 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
 
 ## v0.9.0 — Monitoring & the production loop
 
+- ✅ **One cost model across backtest and live** *(v0.8.4)* — `PaperBroker(costs=)`
+  fills with the same arithmetic as `rolling_origin_eval` and records `fill_price`;
+  `ChampionManifest.publish(costs=)` persists the friction its gate was computed
+  under and `ModelRegistry.record()` carries it into archived versions. Prerequisite
+  for the watchdog below: without it, a live-vs-backtest PnL comparison mixes market
+  movement with two different cost definitions.
 - ▢ **Drift monitoring** — PSI / KL on feature and prediction distributions
   vs the training panel; surfaces when the world has moved under the champion.
 - ▢ **Live calibration tracking** — rolling Brier / reliability on realized paper

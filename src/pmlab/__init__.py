@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.8.3"
+__version__ = "0.8.4"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
