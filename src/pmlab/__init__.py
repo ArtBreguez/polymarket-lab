@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.8.4"
+__version__ = "0.8.5"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
@@ -61,6 +61,7 @@ from pmlab.modeling.ensemble import EnsembleForecaster
 from pmlab.modeling.lgbm_baseline import LGBMForecaster
 from pmlab.modeling.sklearn_forecaster import SklearnForecaster
 from pmlab.modeling.tuning import TunedForecaster
+from pmlab.monitoring.calibration_tracker import CalibrationTracker, CalibrationWindow
 from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
@@ -85,6 +86,8 @@ __all__ = [
     "EdgeSignal",
     "PaperBroker",
     "SettlementEngine",
+    "CalibrationTracker",
+    "CalibrationWindow",
     "LiveBroker",
     "LiveBrokerError",
     "OrderReceipt",
