@@ -238,3 +238,22 @@ class TestAnUnusableSplitIsRefused:
     def test_a_direction_expectation_validates_on_construction(self) -> None:
         with pytest.raises(ValueError, match="mean_pnl_per_stake"):
             GroupExpectation(30, math.nan, 1.0)
+
+
+class TestTheExpectationRefusesWhatItCannotUse:
+    def test_a_policy_that_is_not_a_policy(self) -> None:
+        with pytest.raises(ValueError, match="TradePolicy"):
+            BacktestExpectation(100, 1.0, 0.1, 0.9, policy="live")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("bad", ["30", 30.0, True, 1, 0, -5])
+    def test_min_group_trades_must_be_an_integer_of_at_least_two(self, bad: object) -> None:
+        with pytest.raises(ValueError, match="min_group_trades"):
+            BacktestExpectation.from_trades(_trades(40, 40), min_group_trades=bad)  # type: ignore[arg-type]
+
+    def test_a_split_that_is_not_a_mapping(self) -> None:
+        with pytest.raises(ValueError, match="by_direction"):
+            BacktestExpectation(100, 1.0, 0.1, 0.9, by_direction=[1])  # type: ignore[arg-type]
+
+    def test_a_side_that_is_not_a_group_expectation(self) -> None:
+        with pytest.raises(ValueError, match="GroupExpectation"):
+            BacktestExpectation(100, 1.0, 0.1, 0.9, by_direction={"yes": {"n_trades": 5}})  # type: ignore[dict-item]

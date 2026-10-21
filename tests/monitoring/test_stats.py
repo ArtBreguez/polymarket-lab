@@ -355,3 +355,8 @@ class TestDetectableGap:
 
     def test_no_spread_needs_no_gap(self) -> None:
         assert detectable_gap(0.0, 2.0, 0.8) == 0.0
+
+
+def test_a_non_finite_critical_value_is_refused() -> None:
+    with pytest.raises(ValueError, match="z_alpha"):
+        detectable_gap(0.1, math.nan, 0.8)

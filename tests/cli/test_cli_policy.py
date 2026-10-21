@@ -308,3 +308,9 @@ class TestTheWholeChainJudgesNoTrades:
 @pytest.mark.parametrize("flag", ["--policy", "--min-edge"])
 def test_the_options_are_documented_in_help(flag: str) -> None:
     assert flag in runner.invoke(app, ["backtest", "--help"]).output
+
+
+def test_a_nan_threshold_is_refused_not_traded(tmp_path: Path) -> None:
+    result, _ = _backtest(tmp_path, "--min-edge", "nan")
+    assert result.exit_code == 1
+    assert "Not a valid --min-edge" in result.output

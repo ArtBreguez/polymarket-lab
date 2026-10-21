@@ -60,7 +60,7 @@ class PmlabSettings(BaseSettings):
     workspace: str = Field(
         default="ops_daily",
         description="Active workspace name",
-        validation_alias=AliasChoices("PMLAB_WORKSPACE", "PMLAB_WORKSPACE_NAME", "workspace"),
+        validation_alias=AliasChoices("PMLAB_WORKSPACE", "PMLAB_WORKSPACE_NAME"),
     )
     cache_dir: Path = Field(default=Path(".pmlab_cache"), description="Disk cache directory")
     cache_ttl: int = Field(default=3600, description="Cache TTL in seconds")

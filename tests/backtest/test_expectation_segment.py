@@ -261,3 +261,13 @@ class TestThePublishedChampionMarksEveryAllowedSegment:
         assert manifest.expectation is not None
         assert manifest.expectation.by_segment is not None
         assert set(manifest.expectation.by_segment) == {"A"}
+
+
+class TestTheSegmentRecordRefusesWhatItCannotUse:
+    def test_segments_that_are_not_a_mapping(self) -> None:
+        with pytest.raises(ValueError, match="by_segment"):
+            BacktestExpectation(100, 1.0, 0.1, 0.9, by_segment=["A"])  # type: ignore[arg-type]
+
+    def test_a_segment_that_is_not_a_segment_expectation(self) -> None:
+        with pytest.raises(ValueError, match="SegmentExpectation"):
+            BacktestExpectation(100, 1.0, 0.1, 0.9, by_segment={"A": "fine"})  # type: ignore[dict-item]

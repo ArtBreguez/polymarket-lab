@@ -121,3 +121,20 @@ class TestTheWorkspaceDirectoryIsTheSameFromEveryEntryStyle:
         monkeypatch.delenv("PMLAB_WORKSPACE", raising=False)
         monkeypatch.delenv("PMLAB_WORKSPACE_NAME", raising=False)
         assert PmlabSettings().workspace == "ops_daily"
+
+
+class TestOnlyThePmlabVariablesNameTheWorkspace:
+    """A bare WORKSPACE in the environment (Jenkins sets one to the job's directory) must not
+    be read as a pmlab workspace name: an absolute path replaces the artifacts directory when
+    it is joined."""
+
+    def test_a_bare_workspace_variable_is_ignored(self, monkeypatch):
+        monkeypatch.delenv("PMLAB_WORKSPACE", raising=False)
+        monkeypatch.delenv("PMLAB_WORKSPACE_NAME", raising=False)
+        monkeypatch.setenv("WORKSPACE", "/var/lib/jenkins/workspace/job")
+        settings = PmlabSettings()
+        assert settings.workspace == "ops_daily"
+        assert settings.workspace_dir == Path("artifacts/workspaces/ops_daily")
+
+    def test_the_field_can_still_be_given_by_name(self):
+        assert PmlabSettings(workspace="paper").workspace == "paper"

@@ -327,3 +327,39 @@ class TestItIsTheSettlementEnginesArithmetic:
         assert fixed["settled_basis"] == engine["settled_basis"]
         assert fixed["outcome"] == engine["outcome"]
         assert fixed["settlement_version"] == engine["settlement_version"]
+
+
+class TestMoreCornersOfTheLibrary:
+    def test_a_naive_time_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="timezone-aware"):
+            resettle_trades([_legacy()], now_utc=datetime(2026, 7, 1))
+
+    def test_a_fill_price_that_is_not_a_number_is_not_guessed_at(self) -> None:
+        trade = _legacy(fill_price="cheap")
+        result = resettle_trades([trade], now_utc=_NOW)
+        assert result.trades == [trade]
+        assert "fill_price" in result.unrecomputable[0]
+
+    def test_a_failed_write_leaves_the_log_and_no_temp_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+        import os
+
+        from pmlab.execution.resettle import resettle_file
+
+        log = tmp_path / "trades.json"
+        log.write_text(json.dumps({"trades": [_legacy()]}))
+        original = log.read_bytes()
+
+        def boom(src: object, dst: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(os, "replace", boom)
+        with pytest.raises(OSError, match="disk full"):
+            resettle_file(log, dry_run=False, now_utc=_NOW)
+        assert log.read_bytes() == original
+        assert [p.name for p in tmp_path.iterdir() if p.suffix == ".tmp"] == []
+        # The backup was written before the attempt, and holds the original.
+        backups = list(tmp_path.glob("trades.json.bak-*"))
+        assert len(backups) == 1 and backups[0].read_bytes() == original

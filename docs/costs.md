@@ -99,7 +99,12 @@ into the live path too:
 1. `rolling_origin_eval` fills at `fill_price` instead of `market_price`, and
    records that column in the trade log.
 2. `edge` is computed as `predicted_prob - fill_price`. Measuring it against the
-   quote would overstate every trade by the friction.
+   quote would overstate every trade by the friction. Under the live policy
+   (`TradePolicy.live`) the same arithmetic prices the NO side: a NO trade is a buy of
+   the NO token, filled at `costs.fill_price(1 - market_price)`, worth `1 - predicted_prob`,
+   and `best_edge` (the larger of the two sides, after the fee) is what `--min-edge` is
+   held against. `pmlab.core.edge.quote_edges` is the one place that is computed; a live
+   `EdgeSignal.from_quote` and the backtest both call it.
 3. `compute_metrics` averages `edge` into `avg_edge`.
 4. `HoldoutGateResult` reads those metrics. **A book whose edge exists only at the
    mid can no longer pass the gate.**

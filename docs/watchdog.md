@@ -184,19 +184,27 @@ ok**. `insufficient` outranks `ok` on purpose: *we could not check* must never r
 *we checked and it is fine*. It does not outrank a measured problem, so an alert is
 never hidden by another check that is merely unmeasurable.
 
+Inside a check the same ranking applies to its parts (the book, each side, each segment,
+the sequential test), with one difference: **a part that could not be measured is listed
+as not assessed and does not make the check `insufficient` when the book itself could be
+measured** (see [the verdict rule](#what-decides-a-checks-verdict)). A check is
+`insufficient` only when nothing in it could be measured.
+
 ---
 
 ## What a run does
 
-1. **Loads `champion.json`** and treats it as the authority: its allowed segments,
-   its publication time, its cost model and its backtest expectation. It is never
-   substituted by a retrain summary, which is overwritten on every retrain. A
-   `champion.json` that records a `NO_GO` gate is refused (exit 64): such a file
-   cannot have been produced by `publish()`.
+1. **Loads `champion.json`** and treats it as the authority: its allowed segments
+   (`"all"` meaning every segment), its publication time, its cost model, the trade policy
+   it was backtested under and its backtest expectation (for the book, for each side and
+   for each segment). It is never substituted by a retrain summary, which is overwritten on
+   every retrain. A `champion.json` that records a `NO_GO` gate is refused (exit 64): such a
+   file cannot have been produced by `publish()`.
 2. **Selects the evidence** from the trade log (below).
 3. **Builds the drift report** from your reference panel and the live snapshot window,
    point-in-time, if you gave it one.
-4. **Runs the three checks** and takes the worst.
+4. **Runs the three checks** and takes the worst. Calibration and PnL each judge the book,
+   each side that traded and each segment; PnL also runs the sequential test.
 5. **Prints only the problems**, and writes the full report to `--json` if asked.
 
 It only reads. It never changes `champion.json`, the trade log or the snapshot store.
@@ -212,7 +220,11 @@ this champion, as of `--as-of`**:
 
 - **settled**: open trades have no truth yet;
 - in a segment the champion's gate **allowed** (`get_allowed_segments()`, read from
-  `champion.json`), the same filter `PaperBroker` applies when recording;
+  `champion.json`), the same filter `PaperBroker` applies when recording. A champion
+  promoted on an **aggregate gate** (`HoldoutGateResult.evaluate(trades)` without
+  `required_segments`, which grades the whole log as one segment called `"all"`) allows
+  `{"all"}`, and `"all"` means *every segment*: it never made a per-segment claim. An
+  **empty** allowlist still means none;
 - **dated**: a trade with no usable `recorded_at` or `target_date` cannot be attributed, so
   it is not assumed to be current;
 - **recorded at or after the champion was published** (a re-promotion must not be
@@ -319,19 +331,31 @@ n_unattributed        3
 
 The PnL check also leaves out, counted in the report:
 
-- **NO-side trades** (`n_excluded_no_side`, anything whose `direction` is not `"yes"`).
-  The backtest only ever buys YES, so its mean and spread describe that strategy; a NO
-  trade's per-stake PnL is the same arithmetic, but it is not a draw from the
-  distribution being tested against, so the z test's null does not cover it.
-  Calibration still counts them: a forecast is about the label, whichever side was taken.
+- trades on a **side the champion has no expectation for** (`n_excluded_no_side`, and
+  `n_excluded_yes_side` for the mirror case; the side is read as settlement reads it, so
+  anything whose `direction` is not `"yes"` is NO). A champion promoted on a live-policy
+  backtest records one per side, and its NO trades are judged against its NO numbers. One
+  published before the split existed (or promoted on `--policy top-bin-yes`, or whose NO
+  side traded too rarely in the backtest) only ever bought YES as far as its record goes,
+  and a NO trade is not a draw from the distribution being tested against: it is left out
+  and counted, never judged by a promise made about something else. Calibration follows
+  the same rule for a champion that recorded a split; for one that recorded none it
+  keeps scoring every trade against the single Brier it has.
+- **NO trades booked by an older release** (`n_excluded_unfixed_no`). Before 0.9.1 a NO
+  trade was settled as a short YES at the NO price, so its `realized_pnl` is wrong in both
+  directions (a lost NO bet booked a fraction of its stake). A NO trade without
+  `settlement_version` is not evidence about the NO strategy until [`pmlab
+  resettle`](#re-settling-an-old-log-pmlab-resettle) has recomputed it, and the report
+  says so in a note. Calibration does not care how the PnL was settled and counts them.
 - trades **settled at the quote although they paid a different fill**
   (`n_excluded_legacy_settlement`). Releases up to 0.9.0 entered every settlement at the
   quote, so such a trade's `realized_pnl` carries none of the slippage its `fill_price`
   says it paid, and would otherwise be judged as cost-matched. Settlement now writes
   `settled_basis` on every trade; one without it is kept only if its `fill_price` equals
-  the quote (or none was recorded), because then both arithmetics enter at the same
-  price. It is excluded rather than recomputed so the number the watchdog uses is always
-  the one in your log.
+  the quote of the token it bought (the YES price, or `1 - gamma_price` for a NO trade),
+  or none was recorded, because then both arithmetics enter at the same price. It is
+  excluded rather than recomputed here so the number the watchdog uses is always the one
+  in your log; `pmlab resettle` is the tool that recomputes it.
 - trades filled under a **different cost model** than `champion.json` records
   (`n_excluded_cost_basis`), because live and backtest PnL are only comparable if both
   paid the same friction (see [Costs](costs.md)). A trade with no cost fields is kept and
