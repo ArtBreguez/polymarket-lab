@@ -533,3 +533,38 @@ class TestAChampionPromotedOnAnAggregateGate:
         pnl = _check(_aggregate_report([], _expectation(None)), "pnl")
         assert pnl.status == "insufficient"
         assert pnl.metrics["n_total"] == 0
+
+
+class TestWhatASegmentDoesNotCover:
+    """A segment is held to its own record. Trades on a side the segment never promised are
+    not part of its comparison (the book judges them against the book's record for that side),
+    and the segment says how many there were."""
+
+    def test_the_segment_counts_the_trades_it_could_not_hold_to_its_own_record(self) -> None:
+        a = _seg(n=400, by_direction={"yes": GroupExpectation(400, 0.20, 0.60, 0.20, 0.10)})
+        expectation = _expectation(
+            {"A": a, "B": _seg()},
+            by_direction={
+                "yes": GroupExpectation(500, 0.20, 0.60, 0.20, 0.10),
+                "no": GroupExpectation(300, 0.05, 0.50, 0.15, 0.08),
+            },
+        )
+        trades = _trades("A", 60) + _trades("A", 40, pnl=0.05, side="no") + _trades("B", 60)
+        for name in ("pnl", "calibration"):
+            segments = _check(_report(trades, expectation, ("A", "B")), name).metrics["segments"]
+            assert segments["A"]["n_trades"] == 60
+            assert segments["A"]["n_not_referenced"] == 40
+            assert segments["B"]["n_not_referenced"] == 0
+
+
+class TestWhatTheSequentialTestSkips:
+    def test_the_reason_says_how_many_trades_it_left_out(self) -> None:
+        # Segment A's cell has a promise made on 60 trades, below the floor of 100.
+        expectation = _expectation(
+            {"A": SegmentExpectation(60, 0.20, 0.60, 0.20, 0.10), "B": _seg()}
+        )
+        trades = _trades("A", 40) + _trades("B", 60, day0=100)
+        pnl = _check(_report(trades, expectation, ("A", "B")), "pnl")
+        seq = pnl.metrics["sequential"]
+        assert seq["n_skipped"] == 40
+        assert "40 trades left out" in seq["reason"]

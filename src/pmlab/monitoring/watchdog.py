@@ -1405,6 +1405,7 @@ def _brier_scope(
     *,
     family: int,
     kind: str = "overall",
+    extra: Mapping[str, Any] | None = None,
 ) -> _Scope:
     """The verdict on one measured calibration scope.
 
@@ -1432,6 +1433,7 @@ def _brier_scope(
         "degradation_rel": rel,
         "z": welch.evidence.z,
         "p_value": welch.evidence.p_value,
+        **(extra or {}),
     }
     if used is not None:
         metrics["p_adjusted"] = used.p_value
@@ -1523,6 +1525,7 @@ def _brier_segment_family(
         by_segment.setdefault(_segment_of(trade), []).append(trade)
     measured: dict[str, _Welch] = {}
     sizes: dict[str, int] = {}
+    not_referenced: dict[str, int] = {}
     scopes: dict[str, _Scope] = {}
     for name in sorted(by_segment):
         label = f"segment {name}"
@@ -1541,6 +1544,7 @@ def _brier_segment_family(
         if split is None:  # no split by side recorded: the segment's single Brier stands for all
             split = {_POOLED: (node.brier_score, node.brier_std, node.n_trades)}
         items = [dict(t) for t in by_segment[name] if _POOLED in split or _direction_of(t) in split]
+        not_referenced[name] = len(by_segment[name]) - len(items)
         tracker = CalibrationTracker(items, n_bins=cfg.n_bins)
         n = tracker.n_realized
         if n < cfg.min_trades:
@@ -1581,6 +1585,7 @@ def _brier_segment_family(
             cfg,
             family=len(measured),
             kind="segment",
+            extra={"n_not_referenced": not_referenced[name]},
         )
     return [scopes[name] for name in sorted(scopes)]
 
@@ -1790,6 +1795,7 @@ def _pnl_scope(
     *,
     family: int,
     kind: str = "overall",
+    extra: Mapping[str, Any] | None = None,
 ) -> _Scope:
     """The verdict on one measured PnL scope. `used` is the (adjusted) evidence to judge by."""
     shortfall = welch.evidence.gap / welch.ref_mean
@@ -1815,6 +1821,7 @@ def _pnl_scope(
         "p_value": welch.evidence.p_value,
         "mde_shortfall": mde,
         "mde_shortfall_effective": mde_effective,
+        **(extra or {}),
     }
     tail += f" (could only detect a shortfall >= {mde_effective:.0%} of the backtest edge at n={n})"
     if used is not None:
@@ -1895,6 +1902,7 @@ def _pnl_segment_family(
         by_segment.setdefault(row.segment, []).append((row.side, row.value))
     measured: dict[str, _Welch] = {}
     sizes: dict[str, int] = {}
+    not_referenced: dict[str, int] = {}
     scopes: dict[str, _Scope] = {}
     for name in sorted(by_segment):
         label = f"segment {name}"
@@ -1911,6 +1919,7 @@ def _pnl_segment_family(
             continue
         groups = _pnl_groups(node)
         usable = [(side, value) for side, value in by_segment[name] if side in groups]
+        not_referenced[name] = len(by_segment[name]) - len(usable)
         n = len(usable)
         if n < cfg.min_trades:
             scopes[name] = _too_few(name, label, n, cfg.min_trades, "segment")
@@ -1952,6 +1961,7 @@ def _pnl_segment_family(
             cfg,
             family=len(measured),
             kind="segment",
+            extra={"n_not_referenced": not_referenced[name]},
         )
     return [scopes[name] for name in sorted(scopes)]
 
@@ -2024,23 +2034,24 @@ def _sequential_scope(
     )
     signalled = result.statistic >= cfg.cusum_threshold
     level = f"{cfg.cusum_threshold:g}"
+    left_out = f"; {skipped} trades left out (no promise to standardize them by)" if skipped else ""
     if signalled:
         status = "alert"
         reason = (
             f"sequential: CUSUM at {result.statistic:.1f}, above {level} (first crossed {level} "
-            f"at trade {crossed_at} of {n}, peak {result.peak:.1f}); alert while it stays above"
+            f"at trade {crossed_at} of {n}, peak {result.peak:.1f}){left_out}; alert while it stays above"
         )
     elif crossed_at is not None:
         status = "ok"
         reason = (
             f"sequential: CUSUM {result.statistic:.1f} of {level}; it crossed {level} at trade "
-            f"{crossed_at} of {n} (peak {result.peak:.1f}) and has come back; within thresholds"
+            f"{crossed_at} of {n} (peak {result.peak:.1f}) and has come back{left_out}; within thresholds"
         )
     else:
         status = "ok"
         reason = (
             f"sequential: CUSUM {result.statistic:.1f} of {level} "
-            f"(peak {result.peak:.1f}, n={n}); within thresholds"
+            f"(peak {result.peak:.1f}, n={n}){left_out}; within thresholds"
         )
     metrics = {
         **common,
