@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.8.5"
+__version__ = "0.9.0"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
@@ -62,6 +62,14 @@ from pmlab.modeling.lgbm_baseline import LGBMForecaster
 from pmlab.modeling.sklearn_forecaster import SklearnForecaster
 from pmlab.modeling.tuning import TunedForecaster
 from pmlab.monitoring.calibration_tracker import CalibrationTracker, CalibrationWindow
+from pmlab.monitoring.drift import (
+    DriftConfig,
+    DriftReport,
+    DriftThresholds,
+    FeatureDrift,
+    drift_report,
+    drift_report_from_store,
+)
 from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
@@ -88,6 +96,13 @@ __all__ = [
     "SettlementEngine",
     "CalibrationTracker",
     "CalibrationWindow",
+    # Monitoring
+    "DriftConfig",
+    "DriftReport",
+    "DriftThresholds",
+    "FeatureDrift",
+    "drift_report",
+    "drift_report_from_store",
     "LiveBroker",
     "LiveBrokerError",
     "OrderReceipt",
