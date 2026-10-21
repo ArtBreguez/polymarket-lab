@@ -163,6 +163,15 @@ class CalibrationTracker:
         payload = json.loads(p.read_text())
         return cls(list(payload.get("trades", [])), n_bins=n_bins)
 
+    def squared_errors(self) -> list[float]:
+        """Each scored trade's squared forecast error, in `target_date` order.
+
+        Their mean is `overall().brier_score`. The spread is what a significance
+        test needs: a live Brier above the backtest's is only a finding if it
+        clears the noise of the per-trade terms.
+        """
+        return [(float(t["model_prob"]) - _label_occurred(t)) ** 2 for t in self._trades]
+
     def overall(self) -> CalibrationWindow | None:
         """Calibration over every realized trade, or None if none are scoreable."""
         if not self._trades:
