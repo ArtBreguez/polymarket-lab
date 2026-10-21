@@ -575,3 +575,52 @@ class TestWhatTheSplitCannotSupport:
         pnl = _check(_report(_as_promised(10, 10)), "pnl")
         assert pnl.status == "insufficient"
         assert pnl.cause == "too_few_samples"
+
+
+class TestWhatIsNotJudgedIsSaidInTheReport:
+    """Exit 0 on the YES trades alone must not hide that a whole side was not judged."""
+
+    def _yes_only(self) -> BacktestExpectation:
+        return BacktestExpectation(
+            400, 1.0, 0.20, 0.60, 0.20, 0.10,
+            by_direction={"yes": _group(400, 0.20, 0.60, 0.20, 0.10)},
+        )  # fmt: skip
+
+    def _book(self) -> list[dict[str, Any]]:
+        return _side("yes", 60, pnl=0.20, pnl_sd=0.60, brier=0.20, brier_sd=0.10) + _side(
+            "no", 40, pnl=-1.0, pnl_sd=0.0
+        )
+
+    @pytest.mark.parametrize("name", ["pnl", "calibration"])
+    def test_the_trades_left_out_are_named_with_the_reason(self, name: str) -> None:
+        check = _check(_report(self._book(), self._yes_only()), name)
+        assert check.status == "ok"
+        note = next(r for r in check.reasons if r.startswith("note: 40 NO trades"))
+        assert "not judged" in note
+        assert "no NO expectation" in note
+
+    @pytest.mark.parametrize("name", ["pnl", "calibration"])
+    def test_the_note_is_in_the_verbose_report_but_not_in_a_healthy_quiet_run(
+        self, name: str
+    ) -> None:
+        report = _report(self._book(), self._yes_only())
+        assert report.render() == ""
+        assert "40 NO trades are not judged" in report.render(verbose=True)
+
+    def test_an_old_champion_says_its_backtest_only_buys_yes(self) -> None:
+        old = _expectation(split=False)
+        check = _check(_report(self._book(), old), "pnl")
+        assert any("only buys YES" in r and r.startswith("note:") for r in check.reasons)
+
+    def test_a_no_only_champion_names_the_yes_trades(self) -> None:
+        no_only = BacktestExpectation(
+            300, 1.0, 0.10, 0.50, 0.15, 0.08,
+            by_direction={"no": _group(300, 0.10, 0.50, 0.15, 0.08)},
+        )  # fmt: skip
+        book = _side("no", 60, pnl=0.10, pnl_sd=0.5) + _side("yes", 25, pnl=0.2, pnl_sd=0.6)
+        check = _check(_report(book, no_only), "pnl")
+        assert any(r.startswith("note: 25 YES trades are not judged") for r in check.reasons)
+
+    def test_nothing_excluded_no_note(self) -> None:
+        check = _check(_report(_as_promised(60, 60)), "pnl")
+        assert not any("not judged" in r for r in check.reasons)

@@ -953,17 +953,32 @@ def _is_invalid_forecast(trade: Mapping[str, Any]) -> bool:
     return _is_number(prob) and not (math.isfinite(prob) and 0.0 <= prob <= 1.0)
 
 
-def _with_unfixed_no_note(result: CheckResult) -> CheckResult:
-    """Say, on the PnL result, that NO trades with a wrong PnL were left out (and how to fix it)."""
+def _with_exclusion_notes(result: CheckResult) -> CheckResult:
+    """Say, on a PnL or calibration result, which trades were left out and why.
+
+    Counts are always in the metrics, but a verdict of ok on the YES trades alone must not
+    hide that a whole side was never judged, nor that NO trades with a wrong PnL were left out.
+    """
+    notes: list[str] = []
+    for side, key in (("NO", "n_excluded_no_side"), ("YES", "n_excluded_yes_side")):
+        n = result.metrics.get(key, 0)
+        if not n:
+            continue
+        why = f"champion.json records no {side} expectation"
+        if side == "NO" and result.metrics.get("expectation_directions") is None:
+            why += " (its backtest only buys YES)"
+        notes.append(
+            f"note: {n} {side} trades are not judged: {why}; re-publish the champion on a "
+            "backtest of the live policy to judge them"
+        )
     unfixed = result.metrics.get("n_excluded_unfixed_no", 0)
-    if not unfixed:
-        return result
-    note = (
-        f"note: {unfixed} NO trades were settled by a release that booked them as a short YES, "
-        "so their realized_pnl is wrong and they were left out; run `pmlab resettle --trades "
-        "PATH` to recompute them"
-    )
-    return replace(result, reasons=(*result.reasons, note))
+    if unfixed:
+        notes.append(
+            f"note: {unfixed} NO trades were settled by a release that booked them as a short "
+            "YES, so their realized_pnl is wrong and they were left out; run `pmlab resettle "
+            "--trades PATH` to recompute them"
+        )
+    return replace(result, reasons=(*result.reasons, *notes)) if notes else result
 
 
 def _with_bad_forecast_note(result: CheckResult) -> CheckResult:
@@ -2145,11 +2160,11 @@ def health_report(
             results.append(_drift_check(drift))
         elif name == "calibration":
             calibration = _calibration_check(selection, champion.expectation, config.calibration)
-            calibration = _with_bad_forecast_note(calibration)
+            calibration = _with_bad_forecast_note(_with_exclusion_notes(calibration))
             results.append(_with_settled_at_note(calibration, selection.counts))
         else:
             pnl = _pnl_check(selection, champion.expectation, champion.costs, config.pnl)
-            pnl = _with_unfixed_no_note(pnl)
+            pnl = _with_exclusion_notes(pnl)
             results.append(_with_settled_at_note(pnl, selection.counts))
 
     ref = ChampionRef(
