@@ -90,12 +90,8 @@ def _report(
 def _poison_when(monkeypatch: pytest.MonkeyPatch, predicate: Any) -> None:
     original = wd._welch
 
-    def poisoned(
-        values: Any, *, counts: Any, groups: Any, pooled: Any, worse_when_higher: bool
-    ) -> Any:
-        result = original(
-            values, counts=counts, groups=groups, pooled=pooled, worse_when_higher=worse_when_higher
-        )
+    def poisoned(values: Any, *, counts: Any, groups: Any, worse_when_higher: bool) -> Any:
+        result = original(values, counts=counts, groups=groups, worse_when_higher=worse_when_higher)
         return dataclasses.replace(result, live=math.nan) if predicate(values, counts) else result
 
     monkeypatch.setattr(wd, "_welch", poisoned)

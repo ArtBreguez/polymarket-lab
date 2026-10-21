@@ -79,8 +79,8 @@ def holm_adjust(p_values: Sequence[float]) -> list[float]:
     return adjusted
 
 
-def mixture_reference(
-    counts: Mapping[str, int], groups: Mapping[str, tuple[float, float, int]]
+def mixture_reference[K](
+    counts: Mapping[K, int], groups: Mapping[K, tuple[float, float, int]]
 ) -> tuple[float, float]:
     """What a live sample with this mix of groups is expected to average, and how sure.
 
@@ -97,7 +97,7 @@ def mixture_reference(
     weights. A group with no live trades has no weight and needs no reference.
 
     Args:
-        counts: Live trades per group.
+        counts: Live trades per group (a group is any hashable key: a side, a segment's cell).
         groups: Per group, the backtest ``(mean, std, n)``.
 
     Returns:
@@ -113,7 +113,7 @@ def mixture_reference(
     total = sum(live.values())
     if total == 0:
         raise ValueError("a mixture needs at least one live trade")
-    missing = sorted(set(live) - set(groups))
+    missing = [group for group in live if group not in groups]
     if missing:
         raise ValueError(f"no reference for group(s) {missing}")
     mean = 0.0

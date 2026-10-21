@@ -546,7 +546,7 @@ class TestWhatTheSplitCannotSupport:
         pnl = _check(_report(_side("no", 60, pnl=-0.30, pnl_sd=0.5), expectation), "pnl")
         assert pnl.status == "insufficient"
         assert pnl.cause == "invalid_expectation"
-        assert "this mix of sides" in pnl.reasons[0]
+        assert "this mix of trades" in pnl.reasons[0]
 
     def test_a_side_without_a_positive_promise_is_not_assessed_but_the_book_is(self) -> None:
         expectation = _expectation(

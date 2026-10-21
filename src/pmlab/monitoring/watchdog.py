@@ -826,16 +826,6 @@ def _invalid_statistic_reason(bad: Sequence[str]) -> str:
     )
 
 
-def _invalid_statistic(
-    name: str, metrics: dict[str, Any], **statistics: float | None
-) -> CheckResult | None:
-    """An `insufficient` result if any statistic is NaN or infinite, else None."""
-    bad = _bad_statistics(**statistics)
-    if not bad:
-        return None
-    return _insufficient(name, "invalid_statistic", [_invalid_statistic_reason(bad)], metrics)
-
-
 def _too_few_samples(name: str, n: int, min_trades: int, metrics: dict[str, Any]) -> CheckResult:
     """`insufficient` for want of evidence, saying so plainly when none is in segment."""
     settled = metrics["n_total"] - metrics["n_open"]
@@ -1041,6 +1031,9 @@ class _Row:
     segment: str
     value: float
     order: tuple[Any, ...]
+    stratum: tuple[
+        str, str
+    ]  # the (segment, side) cell whose backtest numbers this trade is held to
 
 
 def _settlement_order(trade: Mapping[str, Any]) -> tuple[Any, ...]:
@@ -1131,30 +1124,24 @@ def _brier_groups(
     return groups
 
 
-def _welch(
+def _welch[K](
     values: Sequence[float],
     *,
-    counts: Mapping[str, int],
-    groups: Mapping[str, _Group] | None,
-    pooled: _Group | None,
+    counts: Mapping[K, int],
+    groups: Mapping[K, _Group],
     worse_when_higher: bool,
 ) -> _Welch:
     """Hold a live sample against the backtest.
 
-    With per-side `groups` the reference is the backtest's side means weighted by the
-    live `counts` (`mixture_reference`); with none, the `pooled` group stands for every
-    trade.
+    The reference is the backtest's mean for each group the live trades fell in, weighted by
+    how many did (`mixture_reference`): a group is a side, a segment's cell, whichever record
+    the trades are held to. One group is the ordinary pooled comparison.
     """
     arr = np.array(values, dtype=float)
     with np.errstate(all="ignore"):  # an overflow is reported by the caller, not printed
         live = float(arr.mean())
         live_var = float(arr.var(ddof=1))
-    if groups is not None:
-        ref_mean, ref_variance = mixture_reference(counts, groups)
-    else:
-        assert pooled is not None  # callers pass one or the other
-        ref_mean, ref_std, ref_n = pooled
-        ref_variance = ref_std**2 / ref_n
+    ref_mean, ref_variance = mixture_reference(counts, groups)
     evidence = _one_sided_welch(
         live_mean=live,
         live_var=live_var,
@@ -1164,6 +1151,69 @@ def _welch(
         worse_when_higher=worse_when_higher,
     )
     return _Welch(live, live_var, ref_mean, ref_variance, evidence)
+
+
+# The segment slot of a stratum drawn from the book-level record (no segment of that name can
+# collide with it).
+_BOOK = "\x00book"
+_POOLED = "*"  # the side slot of a record that was not split by side
+
+
+class _References:
+    """Which backtest numbers a trade is held to: the finest record there is.
+
+    A champion that recorded its backtest per segment (and per side within a segment) has a
+    promise for each (segment, side) cell. A live trade is held to the cell it fell in, so the
+    book's reference is the average of the cells its trades fell in, weighted by how many fell
+    in each: not the backtest pooled over every segment, which includes the segments the gate
+    rejected and assumes the live segments trade in the proportions the backtest did. A trade
+    whose cell was not recorded (a segment the backtest did not trade enough, a side that was
+    too thin inside it) falls back to the book-level record for its side; one with neither
+    has no promise and is left out and counted.
+    """
+
+    def __init__(self, expectation: BacktestExpectation, *, calibration: bool) -> None:
+        self._calibration = calibration
+        self._split = _brier_groups(expectation) if calibration else _pnl_groups(expectation)
+        self._pooled: _Group | None = None
+        if (
+            calibration
+            and expectation.brier_score is not None
+            and expectation.brier_std is not None
+        ):
+            self._pooled = (expectation.brier_score, expectation.brier_std, expectation.n_trades)
+        self._segments = expectation.by_segment if _segments_recorded(expectation) else None
+        self._cells: dict[str, dict[str, _Group] | None] = {}
+
+    @property
+    def book(self) -> dict[str, _Group] | None:
+        """The book-level record by side; None for a Brier recorded without a split."""
+        return self._split
+
+    def _cell_groups(self, segment: str) -> dict[str, _Group] | None:
+        if segment not in self._cells:
+            node = self._segments.get(segment) if self._segments else None
+            if node is None:
+                self._cells[segment] = None
+            elif self._calibration:
+                split = _brier_groups(node)
+                if split is None and node.brier_score is not None and node.brier_std is not None:
+                    split = {_POOLED: (node.brier_score, node.brier_std, node.n_trades)}
+                self._cells[segment] = split
+            else:
+                self._cells[segment] = _pnl_groups(node)
+        return self._cells[segment]
+
+    def resolve(self, segment: str, side: str) -> tuple[tuple[str, str], _Group] | None:
+        cell = self._cell_groups(segment)
+        if cell is not None:
+            group = cell.get(side) or cell.get(_POOLED)
+            if group is not None:
+                return (segment, side if side in cell else _POOLED), group
+        if self._split is not None:
+            group = self._split.get(side)
+            return None if group is None else ((_BOOK, side), group)
+        return None if self._pooled is None else ((_BOOK, _POOLED), self._pooled)
 
 
 def _holm_evidence(evidences: Mapping[str, _Evidence]) -> dict[str, _Evidence]:
@@ -1380,26 +1430,29 @@ def _brier_scope(
 
 
 def _brier_family(
-    by_side: Mapping[str, Sequence[float]],
-    groups: Mapping[str, _Group],
+    side_trades: Mapping[str, Sequence[Mapping[str, Any]]],
+    stratum_of: Mapping[int, tuple[str, str]],
+    strata: Mapping[tuple[str, str], _Group],
     cfg: CalibrationThresholds,
 ) -> list[_Scope]:
-    """Each side's calibration on its own, Holm-adjusted across the sides assessed."""
+    """Each side's calibration on its own, held to the cells its trades fell in, Holm-adjusted."""
     measured: dict[str, _Welch] = {}
+    sizes: dict[str, int] = {}
     scopes: dict[str, _Scope] = {}
     for side in _SIDES:
-        terms = by_side.get(side)
-        if terms is None:
+        trades = side_trades.get(side)
+        if not trades:
             continue
-        n = len(terms)
+        tracker = CalibrationTracker([dict(t) for t in trades], n_bins=cfg.n_bins)
+        n = tracker.n_realized
         if n < cfg.min_trades:
             scopes[side] = _too_few_for_a_side(side, n, cfg.min_trades)
             continue
+        counts = _stratum_counts(trades, stratum_of, cfg.n_bins)
         welch = _welch(
-            terms,
-            counts={side: n},
-            groups={side: groups[side]},
-            pooled=None,
+            tracker.squared_errors(),
+            counts=counts,
+            groups={stratum: strata[stratum] for stratum in counts},
             worse_when_higher=True,
         )
         bad = welch.problems()
@@ -1410,12 +1463,13 @@ def _brier_family(
             )
             continue
         measured[side] = welch
+        sizes[side] = n
     adjusted = _holm_evidence({side: welch.evidence for side, welch in measured.items()})
     for side, welch in measured.items():
         scopes[side] = _brier_scope(
             side,
             _SIDE_LABEL[side],
-            len(by_side[side]),
+            sizes[side],
             welch,
             adjusted[side],
             cfg,
@@ -1423,6 +1477,20 @@ def _brier_family(
             kind="side",
         )
     return [scopes[side] for side in _SIDES if side in scopes]
+
+
+def _stratum_counts(
+    trades: Sequence[Mapping[str, Any]], stratum_of: Mapping[int, tuple[str, str]], n_bins: int
+) -> dict[tuple[str, str], int]:
+    """How many scored trades fell in each stratum (`stratum_of` is keyed by `id(trade)`)."""
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for trade in trades:
+        grouped.setdefault(stratum_of[id(trade)], []).append(dict(trade))
+    counts = {
+        stratum: CalibrationTracker(items, n_bins=n_bins).n_realized
+        for stratum, items in grouped.items()
+    }
+    return {stratum: n for stratum, n in counts.items() if n}
 
 
 def _segment_of(trade: Mapping[str, Any]) -> str:
@@ -1459,24 +1527,29 @@ def _brier_segment_family(
                 "segment",
             )
             continue
-        groups = _brier_groups(node)
-        items = [dict(t) for t in by_segment[name] if groups is None or _direction_of(t) in groups]
+        split = _brier_groups(node)
+        if split is None:  # no split by side recorded: the segment's single Brier stands for all
+            split = {_POOLED: (node.brier_score, node.brier_std, node.n_trades)}
+        items = [dict(t) for t in by_segment[name] if _POOLED in split or _direction_of(t) in split]
         tracker = CalibrationTracker(items, n_bins=cfg.n_bins)
         n = tracker.n_realized
         if n < cfg.min_trades:
             scopes[name] = _too_few(name, label, n, cfg.min_trades, "segment")
             continue
-        counts = {
-            side: CalibrationTracker(
-                [t for t in items if _direction_of(t) == side], n_bins=cfg.n_bins
-            ).n_realized
-            for side in _SIDES
-        }
+        if _POOLED in split:
+            counts = {_POOLED: n}
+        else:
+            counts = {
+                side: CalibrationTracker(
+                    [t for t in items if _direction_of(t) == side], n_bins=cfg.n_bins
+                ).n_realized
+                for side in _SIDES
+            }
+            counts = {side: k for side, k in counts.items() if k}
         welch = _welch(
             tracker.squared_errors(),
             counts=counts,
-            groups=groups,
-            pooled=(node.brier_score, node.brier_std, node.n_trades),
+            groups=split,
             worse_when_higher=True,
         )
         bad = welch.problems()
@@ -1510,30 +1583,37 @@ def _calibration_check(
     # alert, or (NaN) poison the statistics. Count it as bad data and leave it out.
     scoreable = [t for t in selection.trades if not _is_invalid_forecast(t)]
     n_invalid = len(selection.trades) - len(scoreable)
-    groups = _brier_groups(expectation) if expectation is not None else None
+    references = _References(expectation, calibration=True) if expectation is not None else None
+    book = references.book if references is not None else None
+    strata: dict[tuple[str, str], _Group] = {}
+    stratum_of: dict[int, tuple[str, str]] = {}
     n_no_side = n_yes_side = 0
-    if groups is not None:
-        # A champion that recorded a per-side split can only speak for the sides it
-        # recorded. (One without a split pools every trade against its single Brier.)
+    if references is not None:
+        # Each trade is held to the finest record there is for it (see `_References`). One with
+        # none, because the champion recorded a split by side that does not include its side,
+        # is not judged and is counted. (A Brier recorded without a split stands for all.)
         covered: list[Mapping[str, Any]] = []
         for trade in scoreable:
             side = _direction_of(trade)
-            if side in groups:
-                covered.append(trade)
-            elif side == "no":
-                n_no_side += 1
-            else:
-                n_yes_side += 1
+            resolved = references.resolve(_segment_of(trade), side)
+            if resolved is None:
+                if side == "no":
+                    n_no_side += 1
+                else:
+                    n_yes_side += 1
+                continue
+            stratum, group = resolved
+            strata[stratum] = group
+            stratum_of[id(trade)] = stratum
+            covered.append(trade)
         scoreable = covered
     tracker = CalibrationTracker([dict(t) for t in scoreable], n_bins=cfg.n_bins)
-    side_terms: dict[str, list[float]] = {}
-    for side in _SIDES:
-        side_tracker = CalibrationTracker(
-            [dict(t) for t in scoreable if _direction_of(t) == side], n_bins=cfg.n_bins
-        )
-        if side_tracker.n_realized:
-            side_terms[side] = side_tracker.squared_errors()
-    counts = {side: len(terms) for side, terms in side_terms.items()}
+    side_trades = {side: [t for t in scoreable if _direction_of(t) == side] for side in _SIDES}
+    side_trackers = {
+        side: CalibrationTracker([dict(t) for t in trades], n_bins=cfg.n_bins)
+        for side, trades in side_trades.items()
+    }
+    counts = {side: t.n_realized for side, t in side_trackers.items() if t.n_realized}
 
     metrics: dict[str, Any] = {
         **selection.counts,
@@ -1545,10 +1625,10 @@ def _calibration_check(
         "n_skipped_no_forecast": tracker.n_skipped,
         "min_trades": cfg.min_trades,
     }
-    if groups is not None:
+    if book is not None:
         metrics["n_excluded_no_side"] = n_no_side
         metrics["n_excluded_yes_side"] = n_yes_side
-        metrics["expectation_directions"] = sorted(groups)
+        metrics["expectation_directions"] = sorted(book)
     if expectation is not None:
         metrics["segments_recorded"] = _segments_recorded(expectation)
 
@@ -1562,7 +1642,7 @@ def _calibration_check(
             ],
             metrics,
         )
-    if groups is not None and not groups:
+    if book is not None and not book:
         return _insufficient(
             "calibration",
             "no_expectation",
@@ -1579,9 +1659,13 @@ def _calibration_check(
     if tracker.n_realized < cfg.min_trades:
         return _too_few_samples("calibration", tracker.n_realized, cfg.min_trades, metrics)
 
-    pooled: _Group = (expectation.brier_score, expectation.brier_std, expectation.n_trades)
     terms = tracker.squared_errors()
-    welch = _welch(terms, counts=counts, groups=groups, pooled=pooled, worse_when_higher=True)
+    welch = _welch(
+        terms,
+        counts=_stratum_counts(scoreable, stratum_of, cfg.n_bins),
+        groups=strata,
+        worse_when_higher=True,
+    )
     overall = _brier_scope("overall", "", len(terms), welch, None, cfg, family=1)
     if overall.cause == "invalid_statistic":
         # Nothing about this book can be measured.
@@ -1592,8 +1676,8 @@ def _calibration_check(
     metrics["reliability_live"] = overall_window.reliability
 
     sides: list[_Scope] = []
-    if len(counts) > 1 and groups is not None:
-        sides = _brier_family(side_terms, groups, cfg)
+    if len(counts) > 1:
+        sides = _brier_family(side_trades, stratum_of, strata, cfg)
     segments: list[_Scope] = []
     if _segments_are_judged(expectation, selection.allowed_segments):
         segments = _brier_segment_family(scoreable, expectation, cfg)
@@ -1645,6 +1729,16 @@ def _cost_basis(trade: Mapping[str, Any], costs: CostModel, stake: float) -> str
     if not verdicts:
         return "unverified"
     return "match" if all(verdicts) else "mismatch"
+
+
+def _all_pnl_groups(expectation: BacktestExpectation) -> list[_Group]:
+    """Every group of backtest numbers a live PnL could be held to: the book's, then each cell."""
+    found = list(_pnl_groups(expectation).values())
+    if _segments_recorded(expectation):
+        for node in (expectation.by_segment or {}).values():
+            if node is not None:
+                found.extend(_pnl_groups(node).values())
+    return found
 
 
 def _describe_promise(groups: Mapping[str, _Group]) -> str:
@@ -1720,36 +1814,25 @@ def _pnl_scope(
 
 
 def _pnl_family(
-    by_side: Mapping[str, Sequence[float]], groups: Mapping[str, _Group], cfg: PnLThresholds
+    rows: Sequence[_Row], strata: Mapping[tuple[str, str], _Group], cfg: PnLThresholds
 ) -> list[_Scope]:
-    """Each side's PnL on its own, Holm-adjusted across the sides assessed."""
+    """Each side's PnL on its own, held to the cells its trades fell in, Holm-adjusted."""
     measured: dict[str, _Welch] = {}
+    sizes: dict[str, int] = {}
     scopes: dict[str, _Scope] = {}
     for side in _SIDES:
-        values = by_side.get(side)
-        if values is None:
+        side_rows = [row for row in rows if row.side == side]
+        if not side_rows:
             continue
-        n, label = len(values), _SIDE_LABEL[side]
-        mean, _, n_backtest = groups[side]
+        n, label = len(side_rows), _SIDE_LABEL[side]
         if n < cfg.min_trades:
             scopes[side] = _too_few_for_a_side(side, n, cfg.min_trades)
             continue
-        if mean <= 0:
-            scopes[side] = _unmeasurable(
-                side,
-                label,
-                n,
-                "invalid_expectation",
-                f"backtest mean PnL per stake is {mean:+.3f} over {n_backtest} trades: a "
-                "shortfall needs a positive expectation to be measured against",
-                "side",
-            )
-            continue
+        counts = Counter(row.stratum for row in side_rows)
         welch = _welch(
-            values,
-            counts={side: n},
-            groups={side: groups[side]},
-            pooled=None,
+            [row.value for row in side_rows],
+            counts=counts,
+            groups={stratum: strata[stratum] for stratum in counts},
             worse_when_higher=False,
         )
         bad = welch.problems()
@@ -1758,13 +1841,25 @@ def _pnl_family(
                 side, label, n, "invalid_statistic", _invalid_statistic_reason(bad), "side"
             )
             continue
+        if welch.ref_mean <= 0:
+            scopes[side] = _unmeasurable(
+                side,
+                label,
+                n,
+                "invalid_expectation",
+                f"backtest mean PnL per stake for these trades is {welch.ref_mean:+.3f}: a "
+                "shortfall needs a positive expectation to be measured against",
+                "side",
+            )
+            continue
         measured[side] = welch
+        sizes[side] = n
     adjusted = _holm_evidence({side: welch.evidence for side, welch in measured.items()})
     for side, welch in measured.items():
         scopes[side] = _pnl_scope(
             side,
             _SIDE_LABEL[side],
-            len(by_side[side]),
+            sizes[side],
             welch,
             adjusted[side],
             cfg,
@@ -1815,7 +1910,6 @@ def _pnl_segment_family(
             [value for _, value in usable],
             counts=counts,
             groups=groups,
-            pooled=None,
             worse_when_higher=False,
         )
         bad = welch.problems()
@@ -1853,16 +1947,17 @@ def _pnl_segment_family(
 
 
 def _sequential_scope(
-    rows: Sequence[_Row], groups: Mapping[str, _Group], cfg: PnLThresholds
+    rows: Sequence[_Row], strata: Mapping[tuple[str, str], _Group], cfg: PnLThresholds
 ) -> tuple[_Scope, dict[str, Any]]:
     """The CUSUM over the trades in settlement order, and the metrics that describe it.
 
-    Each trade is standardized by its own side's promise: its shortfall is
-    ``(mean - return) / std`` of that side, and the allowance is `cusum_allowance` times
-    the side's ``mean / std``, so a book that trades more NO than the backtest did is not
-    mistaken for a decline. A side with no spread, no positive promise, or a promise made on
-    fewer than `cusum_min_backtest_trades` trades cannot be standardized: its trades are
-    skipped and counted. Trades that tie on settlement time
+    Each trade is standardized by its own cell's promise (its segment and side, else the
+    book's record for its side): its shortfall is ``(mean - return) / std`` of that cell, and
+    the allowance is `cusum_allowance` times the cell's ``mean / std``, so a book that trades
+    more NO, or more of a weaker segment, than the backtest did is not mistaken for a decline.
+    A cell with no spread, no positive promise, or a promise made on fewer than
+    `cusum_min_backtest_trades` trades cannot be standardized: its trades are skipped and
+    counted. Trades that tie on settlement time
     and identity are one step (their shortfalls and allowances add), which keeps the
     result independent of the order the log happens to list them in.
     """
@@ -1871,7 +1966,7 @@ def _sequential_scope(
         shortfall = allowance = 0.0
         count = 0
         for row in tied:
-            mean, std, n_backtest = groups[row.side]
+            mean, std, n_backtest = strata[row.stratum]
             if mean > 0 and std > 0 and n_backtest >= cfg.cusum_min_backtest_trades:
                 shortfall += (mean - row.value) / std
                 allowance += cfg.cusum_allowance * mean / std
@@ -1942,7 +2037,9 @@ def _pnl_check(
     costs: CostModel | None,
     cfg: PnLThresholds,
 ) -> CheckResult:
-    groups = _pnl_groups(expectation) if expectation is not None else {"yes": (0.0, 0.0, 2)}
+    references = _References(expectation, calibration=False) if expectation is not None else None
+    groups = references.book if references is not None and references.book is not None else {}
+    strata: dict[tuple[str, str], _Group] = {}
     rows: list[_Row] = []
     n_unscoreable = 0
     n_no_side = 0
@@ -1958,9 +2055,16 @@ def _pnl_check(
             n_unscoreable += 1
             continue
         side = _direction_of(trade)
-        # A side the backtest recorded no expectation for is not a draw from any
-        # distribution being tested against: leave it out, counted.
-        if side not in groups:
+        segment = _segment_of(trade)
+        # With no expectation at all the check cannot run; the trades are still tallied the way
+        # a historical champion's would be (only YES has a promise).
+        resolved = references.resolve(segment, side) if references is not None else None
+        if references is None and side == "yes":
+            resolved = ((_BOOK, side), (0.0, 0.0, 2))
+        # A trade with no backtest record to be held to (its side was never promised, in its
+        # segment or in the book) is not a draw from any distribution being tested against:
+        # leave it out, counted.
+        if resolved is None:
             if side == "no":
                 n_no_side += 1
             else:
@@ -1980,19 +2084,20 @@ def _pnl_check(
                 continue
             if verdict == "unverified":
                 n_cost_unverified += 1
+        stratum, group = resolved
+        strata[stratum] = group
         rows.append(
             _Row(
                 side,
-                _segment_of(trade),
+                segment,
                 float(pnl) / float(stake),
                 _settlement_order(trade),
+                stratum,
             )
         )
 
-    by_side: dict[str, list[float]] = {}
-    for row in rows:
-        by_side.setdefault(row.side, []).append(row.value)
-    counts = {side: len(by_side[side]) for side in _SIDES if side in by_side}
+    counts = {side: sum(1 for row in rows if row.side == side) for side in _SIDES}
+    counts = {side: n for side, n in counts.items() if n}
     metrics: dict[str, Any] = {
         **selection.counts,
         "allowed_segments": list(selection.allowed_segments),
@@ -2043,7 +2148,7 @@ def _pnl_check(
     problems = _unusable_expectation(expectation, calibration=False)
     if problems:
         return _invalid_expectation("pnl", problems, metrics)
-    if not any(mean > 0 for mean, _, _ in groups.values()):
+    if not any(mean > 0 for mean, _, _ in _all_pnl_groups(expectation)):
         return _insufficient(
             "pnl",
             "invalid_expectation",
@@ -2059,14 +2164,19 @@ def _pnl_check(
         return _too_few_samples("pnl", len(rows), cfg.min_trades, metrics)
 
     values = [row.value for row in rows]
-    welch = _welch(values, counts=counts, groups=groups, pooled=None, worse_when_higher=False)
+    welch = _welch(
+        values,
+        counts=Counter(row.stratum for row in rows),
+        groups=strata,
+        worse_when_higher=False,
+    )
     if welch.ref_mean <= 0:
-        # Each side that traded has a promise, but this mix of them averages to nothing.
+        # Each group that traded has a promise, but this mix of them averages to nothing.
         return _insufficient(
             "pnl",
             "invalid_expectation",
             [
-                f"backtest mean PnL per stake for this mix of sides is {welch.ref_mean:+.3f}: a "
+                f"backtest mean PnL per stake for this mix of trades is {welch.ref_mean:+.3f}: a "
                 "shortfall needs a positive expectation to be measured against"
             ],
             metrics,
@@ -2076,13 +2186,13 @@ def _pnl_check(
         return _insufficient("pnl", "invalid_statistic", [overall.reason], metrics)
     metrics.update(overall.metrics)
 
-    sides = _pnl_family(by_side, groups, cfg) if len(counts) > 1 else []
+    sides = _pnl_family(rows, strata, cfg) if len(counts) > 1 else []
     segments: list[_Scope] = []
     if _segments_are_judged(expectation, selection.allowed_segments):
         segments = _pnl_segment_family(rows, expectation, cfg)
     extras: list[_Scope] = []
     if cfg.sequential:
-        sequential, metrics["sequential"] = _sequential_scope(rows, groups, cfg)
+        sequential, metrics["sequential"] = _sequential_scope(rows, strata, cfg)
         extras.append(sequential)
     return _assemble("pnl", overall, {"directions": sides, "segments": segments}, metrics, extras)
 
