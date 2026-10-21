@@ -31,14 +31,23 @@ class CryptoPricePlugin(MarketPlugin):
         ...
 
     def build_training_row(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict | None:
+        # A binary market: one bin ("Yes"), so one row. `price` is the Yes price you
+        # observed at decision time: look it up, and return None if you cannot. Never
+        # substitute a default such as 0.5; the backtest would trade against it.
         features = self.fetch_features(spec, horizon)
         truth = self.fetch_truth(spec)
-        if truth is None:
+        price = self.yes_price_at(spec, kwargs["decision_time"])  # your own lookup
+        if truth is None or price is None:
             return None
         winning_label = spec.resolve_winning_bin(float(truth))
         return {"market_id": spec.market_id, "decision_horizon": horizon,
-                "winning_label": winning_label, "market_price": 0.5, **features}
+                "decision_date": kwargs["decision_time"][:10],
+                "outcome_label": "Yes", "winning_label": winning_label,
+                "market_price": price, **features}
 ```
+
+A market with **more than one bin** (temperature ranges, a race winner) is not one row:
+see [One row per bin](#one-row-per-bin) before you write `build_training_row` for it.
 
 ## The four methods
 
@@ -59,17 +68,130 @@ Horizons: `"market_open"`, `"previous_evening"`, `"morning_of"`.
 - Unresolved: return `None`.
 
 ### `build_training_row(spec, horizon, **kwargs) -> dict | None`
-Assemble one labeled training row. Required output keys:
+Assemble one labeled training row: one (market, **bin**, decision). It is the only
+row-building method you have to write. Required output keys:
 ```python
 {
     "market_id": str,
     "decision_horizon": str,
-    "winning_label": str,
-    "market_price": float,
-    # + all feature columns (keys starting with "feature_" recommended)
+    "decision_date": str,       # YYYY-MM-DD, what the backtest orders and splits on
+    "outcome_label": str,       # the bin THIS row describes
+    "winning_label": str,       # the bin that won
+    "market_price": float,      # the YES price of outcome_label, observed before the decision
+    # + all feature columns (keys starting with "feature_" required to train on them)
 }
 ```
 Return `None` if data is unavailable.
+
+### `build_training_rows(spec, horizon, **kwargs) -> list[dict]`
+Every row of one (market, decision): the plural form, and the one a panel is built
+from. The default wraps `build_training_row` (`[row]`, or `[]` for `None`), so a plugin
+written for the singular form needs no change. Override it for a market with several bins.
+
+```python
+from pmlab import build_panel
+
+panel = build_panel(plugin.build_training_rows(s, "morning_of", decision_time=t) for s in specs)
+```
+
+`build_panel` takes the per-market lists as they come (and still takes single rows and
+`None`).
+
+## One row per bin
+
+A market with several outcome bins is **several rows**: one per bin, the same `market_id`
+and `decision_date`, each with that bin's `outcome_label` and *that bin's* `market_price`.
+
+The backtest decides per market which bin to buy and whether to buy YES or NO
+(`--policy live`, the default, is what `record-trades` does). It can only do that if it
+sees the bins it could have chosen. A panel with a single row per market, labelled with
+the bin that won, shows it only winners: every YES it buys wins and every NO it buys
+loses, whatever the model says, and the PnL it reports belongs to the panel, not the
+model. That was `weather_tmax` before 0.9.2
+([#28](https://github.com/ArtBreguez/polymarket-lab/issues/28)): on a synthetic world with
+fair prices, where the expected PnL of any policy is exactly zero, it reported a 100% hit
+rate under `--policy top-bin-yes` and, with the CLI's LightGBM model, a 0% hit rate under
+`--policy live`, each 18 to 20 standard deviations from zero. (The sign under `live` follows
+the model: it trained on winners only, LightGBM then reports a probability of about zero for
+every label, and the policy buys NO on the winner.)
+
+Rules for the rows of one market:
+
+1. **Every bin that has a usable price gets a row**, winner and losers alike.
+   `outcome_label == winning_label` for exactly one of them.
+2. **`market_price` is the price of that row's bin**, never the market's maximum or
+   favourite, and never the same number on every row.
+3. **The price is point-in-time.** It was observed strictly before the decision
+   (the rule `FeatureSnapshotStore.as_of` applies to features). Say when and where
+   it came from, with `price_ts` (ISO-8601), `decision_ts` and `price_source`;
+   `build_panel` then refuses a panel in which a price is at or after its decision
+   (`LeakageError`, see `check_price_timing`). A panel without these columns is not
+   checked, so a plugin that omits them is trusted, not verified.
+4. **A bin with no usable price gets no row.** Never fill one in (0.5 included): the
+   backtest would trade against a quote nobody made. Count what you drop, and say why.
+5. The model sees only `feature_*` columns. Features that are the same for every bin of a
+   market (a forecast) cannot tell the bins apart; if the model should, add bin-aware
+   features (the bin's bounds, the forecast's distance from them).
+
+How the counts differ from a one-row panel: a panel has K rows per market, but a
+backtest makes one trade per (market, decision date), so `num_trades`, hit rate, the gate's
+per-segment `n` and the watchdog's counts are all per trade and need no change. Two
+settings are in **rows**, not markets: `--min-train-rows` (20 rows is 4 markets at K=5, so
+scale it by K) and any row-wise split you do yourself, where the bins of one market belong
+on the same side.
+
+### `weather_tmax`
+
+`WeatherTmaxPlugin.build_training_rows(spec, horizon, decision_time=...)` is the reference
+(`decision_time` is required; there is no way to check a price against a decision that
+has no time). It reads each bin's price from `spec.metadata["outcome_schema"]`, where
+`discover_markets` put the Gamma `outcomePrices` and stamped when it saw them
+(`price_observed_at`, `price_source = "discovery"`).
+
+**The only price this plugin has is the discovery-time one.** `pmlab.markets` reads the
+CLOB's *current* midpoint (`fetch_token_prices`) and keeps no history, and the snapshot
+store is keyed per market and has no per-bin price. So a training row's price is the
+Gamma price at the moment `discover_markets` ran, and that must be before the decision. To
+train on a better price (a CLOB midpoint at the horizon, say), put it in the spec's
+`outcome_schema` with its own `observed_at` and `source` before calling.
+
+```python
+from collections import Counter
+from pmlab import build_panel
+from pmlab.plugins.weather_tmax.plugin import WeatherTmaxPlugin
+
+plugin = WeatherTmaxPlugin(gamma_client=..., forecast_client=..., truth_client=...)
+specs = plugin.discover_markets()   # prices are stamped "observed now"
+
+exclusions: Counter[str] = Counter()
+rows = [
+    row
+    for spec in specs
+    for row in plugin.build_training_rows(
+        spec, "morning_of", decision_time="2026-06-05T08:00:00Z", exclusions=exclusions
+    )
+]
+panel = build_panel(rows)
+print(exclusions)   # e.g. Counter({'price_missing': 3, 'price_after_cutoff': 12, ...})
+```
+
+A bin is left out, and counted under its reason, when its price is `price_missing`,
+`price_invalid` (not a number in [0, 1]), `price_degenerate` (exactly 0 or 1, which is what
+a settled market shows), `price_untimed` (no readable observation time) or
+`price_after_cutoff`. A market is left out entirely when it is `market_unresolved`, its
+truth is in no bin (`market_truth_unbinned`), or no bin is usable
+(`market_no_usable_price`). Without an `exclusions` mapping the counts are logged at WARNING
+per market, never lost. A market with a bin left out still has rows for the others, so the backtest
+chooses among the bins that were priced.
+
+`discover_markets` stamps *its own* time on the prices, so a market discovered **after** it
+resolved (or after the decision) has prices that are not decision-time prices, and every
+bin of it is excluded as `price_after_cutoff`. Capture the specs at the decision, store
+them, and build the rows when the market resolves.
+
+The deprecated `build_training_row` is the single winning-bin row, kept so existing callers
+do not break; it emits a `DeprecationWarning`, and a panel made of it is biased the way
+described above.
 
 ## Optional: `is_truth_final(spec, **kwargs) -> bool`
 Return `True` when the truth from `fetch_truth()` is **final** (not preliminary).
@@ -131,5 +253,6 @@ def test_truth_none_when_unresolved():
 ## Reference implementation
 
 See `src/pmlab/plugins/weather_tmax/plugin.py` — the most complete plugin example.
-It demonstrates dependency injection, spec building from raw API dicts, and
-truth resolution for numeric (temperature) markets.
+It demonstrates dependency injection, spec building from raw API dicts, truth
+resolution for numeric (temperature) markets, and one training row per bin at a
+point-in-time price.

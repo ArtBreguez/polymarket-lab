@@ -66,14 +66,25 @@ class MyPlugin(MarketPlugin):
         return 31.5
 
     def build_training_row(self, spec: MarketSpec, horizon: str, **kwargs) -> dict | None:
+        # One row per (market, bin). This market has one bin, "Yes", so one row.
+        # `market_price` is that bin's YES price, observed before the decision; return
+        # None when you have none. A made-up default (0.5) would be traded against.
         features = self.fetch_features(spec, horizon)
         truth = self.fetch_truth(spec)
-        if truth is None:
+        price = self.price_before(spec, kwargs["decision_time"])   # your own lookup
+        if truth is None or price is None:
             return None
-        winning_label = spec.resolve_winning_bin(float(truth))
         return {"market_id": spec.market_id, "decision_horizon": horizon,
-                "winning_label": winning_label, "market_price": 0.3, **features}
+                "decision_date": kwargs["decision_time"][:10],
+                "outcome_label": "Yes",
+                "winning_label": spec.resolve_winning_bin(float(truth)) or "No",
+                "market_price": price, **features}
 ```
+
+A market with **several bins** (temperature ranges, a race winner) is several rows: one per
+bin, each at that bin's own price, so the backtest sees the bins it could have bought and not
+only the one that won. Override `build_training_rows` for it; see
+[One row per bin](docs/plugin-authoring.md#one-row-per-bin). `weather_tmax` does.
 
 ### 2. Run a backtest
 
@@ -84,6 +95,8 @@ from pmlab.backtest.rolling_origin import rolling_origin_eval
 
 panel = pd.read_parquet("data/historical_panel.parquet")
 model = LGBMForecaster()
+# `min_train_rows` counts panel rows: with K rows per market (one per bin) it is reached
+# after min_train_rows / K markets, so scale it by K.
 result = rolling_origin_eval(panel, model, stride=30, min_train_rows=100)
 
 print(f"Total trades: {len(result.trades)}")
@@ -226,7 +239,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
       │
       ├── fetch_features(spec, horizon)       ──►  dict[str, float]
       ├── fetch_truth(spec)                   ──►  float | str | None
-      └── build_training_row(spec, horizon)   ──►  dict | None
+      └── build_training_rows(spec, horizon)  ──►  list[dict]   (one row per bin)
                 │
     [pmlab.features]  ← add_lags, rolling_stats, encode_cyclical, onehot, clip_outliers
                 │
@@ -289,6 +302,10 @@ class MarketPlugin(ABC):
     def fetch_features(self, spec: MarketSpec, horizon: str, **kwargs) -> dict[str, float]: ...
     def fetch_truth(self, spec: MarketSpec, **kwargs) -> float | str | None: ...
     def build_training_row(self, spec: MarketSpec, horizon: str, **kwargs) -> dict | None: ...
+
+    # Optional — override for a market with several bins (one row per bin). The default
+    # wraps build_training_row, so a plugin written for the singular form keeps working:
+    def build_training_rows(self, spec: MarketSpec, horizon: str, **kwargs) -> list[dict]: ...
 
     # Optional — override if your data source has a finalization lag:
     def is_truth_final(self, spec: MarketSpec, **kwargs) -> bool: ...
@@ -356,8 +373,13 @@ store.append("politics", [
 seen = store.as_of("politics", cutoff="2025-01-06")   # latest snapshot per market before the cutoff
 
 # 2. Assemble a schema-validated panel from plugin rows (drops None, coerces
-#    features to float, raises a clear error on missing columns / bad dates).
-panel = build_panel(plugin.build_training_row(s, "resolution") for s in specs)
+#    features to float, raises a clear error on missing columns / bad dates, and
+#    refuses a price observed at or after the decision it informs). A market with
+#    several bins is several rows, one per bin, each at that bin's own price.
+panel = build_panel(
+    plugin.build_training_rows(s, "morning_of", decision_time="2025-01-06T08:00:00Z")
+    for s in specs
+)
 
 # 3. Guard against label leakage — the silent killer. Raises LeakageError on any
 #    feature that separates the outcome suspiciously well.
