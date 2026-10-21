@@ -106,7 +106,13 @@ class SettlementEngine:
         gamma_price = float(trade["gamma_price"])
         flat_stake = float(trade.get("flat_stake", 1.0))
         fee_paid = float(trade.get("fee_paid", 0.003))
-        entry_price = gamma_price if direction == "yes" else (1.0 - gamma_price)
+        quote = gamma_price if direction == "yes" else (1.0 - gamma_price)
+        # Enter at what the broker actually paid. `fill_price` carries the cost
+        # model's slippage and depth; falling back to the quote only for logs
+        # written before it was recorded. Settling at the quote would make live
+        # PnL look better than the backtest by exactly the friction it modelled.
+        fill_price = trade.get("fill_price")
+        entry_price = float(fill_price) if fill_price is not None else quote
         size = flat_stake / max(entry_price, 1e-9)
         side = "buy" if direction == "yes" else "sell"
         pos = Position(
