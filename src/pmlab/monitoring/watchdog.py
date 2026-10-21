@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
 from datetime import UTC, datetime
@@ -44,7 +45,7 @@ from typing import Any, Literal, TypeGuard, cast
 
 import numpy as np
 
-from pmlab.backtest.expectation import BacktestExpectation
+from pmlab.backtest.expectation import BacktestExpectation, SegmentExpectation
 from pmlab.core.costs import CostModel
 from pmlab.execution.settlement import MIN_TRUSTED_NO_SETTLEMENT_VERSION
 from pmlab.modeling.champion import ChampionManifest
@@ -743,6 +744,15 @@ def _unusable_expectation(expectation: BacktestExpectation, *, calibration: bool
     if expectation.by_direction is not None:
         for side, group in expectation.by_direction.items():
             problems.extend(_unusable_numbers(group, calibration=calibration, prefix=f"{side}."))
+    for name, node in (expectation.by_segment or {}).items():
+        if node is None:
+            continue
+        where = f"segment {name} "
+        problems.extend(_unusable_numbers(node, calibration=calibration, prefix=where))
+        for side, group in (node.by_direction or {}).items():
+            problems.extend(
+                _unusable_numbers(group, calibration=calibration, prefix=f"{where}{side}.")
+            )
     return problems
 
 
@@ -957,6 +967,7 @@ class _Scope:
     cause: str | None
     reason: str
     metrics: dict[str, Any]
+    kind: str = "overall"  # "overall", "side" or "segment"
 
     def entry(self) -> dict[str, Any]:
         """This scope as it appears under the check's `directions` metric."""
@@ -994,7 +1005,7 @@ def _no_settlement_is_trusted(trade: Mapping[str, Any]) -> bool:
     return _is_number(version) and version >= MIN_TRUSTED_NO_SETTLEMENT_VERSION
 
 
-def _pnl_groups(expectation: BacktestExpectation) -> dict[str, _Group]:
+def _pnl_groups(expectation: BacktestExpectation | SegmentExpectation) -> dict[str, _Group]:
     """The backtest's (mean, std, n) of per-stake PnL for each side it can speak for."""
     split = expectation.by_direction
     if split is None:
@@ -1012,7 +1023,9 @@ def _pnl_groups(expectation: BacktestExpectation) -> dict[str, _Group]:
     }
 
 
-def _brier_groups(expectation: BacktestExpectation) -> dict[str, _Group] | None:
+def _brier_groups(
+    expectation: BacktestExpectation | SegmentExpectation,
+) -> dict[str, _Group] | None:
     """The backtest's (Brier, std, n) per side; None when no split was recorded.
 
     None means the pooled Brier stands for every trade, as it always did.
@@ -1126,56 +1139,93 @@ def _brier_level(
 def _z_text(raw: _Evidence, used: _Evidence, family: int) -> str:
     """`z=3.4` or, inside a family of scopes, `z=3.4, Holm z=3.1`."""
     text = f"z={_fmt_z(raw.z)}"
-    if family > 1:
+    if family > 1 and _fmt_z(used.z) != _fmt_z(raw.z):
         text += f", Holm z={_fmt_z(used.z)}"
     return text
 
 
-def _unmeasurable(key: str, label: str, n: int, cause: str, reason: str) -> _Scope:
-    return _Scope(key, label, n, "insufficient", cause, reason, {})
+def _unmeasurable(
+    key: str, label: str, n: int, cause: str, reason: str, kind: str = "overall"
+) -> _Scope:
+    return _Scope(key, label, n, "insufficient", cause, reason, {}, kind)
 
 
-def _too_few_for_a_side(key: str, n: int, min_trades: int) -> _Scope:
+def _too_few(key: str, label: str, n: int, min_trades: int, kind: str) -> _Scope:
     return _unmeasurable(
         key,
-        _SIDE_LABEL[key],
+        label,
         n,
         "too_few_samples",
         f"{n} scoreable settled trades, need >= {min_trades}",
+        kind,
     )
+
+
+def _too_few_for_a_side(key: str, n: int, min_trades: int) -> _Scope:
+    return _too_few(key, _SIDE_LABEL[key], n, min_trades, "side")
+
+
+def _segments_are_judged(expectation: BacktestExpectation, allowed: Sequence[str]) -> bool:
+    """Is there a per-segment record to judge by, and a reason to use it?
+
+    One allowed segment *is* the whole book: judging it again against the same trades
+    would only repeat the overall line.
+    """
+    if expectation.by_segment is None:
+        return False
+    return not (len(allowed) == 1 and allowed[0] != "all")
+
+
+_KIND_RANK = {"segment": 0, "side": 1, "overall": 2}
+_NOT_ASSESSED_SHOWN = 5
 
 
 def _assemble(
-    name: str, overall: _Scope, sides: Sequence[_Scope], metrics: dict[str, Any]
+    name: str,
+    overall: _Scope,
+    families: Mapping[str, Sequence[_Scope]],
+    metrics: dict[str, Any],
 ) -> CheckResult:
     """The check's verdict: the worst of the conclusive scopes.
 
-    `insufficient` is reserved for a check in which nothing could be measured. A side
-    with too few trades is listed as not assessed and does not turn an otherwise
-    conclusive check insufficient: with many thin scopes that would make the exit code
-    permanently 30, and the overall comparison already covers their trades.
+    `insufficient` is reserved for a check in which nothing could be measured. A scope
+    with too few trades (or nothing promised for it) is listed as not assessed and does
+    not turn an otherwise conclusive check insufficient: with many thin segments that
+    would make the exit code permanently 30, and the overall comparison already covers
+    their trades.
+
+    `families` maps the metrics key a family of sibling scopes is reported under
+    (``directions``, ``segments``) to its scopes.
     """
-    if sides:
-        metrics["directions"] = {sc.key: sc.entry() for sc in sides}
-    scopes = [overall, *sides]
+    scopes = [overall]
+    for key, family in families.items():
+        if family:
+            metrics[key] = {sc.key: sc.entry() for sc in family}
+            scopes.extend(family)
     conclusive = [sc for sc in scopes if sc.status != "insufficient"]
     if not conclusive:
         return _insufficient(name, overall.cause or "too_few_samples", [overall.reason], metrics)
-    # Worst first. At equal severity the specific scope (a side) leads, because it names
-    # what is wrong and the overall line only repeats that the book as a whole is.
+    # Worst first. At equal severity the more specific scope leads (a segment, then a
+    # side, then the book): it names what is wrong, and the overall line only repeats
+    # that the book as a whole is.
     problems = sorted(
         (sc for sc in conclusive if sc.status != "ok"),
-        key=lambda sc: (-_SEVERITY[sc.status], sc is overall),
+        key=lambda sc: (-_SEVERITY[sc.status], _KIND_RANK[sc.kind]),
     )
     status = problems[0].status if problems else "ok"
-    reasons = [sc.reason for sc in problems]
+    # With sibling scopes in the report the whole-book line says so, so that it is not
+    # mistaken for the sentence about a side or a segment.
+    tag = "overall: " if len(scopes) > 1 else ""
+    reasons = [(tag + sc.reason) if sc is overall else sc.reason for sc in problems]
     if overall not in problems:
         # The whole story when nothing is wrong, context for the lines above otherwise.
-        reasons.append(f"overall: {overall.reason}" if problems else overall.reason)
+        reasons.append(tag + overall.reason)
     unmeasured = [sc for sc in scopes if sc.status == "insufficient"]
     if unmeasured:
-        listed = ", ".join(f"{sc.label or 'overall'} ({sc.reason})" for sc in unmeasured)
-        reasons.append(f"not assessed: {listed}")
+        shown = [f"{sc.label or 'overall'} ({sc.reason})" for sc in unmeasured]
+        extra = len(shown) - _NOT_ASSESSED_SHOWN
+        listed = ", ".join(shown[:_NOT_ASSESSED_SHOWN])
+        reasons.append(f"not assessed: {listed}" + (f", and {extra} more" if extra > 0 else ""))
     return CheckResult(name, cast(HealthStatus, status), tuple(reasons), metrics)
 
 
@@ -1193,6 +1243,7 @@ def _brier_scope(
     cfg: CalibrationThresholds,
     *,
     family: int,
+    kind: str = "overall",
 ) -> _Scope:
     """The verdict on one measured calibration scope.
 
@@ -1201,7 +1252,9 @@ def _brier_scope(
     """
     bad = welch.problems()
     if bad:
-        return _unmeasurable(key, label, n, "invalid_statistic", _invalid_statistic_reason(bad))
+        return _unmeasurable(
+            key, label, n, "invalid_statistic", _invalid_statistic_reason(bad), kind
+        )
     evidence = used or welch.evidence
     gap = welch.evidence.gap
     rel = gap / welch.ref_mean if welch.ref_mean > 0 else math.inf
@@ -1222,7 +1275,7 @@ def _brier_scope(
     if used is not None:
         metrics["p_adjusted"] = used.p_value
         metrics["z_adjusted"] = used.z
-    return _Scope(key, label, n, status, None, f"{summary}{tail}", metrics)
+    return _Scope(key, label, n, status, None, f"{summary}{tail}", metrics, kind)
 
 
 def _brier_family(
@@ -1251,7 +1304,9 @@ def _brier_family(
         bad = welch.problems()
         if bad:
             reason = _invalid_statistic_reason(bad)
-            scopes[side] = _unmeasurable(side, _SIDE_LABEL[side], n, "invalid_statistic", reason)
+            scopes[side] = _unmeasurable(
+                side, _SIDE_LABEL[side], n, "invalid_statistic", reason, "side"
+            )
             continue
         measured[side] = welch
     adjusted = _holm_evidence({side: welch.evidence for side, welch in measured.items()})
@@ -1264,8 +1319,86 @@ def _brier_family(
             adjusted[side],
             cfg,
             family=len(measured),
+            kind="side",
         )
     return [scopes[side] for side in _SIDES if side in scopes]
+
+
+def _segment_of(trade: Mapping[str, Any]) -> str:
+    return str(trade.get("city_or_segment", ""))
+
+
+def _brier_segment_family(
+    trades: Sequence[Mapping[str, Any]],
+    expectation: BacktestExpectation,
+    cfg: CalibrationThresholds,
+) -> list[_Scope]:
+    """Each live segment's calibration against that segment's own backtest.
+
+    The segments are a family of tests: Holm-Bonferroni across the ones assessed keeps
+    the chance of a false alarm somewhere in the family at what one test would have.
+    """
+    assert expectation.by_segment is not None
+    by_segment: dict[str, list[Mapping[str, Any]]] = {}
+    for trade in trades:
+        by_segment.setdefault(_segment_of(trade), []).append(trade)
+    measured: dict[str, _Welch] = {}
+    sizes: dict[str, int] = {}
+    scopes: dict[str, _Scope] = {}
+    for name in sorted(by_segment):
+        label = f"segment {name}"
+        node = expectation.by_segment.get(name)
+        if node is None or node.brier_score is None or node.brier_std is None:
+            scopes[name] = _unmeasurable(
+                name,
+                label,
+                len(by_segment[name]),
+                "no_expectation",
+                "no backtest Brier expectation recorded for this segment",
+                "segment",
+            )
+            continue
+        groups = _brier_groups(node)
+        items = [dict(t) for t in by_segment[name] if groups is None or _direction_of(t) in groups]
+        tracker = CalibrationTracker(items, n_bins=cfg.n_bins)
+        n = tracker.n_realized
+        if n < cfg.min_trades:
+            scopes[name] = _too_few(name, label, n, cfg.min_trades, "segment")
+            continue
+        counts = {
+            side: CalibrationTracker(
+                [t for t in items if _direction_of(t) == side], n_bins=cfg.n_bins
+            ).n_realized
+            for side in _SIDES
+        }
+        welch = _welch(
+            tracker.squared_errors(),
+            counts=counts,
+            groups=groups,
+            pooled=(node.brier_score, node.brier_std, node.n_trades),
+            worse_when_higher=True,
+        )
+        bad = welch.problems()
+        if bad:
+            scopes[name] = _unmeasurable(
+                name, label, n, "invalid_statistic", _invalid_statistic_reason(bad), "segment"
+            )
+            continue
+        measured[name] = welch
+        sizes[name] = n
+    adjusted = _holm_evidence({name: welch.evidence for name, welch in measured.items()})
+    for name, welch in measured.items():
+        scopes[name] = _brier_scope(
+            name,
+            f"segment {name}",
+            sizes[name],
+            welch,
+            adjusted[name],
+            cfg,
+            family=len(measured),
+            kind="segment",
+        )
+    return [scopes[name] for name in sorted(scopes)]
 
 
 def _calibration_check(
@@ -1315,6 +1448,8 @@ def _calibration_check(
         metrics["n_excluded_no_side"] = n_no_side
         metrics["n_excluded_yes_side"] = n_yes_side
         metrics["expectation_directions"] = sorted(groups)
+    if expectation is not None:
+        metrics["segments_recorded"] = expectation.by_segment is not None
 
     if expectation is None or expectation.brier_score is None or expectation.brier_std is None:
         return _insufficient(
@@ -1358,7 +1493,10 @@ def _calibration_check(
     sides: list[_Scope] = []
     if len(counts) > 1 and groups is not None:
         sides = _brier_family(side_terms, groups, cfg)
-    return _assemble("calibration", overall, sides, metrics)
+    segments: list[_Scope] = []
+    if _segments_are_judged(expectation, selection.allowed_segments):
+        segments = _brier_segment_family(scoreable, expectation, cfg)
+    return _assemble("calibration", overall, {"directions": sides, "segments": segments}, metrics)
 
 
 # --------------------------------------------------------------------------
@@ -1427,12 +1565,15 @@ def _pnl_scope(
     cfg: PnLThresholds,
     *,
     family: int,
+    kind: str = "overall",
 ) -> _Scope:
     """The verdict on one measured PnL scope. `used` is the (adjusted) evidence to judge by."""
     shortfall = welch.evidence.gap / welch.ref_mean
     bad = welch.problems(shortfall=shortfall)
     if bad:
-        return _unmeasurable(key, label, n, "invalid_statistic", _invalid_statistic_reason(bad))
+        return _unmeasurable(
+            key, label, n, "invalid_statistic", _invalid_statistic_reason(bad), kind
+        )
     evidence = used or welch.evidence
     status, tail = _pnl_level(shortfall, evidence, cfg)
     prefix = f"{label}: " if label else ""
@@ -1451,7 +1592,7 @@ def _pnl_scope(
     if used is not None:
         metrics["p_adjusted"] = used.p_value
         metrics["z_adjusted"] = used.z
-    return _Scope(key, label, n, status, None, f"{summary}{tail}", metrics)
+    return _Scope(key, label, n, status, None, f"{summary}{tail}", metrics, kind)
 
 
 def _pnl_family(
@@ -1477,6 +1618,7 @@ def _pnl_family(
                 "invalid_expectation",
                 f"backtest mean PnL per stake is {mean:+.3f} over {n_backtest} trades: a "
                 "shortfall needs a positive expectation to be measured against",
+                "side",
             )
             continue
         welch = _welch(
@@ -1489,7 +1631,7 @@ def _pnl_family(
         bad = welch.problems()
         if bad:
             scopes[side] = _unmeasurable(
-                side, label, n, "invalid_statistic", _invalid_statistic_reason(bad)
+                side, label, n, "invalid_statistic", _invalid_statistic_reason(bad), "side"
             )
             continue
         measured[side] = welch
@@ -1503,8 +1645,87 @@ def _pnl_family(
             adjusted[side],
             cfg,
             family=len(measured),
+            kind="side",
         )
     return [scopes[side] for side in _SIDES if side in scopes]
+
+
+def _pnl_segment_family(
+    rows: Sequence[tuple[str, str, float]], expectation: BacktestExpectation, cfg: PnLThresholds
+) -> list[_Scope]:
+    """Each live segment's PnL against that segment's own backtest.
+
+    A segment is held to its own per-side means, weighted by its own live mix of sides,
+    exactly as the whole book is. The segments are a family of tests: Holm-Bonferroni
+    across the ones assessed keeps the chance of a false alarm somewhere in the family
+    at what one test would have, however many segments there are.
+    """
+    assert expectation.by_segment is not None
+    by_segment: dict[str, list[tuple[str, float]]] = {}
+    for side, segment, value in rows:
+        by_segment.setdefault(segment, []).append((side, value))
+    measured: dict[str, _Welch] = {}
+    sizes: dict[str, int] = {}
+    scopes: dict[str, _Scope] = {}
+    for name in sorted(by_segment):
+        label = f"segment {name}"
+        node = expectation.by_segment.get(name)
+        if node is None:
+            scopes[name] = _unmeasurable(
+                name,
+                label,
+                len(by_segment[name]),
+                "no_expectation",
+                "no backtest expectation recorded for this segment",
+                "segment",
+            )
+            continue
+        groups = _pnl_groups(node)
+        usable = [(side, value) for side, value in by_segment[name] if side in groups]
+        n = len(usable)
+        if n < cfg.min_trades:
+            scopes[name] = _too_few(name, label, n, cfg.min_trades, "segment")
+            continue
+        counts = Counter(side for side, _ in usable)
+        welch = _welch(
+            [value for _, value in usable],
+            counts=counts,
+            groups=groups,
+            pooled=None,
+            worse_when_higher=False,
+        )
+        bad = welch.problems()
+        if bad:
+            scopes[name] = _unmeasurable(
+                name, label, n, "invalid_statistic", _invalid_statistic_reason(bad), "segment"
+            )
+            continue
+        if welch.ref_mean <= 0:
+            scopes[name] = _unmeasurable(
+                name,
+                label,
+                n,
+                "invalid_expectation",
+                f"backtest mean PnL per stake for this segment is {welch.ref_mean:+.3f}: a "
+                "shortfall needs a positive expectation to be measured against",
+                "segment",
+            )
+            continue
+        measured[name] = welch
+        sizes[name] = n
+    adjusted = _holm_evidence({name: welch.evidence for name, welch in measured.items()})
+    for name, welch in measured.items():
+        scopes[name] = _pnl_scope(
+            name,
+            f"segment {name}",
+            sizes[name],
+            welch,
+            adjusted[name],
+            cfg,
+            family=len(measured),
+            kind="segment",
+        )
+    return [scopes[name] for name in sorted(scopes)]
 
 
 def _pnl_check(
@@ -1514,7 +1735,7 @@ def _pnl_check(
     cfg: PnLThresholds,
 ) -> CheckResult:
     groups = _pnl_groups(expectation) if expectation is not None else {"yes": (0.0, 0.0, 2)}
-    rows: list[tuple[str, float]] = []
+    rows: list[tuple[str, str, float]] = []
     n_unscoreable = 0
     n_no_side = 0
     n_yes_side = 0
@@ -1551,10 +1772,10 @@ def _pnl_check(
                 continue
             if verdict == "unverified":
                 n_cost_unverified += 1
-        rows.append((side, float(pnl) / float(stake)))
+        rows.append((side, _segment_of(trade), float(pnl) / float(stake)))
 
     by_side: dict[str, list[float]] = {}
-    for side, value in rows:
+    for side, _, value in rows:
         by_side.setdefault(side, []).append(value)
     counts = {side: len(by_side[side]) for side in _SIDES if side in by_side}
     metrics: dict[str, Any] = {
@@ -1580,6 +1801,8 @@ def _pnl_check(
         ),
         "min_trades": cfg.min_trades,
     }
+    if expectation is not None:
+        metrics["segments_recorded"] = expectation.by_segment is not None
 
     if expectation is None:
         return _insufficient(
@@ -1620,7 +1843,7 @@ def _pnl_check(
     if len(rows) < cfg.min_trades:
         return _too_few_samples("pnl", len(rows), cfg.min_trades, metrics)
 
-    values = [value for _, value in rows]
+    values = [value for _, _, value in rows]
     welch = _welch(values, counts=counts, groups=groups, pooled=None, worse_when_higher=False)
     if welch.ref_mean <= 0:
         # Each side that traded has a promise, but this mix of them averages to nothing.
@@ -1639,7 +1862,10 @@ def _pnl_check(
     metrics.update(overall.metrics)
 
     sides = _pnl_family(by_side, groups, cfg) if len(counts) > 1 else []
-    return _assemble("pnl", overall, sides, metrics)
+    segments: list[_Scope] = []
+    if _segments_are_judged(expectation, selection.allowed_segments):
+        segments = _pnl_segment_family(rows, expectation, cfg)
+    return _assemble("pnl", overall, {"directions": sides, "segments": segments}, metrics)
 
 
 # --------------------------------------------------------------------------
