@@ -386,8 +386,11 @@ alert -> Brier 0.410 vs backtest 0.220 (+0.190 abs, +86.4% rel, z=3.6, n=60); al
 
 It uses `CalibrationTracker`, so `outcome` is read as *the label occurred*, not *the trade made
 money* (see [Live calibration](live-calibration.md)). Trades without a `model_prob` are not
-scored and are counted in `n_skipped_no_forecast`. `reliability_live` is reported in the metrics
-for context but does not drive the status.
+scored and are counted in `n_skipped_no_forecast`. A `model_prob` that is a number but not a
+probability (NaN, infinite, below 0 or above 1) is **bad data, not a bad forecast**: it says what
+writes the trade log is broken, and scoring it would either page as a Brier alert or poison every
+statistic with NaN. It is left out, counted in `n_invalid_forecast`, and a note in the reasons names
+the count. `reliability_live` is reported in the metrics for context but does not drive the status.
 
 ### PnL against the backtest
 

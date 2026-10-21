@@ -1650,3 +1650,75 @@ class TestAChampionThatAllowsNoSegment:
         champ = _champion(passing=(), failing=())
         with pytest.raises(WatchdogInputError, match="allows no segment"):
             health_report(champion=champ, trades=_trades(), drift=None, as_of=_AS_OF)
+
+
+# --------------------------------------------------------------------------
+# A forecast that is not a probability is bad data, not a bad forecast
+# --------------------------------------------------------------------------
+
+
+class TestForecastsThatAreNotProbabilities:
+    """A model_prob of 1.5 or NaN says the recording step is broken. Scoring it would
+    page as a Brier alert (a miscalibrated model) or poison every statistic with NaN."""
+
+    _BAD = [math.nan, math.inf, -math.inf, 1.2, 1.0000001, -0.1]
+
+    def _with_bad(self, n_good: int = 60, **kwargs: object) -> list[dict]:
+        bad = [_trade(0.2, 0.1, model_prob=p, **kwargs) for p in self._BAD]
+        return _trades(n_good, **kwargs) + bad
+
+    def test_they_are_excluded_and_counted(self) -> None:
+        check = _check(_report(trades=self._with_bad()), "calibration")
+        assert check.metrics["n_invalid_forecast"] == len(self._BAD)
+        assert check.metrics["n_trades"] == 60
+
+    def test_they_cannot_page_a_healthy_book(self) -> None:
+        """Left in, a model_prob of 1.2 on a label that did not occur scores 1.44."""
+        clean = _check(_report(trades=_trades(60)), "calibration")
+        dirty = _check(_report(trades=self._with_bad()), "calibration")
+        assert dirty.status == clean.status == "ok"
+        assert dirty.metrics["brier_live"] == clean.metrics["brier_live"]
+
+    def test_they_do_not_make_a_statistic_non_finite(self) -> None:
+        check = _check(_report(trades=self._with_bad()), "calibration")
+        assert check.cause is None
+        assert math.isfinite(check.metrics["brier_live"])
+
+    def test_the_report_names_the_bad_data(self) -> None:
+        check = _check(_report(trades=self._with_bad()), "calibration")
+        text = " ".join(check.reasons)
+        assert f"{len(self._BAD)} settled trades" in text
+        assert "model_prob" in text and "not a probability" in text
+
+    def test_all_bad_is_insufficient_and_says_why(self) -> None:
+        trades = [_trade(0.2, 0.1, model_prob=p) for p in self._BAD * 10]
+        check = _check(_report(trades=trades), "calibration")
+        assert check.status == "insufficient"
+        assert check.cause == "too_few_samples"
+        assert (
+            f"{len(self._BAD) * 10} with a model_prob that is not a probability" in check.reasons[0]
+        )
+
+    def test_zero_and_one_are_probabilities(self) -> None:
+        trades = _trades(60) + [_trade(0.0, 0.1, model_prob=0.0), _trade(0.0, 0.1, model_prob=1.0)]
+        check = _check(_report(trades=trades), "calibration")
+        assert check.metrics["n_invalid_forecast"] == 0
+        assert check.metrics["n_trades"] == 62
+
+    def test_a_missing_forecast_is_a_different_count(self) -> None:
+        no_forecast = [{k: v for k, v in t.items() if k != "model_prob"} for t in _trades(5)]
+        check = _check(_report(trades=_trades(60) + no_forecast), "calibration")
+        assert check.metrics["n_skipped_no_forecast"] == 5
+        assert check.metrics["n_invalid_forecast"] == 0
+
+    def test_the_pnl_check_does_not_care_what_the_forecast_was(self) -> None:
+        check = _check(_report(trades=self._with_bad()), "pnl")
+        assert check.metrics["n_trades"] == 60 + len(self._BAD)
+
+    def test_a_clean_book_has_no_note(self) -> None:
+        check = _check(_report(trades=_trades(60)), "calibration")
+        assert check.metrics["n_invalid_forecast"] == 0
+        assert "not a probability" not in " ".join(check.reasons)
+
+    def test_the_note_does_not_make_a_healthy_run_noisy(self) -> None:
+        assert _report(trades=self._with_bad()).render() == ""

@@ -616,6 +616,7 @@ _EXCLUSION_LABELS = (
     ("n_before_champion", "recorded before this champion was published"),
     ("n_after_as_of", "not yet settled at as_of"),
     ("n_unscoreable", "with no usable stake or PnL"),
+    ("n_invalid_forecast", "with a model_prob that is not a probability"),
     ("n_excluded_no_side", "on the NO side (the backtest only buys YES)"),
     (
         "n_excluded_legacy_settlement",
@@ -864,12 +865,35 @@ def _drift_reason(f: FeatureDrift, thresholds: Any) -> str:
     return f"{f.name}: {level} ({detail})"
 
 
+def _is_invalid_forecast(trade: Mapping[str, Any]) -> bool:
+    """A `model_prob` that is a number but not a probability. Absent is a different case."""
+    prob = trade.get("model_prob")
+    return _is_number(prob) and not (math.isfinite(prob) and 0.0 <= prob <= 1.0)
+
+
+def _with_bad_forecast_note(result: CheckResult) -> CheckResult:
+    """Say, on the calibration result, that some forecasts were not scored as data errors."""
+    bad = result.metrics.get("n_invalid_forecast", 0)
+    if not bad:
+        return result
+    note = (
+        f"note: {bad} settled trades carry a model_prob that is not a probability (non-finite "
+        "or outside [0, 1]) and were not scored; check what writes the trade log"
+    )
+    return replace(result, reasons=(*result.reasons, note))
+
+
 def _calibration_check(
     selection: _Selection, expectation: BacktestExpectation | None, cfg: CalibrationThresholds
 ) -> CheckResult:
-    tracker = CalibrationTracker([dict(t) for t in selection.trades], n_bins=cfg.n_bins)
+    # A model_prob that is NaN, infinite or outside [0, 1] is not a forecast that
+    # turned out wrong: the recording step is broken. Scoring it would page as a Brier
+    # alert, or (NaN) poison the statistics. Count it as bad data and leave it out.
+    scoreable = [t for t in selection.trades if not _is_invalid_forecast(t)]
+    tracker = CalibrationTracker([dict(t) for t in scoreable], n_bins=cfg.n_bins)
     metrics: dict[str, Any] = {
         **selection.counts,
+        "n_invalid_forecast": len(selection.trades) - len(scoreable),
         "allowed_segments": list(selection.allowed_segments),
         "n_by_segment": selection.by_segment,
         "n_trades": tracker.n_realized,
@@ -1191,6 +1215,7 @@ def health_report(
             results.append(_drift_check(drift))
         elif name == "calibration":
             calibration = _calibration_check(selection, champion.expectation, config.calibration)
+            calibration = _with_bad_forecast_note(calibration)
             results.append(_with_settled_at_note(calibration, selection.counts))
         else:
             pnl = _pnl_check(selection, champion.expectation, champion.costs, config.pnl)

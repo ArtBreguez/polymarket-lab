@@ -105,6 +105,10 @@ cron: `pmlab monitor ... || notify`.
   the champion's allowed segments [...]` instead of burying it in an exclusion tally,
   and `allowed_segments` is in the metrics. A champion whose gate allows no segment at
   all (an empty allowlist means *none*, as in `PaperBroker`) is malformed and exits 64.
+- **A `model_prob` that is not a probability is bad data, not a Brier alert.** NaN,
+  infinite or outside [0, 1] is left out of calibration, counted in
+  `n_invalid_forecast`, and named in the reasons; scored, it would page as a
+  miscalibrated model or turn every statistic into NaN.
 - **A cutoff needs a UTC offset.** `--as-of` (and `--window-start`, and the `as_of`
   argument of `health_report`) refuse a naive timestamp such as `2026-03-01` with exit
   64 and a message asking for `Z` or an explicit offset, instead of reading it as UTC:
