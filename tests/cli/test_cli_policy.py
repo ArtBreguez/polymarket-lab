@@ -355,10 +355,10 @@ class TestOneTradePerMarketIsTheBestOne:
 
     def test_equal_edges_keep_the_files_order(self, tmp_path: Path) -> None:
         artifacts = _champion_with_policy(tmp_path, 0.1)
-        _market_signals(artifacts, [_signal("first", 0.3), _signal("second", 0.3)])
+        _market_signals(artifacts, [_signal("zeta", 0.3), _signal("alpha", 0.3)])
         _record(artifacts, "ws")
         trades = json.loads(_trades_file(artifacts, "ws").read_text())["trades"]
-        assert [t["outcome_label"] for t in trades] == ["first"]
+        assert [t["outcome_label"] for t in trades] == ["zeta"]
 
     def test_separate_markets_are_all_recorded(self, tmp_path: Path) -> None:
         artifacts = _champion_with_policy(tmp_path, 0.1)
