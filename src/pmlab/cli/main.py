@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from rich import print as rprint
@@ -300,13 +301,21 @@ def backtest_cmd(
     console.print(table)
 
     if output:
-        metrics = {
+        metrics: dict[str, object] = {
             "total_trades": len(trades),
             "steps": len(result.steps),
             "total_pnl": float(total_pnl),
             "hit_rate": float(hit_rate),
             "avg_edge": float(avg_edge),
         }
+        if len(trades) >= 2:
+            # What `promote-champion --expectation` records in champion.json, so the
+            # watchdog can hold live PnL and calibration against this backtest.
+            from pmlab.backtest.expectation import BacktestExpectation
+
+            metrics["expectation"] = BacktestExpectation.from_trades(
+                trades, flat_stake=flat_stake
+            ).to_dict()
         Path(output).write_text(json.dumps(metrics, indent=2))
         rprint(f"[dim]Metrics saved to {output}[/dim]")
 
@@ -318,6 +327,16 @@ def promote_champion_cmd(
     plugin: str = typer.Option(..., "--plugin", "-p"),
     output_dir: str = typer.Option("artifacts/public_models", "--output-dir"),
     model_name: str = typer.Option("champion", "--name"),
+    expectation_path: str | None = typer.Option(
+        None,
+        "--expectation",
+        help=(
+            "JSON with the backtest expectation to record in champion.json: the "
+            "'expectation' key written by `pmlab backtest --output`, or a bare "
+            "expectation object. Without it `pmlab monitor` cannot check live PnL "
+            "or calibration against the backtest."
+        ),
+    ),
 ) -> None:
     """Promote a model to champion if gate decision is GO."""
     from pmlab.backtest.holdout_gate import HoldoutGateResult
@@ -351,6 +370,21 @@ def promote_champion_cmd(
             )
         raise typer.Exit(1)
 
+    expectation = None
+    if expectation_path is not None:
+        from pmlab.backtest.expectation import BacktestExpectation
+
+        expectation_file = Path(expectation_path)
+        if not expectation_file.exists():
+            rprint(f"[red]Expectation file not found: {expectation_path}[/red]")
+            raise typer.Exit(1)
+        try:
+            raw = json.loads(expectation_file.read_text())
+            expectation = BacktestExpectation.from_dict(raw.get("expectation", raw))
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            rprint(f"[red]Not a valid backtest expectation ({expectation_path}): {e}[/red]")
+            raise typer.Exit(1) from e
+
     model = LGBMForecaster.load(model_file)
     try:
         manifest = ChampionManifest.publish(
@@ -359,6 +393,7 @@ def promote_champion_cmd(
             output_dir=Path(output_dir),
             plugin_family=plugin,
             model_name=model_name,
+            expectation=expectation,
         )
         rprint("[green]Champion published![/green]")
         rprint(f"  Model: {manifest.model_path}")
@@ -367,6 +402,111 @@ def promote_champion_cmd(
     except ValueError as e:
         rprint(f"[red]{e}[/red]")
         raise typer.Exit(1) from e
+
+
+@app.command("monitor")
+def monitor_cmd(
+    champion: str | None = typer.Option(
+        None,
+        "--champion",
+        help="Path to champion.json (default: <artifacts-dir>/public_models/champion.json)",
+    ),
+    trades: str | None = typer.Option(
+        None,
+        "--trades",
+        "-t",
+        help="Path to forward_paper_trades.json (default: from --artifacts-dir and --workspace)",
+    ),
+    artifacts_dir: str = typer.Option(
+        "artifacts", "--artifacts-dir", "-a", envvar="PMLAB_ARTIFACTS_DIR", help="Artifacts root"
+    ),
+    workspace: str = typer.Option(
+        "ops_daily", "--workspace", "-w", envvar="PMLAB_WORKSPACE", help="Active workspace name"
+    ),
+    reference: str | None = typer.Option(
+        None, "--reference", help="Training panel (.parquet/.csv) the drift check compares against"
+    ),
+    snapshots: str | None = typer.Option(
+        None, "--snapshots", help="FeatureSnapshotStore directory holding the live window"
+    ),
+    family: str | None = typer.Option(
+        None, "--family", help="Snapshot family (default: the champion's plugin family)"
+    ),
+    window_days: int = typer.Option(
+        7, "--window-days", help="Live drift window, ending at --as-of"
+    ),
+    window_start: str | None = typer.Option(
+        None, "--window-start", help="ISO start of the live drift window (overrides --window-days)"
+    ),
+    feature: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--feature",
+            help="Drift feature to assess, repeatable (default: the model's own features)",
+        ),
+    ] = None,
+    no_prediction: bool = typer.Option(
+        False, "--no-prediction", help="Skip prediction drift (does not load the champion model)"
+    ),
+    as_of: str | None = typer.Option(
+        None, "--as-of", help="ISO-8601 cutoff, point-in-time (default: now, UTC)"
+    ),
+    config: str | None = typer.Option(
+        None, "--config", help="TOML/JSON file overriding drift, calibration and PnL thresholds"
+    ),
+    min_trades: int | None = typer.Option(
+        None, "--min-trades", help="Settled trades needed before calibration and PnL are judged"
+    ),
+    insufficient: str | None = typer.Option(
+        None,
+        "--insufficient",
+        help="'separate' (exit 30, default) or 'warn' (exit 10) for a check that cannot be measured",
+    ),
+    skip: Annotated[
+        list[str] | None,
+        typer.Option("--skip", help="Check to leave out: drift, calibration or pnl (repeatable)"),
+    ] = None,
+    json_path: str | None = typer.Option(
+        None, "--json", help="Always write the health report as JSON to PATH ('-' for stdout)"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Print the full report even when healthy"
+    ),
+) -> None:
+    """Watchdog: drift, live calibration and PnL against the champion's backtest.
+
+    Silent when healthy, so it can run from cron: `pmlab monitor ... || notify`.
+    A problem prints a short message and sets the exit code:
+
+    0 healthy | 10 warn | 20 alert | 30 insufficient data or a check unavailable |
+    64 bad input (missing/corrupt files, bad options) | 70 internal error.
+    """
+    from pmlab.cli.monitor import run_monitor
+    from pmlab.config import PmlabSettings
+
+    settings = PmlabSettings()
+    settings.artifacts_dir = Path(artifacts_dir)
+    settings.workspace = workspace
+
+    code = run_monitor(
+        champion_path=Path(champion) if champion else settings.champion_json_path,
+        trades_path=Path(trades) if trades else settings.trades_path,
+        reference=Path(reference) if reference else None,
+        snapshots=Path(snapshots) if snapshots else None,
+        family=family,
+        window_days=window_days,
+        window_start=window_start,
+        features=feature or None,
+        use_prediction=not no_prediction,
+        as_of=as_of,
+        config_path=Path(config) if config else None,
+        min_trades=min_trades,
+        insufficient=insufficient,
+        skip=skip or [],
+        json_path=json_path,
+        verbose=verbose,
+    )
+    raise typer.Exit(code)
 
 
 @app.command("report")
