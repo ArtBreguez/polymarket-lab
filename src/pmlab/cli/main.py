@@ -320,6 +320,95 @@ def record_trades_cmd(
         )
 
 
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+@app.command("resettle")
+def resettle_cmd(
+    trades: str = typer.Option(
+        ...,
+        "--trades",
+        "-t",
+        help="Path to forward_paper_trades.json, the log to re-settle in place",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Report what would change and write nothing"
+    ),
+    show: int = typer.Option(
+        10, "--show", min=0, help="How many per-trade changes to list (0 lists none)"
+    ),
+) -> None:
+    """Recompute the PnL of settled trades that an older release booked wrongly.
+
+    Releases before 0.9.1 settled a NO trade as a short YES at the NO price, so a lost NO
+    bet booked a fraction of its stake. Settlement is idempotent, so those numbers stayed
+    in the log, and `pmlab monitor` leaves such trades out. This recomputes every settled
+    trade without the current settlement_version from the fields it recorded (side, fill
+    or quote, stake, fee, and whether its label occurred). It never calls the network,
+    never touches an unsettled trade, writes a timestamped backup next to the log first,
+    and a second run changes nothing.
+    """
+    from datetime import UTC, datetime
+
+    from pmlab.execution.resettle import resettle_file
+    from pmlab.execution.settlement import SETTLEMENT_VERSION
+
+    path = Path(trades)
+    try:
+        result, backup = resettle_file(path, dry_run=dry_run, now_utc=datetime.now(UTC))
+    except (FileNotFoundError, ValueError) as e:
+        typer.echo(f"pmlab resettle: error: {e}")
+        raise typer.Exit(1) from e
+
+    head = "pmlab resettle (dry run)" if dry_run else "pmlab resettle"
+    typer.echo(f"{head}: {path}")
+    if result.n_resettled == 0 and result.n_unrecomputable == 0:
+        typer.echo(
+            f"  Nothing to re-settle: every settled trade is already at settlement version "
+            f"{SETTLEMENT_VERSION} ({result.n_current} settled, {_plural(result.n_open, 'open trade')} "
+            "left alone)."
+        )
+        return
+    if result.n_resettled:
+        verb = "would be re-settled" if dry_run else "re-settled"
+        typer.echo(
+            f"  {_plural(result.n_resettled, 'settled trade')} below settlement version "
+            f"{SETTLEMENT_VERSION} {verb} ({_plural(result.n_open, 'open trade')} left alone)."
+        )
+        typer.echo(
+            f"  {result.n_changed} of them change." if dry_run else f"  {result.n_changed} changed."
+        )
+        typer.echo(
+            f"  total realized PnL of those trades: was {result.total_before:+.6f}, "
+            f"now {result.total_after:+.6f} (delta {result.total_after - result.total_before:+.6f})"
+            if not dry_run
+            else f"  total realized PnL of those trades: {result.total_before:+.6f} would become "
+            f"{result.total_after:+.6f} (delta {result.total_after - result.total_before:+.6f})"
+        )
+        shown = result.changes[:show]
+        if shown:
+            typer.echo(f"  first {len(shown)} of {result.n_changed} changes:")
+            for change in shown:
+                old = "unset" if change.old is None else f"{change.old:+.6f}"
+                typer.echo(f"    {change.description}: {old} -> {change.new:+.6f}")
+            if result.n_changed > len(shown):
+                typer.echo(f"    ... and {result.n_changed - len(shown)} more")
+    if result.n_unrecomputable:
+        typer.echo(
+            f"  {_plural(result.n_unrecomputable, 'trade')} could not be recomputed and "
+            "was left as it was:"
+            if result.n_unrecomputable == 1
+            else f"  {result.n_unrecomputable} trades could not be recomputed and were left as they were:"
+        )
+        for line in result.unrecomputable[:show]:
+            typer.echo(f"    {line}")
+    if dry_run:
+        typer.echo("  Nothing was written.")
+    elif backup is not None:
+        typer.echo(f"  Backup of the original: {backup}")
+
+
 @app.command("settle-trades")
 def settle_trades_cmd(
     plugin: str = typer.Option(..., "--plugin", "-p"),
