@@ -1116,7 +1116,9 @@ def _pnl_check(
         worse_when_higher=False,
     )
     shortfall = evidence.gap / reference
-    unusable = _invalid_statistic("pnl", metrics, shortfall=shortfall, z=evidence.z)
+    unusable = _invalid_statistic(
+        "pnl", metrics, gap=evidence.gap, shortfall=shortfall, z=evidence.z
+    )
     if unusable is not None:
         return unusable
     metrics.update(

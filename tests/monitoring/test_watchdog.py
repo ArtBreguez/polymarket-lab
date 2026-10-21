@@ -16,6 +16,7 @@ import dataclasses
 import json
 import math
 import random
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -1249,6 +1250,16 @@ class TestNoSideTradesAreLeftOutOfThePnlComparison:
         assert check.metrics["n_trades"] == 60
         assert "n_excluded_no_side" not in check.metrics
 
+    @pytest.mark.parametrize("direction", ["no", "NO", "short", None, ""])
+    def test_anything_that_is_not_yes_is_the_no_side_as_settlement_reads_it(
+        self, direction: object
+    ) -> None:
+        """`SettlementEngine` and the cost-basis check both treat a direction that is not
+        exactly "yes" as the NO side, so the exclusion must agree with them."""
+        check = _check(_report(trades=_trades(60, direction=direction)), "pnl")
+        assert check.metrics["n_excluded_no_side"] == 60
+        assert check.metrics["n_trades"] == 0
+
     def test_a_trade_with_no_direction_is_a_yes_trade(self) -> None:
         trades = [{k: v for k, v in t.items() if k != "direction"} for t in _trades(60)]
         check = _check(_report(trades=trades), "pnl")
@@ -1329,15 +1340,66 @@ class TestADefenceAgainstNonFiniteNumbers:
         assert _report(champion=champ, config=config).exit_code == EXIT_WARN
 
     def test_a_live_statistic_that_overflows_is_insufficient_not_ok(self) -> None:
-        """Finite inputs can still give an infinite variance."""
+        """Finite inputs can still give an infinite variance, and numpy must not print
+        an overflow warning on the way: a cron job's stderr is the alert channel."""
         trades = _trades(60, pnl=0.0, pnl_sd=1e308)
-        check = _check(_report(trades=trades), "pnl")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            check = _check(_report(trades=trades), "pnl")
         assert check.status == "insufficient"
         assert check.cause == "invalid_statistic"
         assert "std_live" in " ".join(check.reasons) or "variance" in " ".join(check.reasons)
 
     def test_a_healthy_report_is_unchanged_by_the_guards(self) -> None:
         assert _report().status == "ok"
+
+    @pytest.mark.parametrize("name", ["pnl", "calibration"])
+    @pytest.mark.parametrize("bad", ["gap", "z"])
+    def test_a_non_finite_welch_result_is_insufficient_not_ok(
+        self, monkeypatch: pytest.MonkeyPatch, name: str, bad: str
+    ) -> None:
+        """Unreachable from real inputs, so it is forced: if the test statistic ever
+        comes out NaN, `clears()` is False for every level and the check would read ok."""
+        from pmlab.monitoring import watchdog as wd
+
+        def fake(**kwargs: object) -> wd._Evidence:
+            return wd._Evidence(
+                gap=math.nan if bad == "gap" else 0.5,
+                z=math.nan if bad == "z" else 9.0,
+                p_value=None,
+            )
+
+        monkeypatch.setattr(wd, "_one_sided_welch", fake)
+        check = _check(_report(trades=_trades(60, **_TERRIBLE)), name)
+        assert check.status == "insufficient"
+        assert check.cause == "invalid_statistic"
+        assert bad in " ".join(check.reasons)
+
+    def test_non_finite_squared_errors_make_calibration_insufficient(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pmlab.monitoring import watchdog as wd
+
+        monkeypatch.setattr(
+            wd.CalibrationTracker, "squared_errors", lambda self: [math.nan] * self.n_realized
+        )
+        check = _check(_report(trades=_trades(60)), "calibration")
+        assert check.status == "insufficient"
+        assert check.cause == "invalid_statistic"
+        assert "live_mean" in " ".join(check.reasons)
+
+    def test_an_infinite_variance_makes_calibration_insufficient(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pmlab.monitoring import watchdog as wd
+
+        terms = [0.0, 1e308, 1e308, 0.0] * 15
+        monkeypatch.setattr(wd.CalibrationTracker, "squared_errors", lambda self: terms)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # numpy must not print an overflow on the way
+            check = _check(_report(trades=_trades(60)), "calibration")
+        assert check.cause == "invalid_statistic"
+        assert "live_variance" in " ".join(check.reasons)
 
 
 # --------------------------------------------------------------------------
@@ -1509,6 +1571,24 @@ class TestAsOfIsPointInTimeForSettlement:
         check = self._pnl(early + late)
         assert check.metrics["n_after_as_of"] == 10
         assert check.metrics["n_trades"] == 60
+
+    def test_the_fallback_admits_a_trade_dated_on_the_as_of_day(self) -> None:
+        """The weaker rule is a *date* comparison: the very imprecision settled_at fixes.
+
+        Pinned so the limitation is the documented one, not an accident of the code.
+        """
+        check = self._pnl(self._on("2026-03-01", None))
+        assert check.metrics["n_after_as_of"] == 0
+        assert check.metrics["n_trades"] == 60
+        assert check.metrics["n_no_settled_at"] == 60
+
+    def test_a_trade_recorded_exactly_at_as_of_is_evidence(self) -> None:
+        trades = _trades(60, recorded_at=_MIDNIGHT, target_date="2026-02-20")
+        assert self._pnl(trades).metrics["n_trades"] == 60
+
+    def test_a_trade_recorded_a_second_after_as_of_is_not(self) -> None:
+        trades = _trades(60, recorded_at="2026-03-01T00:00:01+00:00", target_date="2026-02-20")
+        assert self._pnl(trades).metrics["n_after_as_of"] == 60
 
     def test_trades_without_settled_at_are_counted_and_the_report_says_so(self) -> None:
         check = self._pnl(self._on("2026-02-28", None))
