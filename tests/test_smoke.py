@@ -43,6 +43,18 @@ def test_public_api_exports():
     assert hasattr(pmlab, "ChampionManifest")
     assert hasattr(pmlab, "PaperBroker")
     assert hasattr(pmlab, "SettlementEngine")
+    # The trade policy, the per-side and per-segment expectation and the re-settle tool.
+    for name in (
+        "TradePolicy",
+        "quote_edges",
+        "DEFAULT_MIN_EDGE",
+        "segment_allowed",
+        "GroupExpectation",
+        "SegmentExpectation",
+        "resettle_trades",
+        "ResettleResult",
+    ):
+        assert hasattr(pmlab, name), name
     assert hasattr(pmlab, "__all__")
     for name in pmlab.__all__:
         assert hasattr(pmlab, name), f"{name} in __all__ but not importable"

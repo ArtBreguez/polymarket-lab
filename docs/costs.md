@@ -99,7 +99,12 @@ into the live path too:
 1. `rolling_origin_eval` fills at `fill_price` instead of `market_price`, and
    records that column in the trade log.
 2. `edge` is computed as `predicted_prob - fill_price`. Measuring it against the
-   quote would overstate every trade by the friction.
+   quote would overstate every trade by the friction. Under the live policy
+   (`TradePolicy.live`) the same arithmetic prices the NO side: a NO trade is a buy of
+   the NO token, filled at `costs.fill_price(1 - market_price)`, worth `1 - predicted_prob`,
+   and `best_edge` (the larger of the two sides, after the fee) is what `--min-edge` is
+   held against. `pmlab.core.edge.quote_edges` is the one place that is computed; a live
+   `EdgeSignal.from_quote` and the backtest both call it.
 3. `compute_metrics` averages `edge` into `avg_edge`.
 4. `HoldoutGateResult` reads those metrics. **A book whose edge exists only at the
    mid can no longer pass the gate.**
@@ -110,6 +115,12 @@ into the live path too:
    restores a champion whose cost assumptions are known.
 7. `PaperBroker(costs=...)` fills at the same price the backtest would, and records
    `fill_price` next to `gamma_price`.
+8. `SettlementEngine` settles each trade at its recorded `fill_price` (a NO trade as a
+   buy of the NO token at its own price), so `realized_pnl` carries the friction. It
+   writes `settled_basis` (`"fill_price"`, or `"quote"` when none was recorded) and
+   `settlement_version` on the trade. Releases up to 0.9.0 settled at the quote even
+   when a `fill_price` was recorded and wrote neither key; `pmlab monitor` leaves such
+   trades out of its PnL comparison (see [the watchdog](watchdog.md#which-trades-count)).
 
 ---
 
@@ -149,6 +160,36 @@ grid of prices and stakes in `tests/execution/test_cost_model_unified.py`.
 
 `manifest.costs` is `None` for champions published before v0.8.4. Treat that as
 "cost assumptions unknown" rather than "no costs".
+
+### From the command line
+
+`backtest`, `promote-champion` and `record-trades` each take `--costs PATH`, a JSON file
+of the same fields (`CostModel.to_dict()`):
+
+```json
+{"taker_bps": 30.0, "slippage_bps": 50.0, "slippage_fixed": 0.0,
+ "depth_bps_per_unit": 20.0, "depth_reference_stake": 10.0}
+```
+
+```bash
+pmlab backtest --plugin my_family --panel panel.parquet --costs costs.json --output metrics.json
+pmlab promote-champion model.pkl --gate-path gate.json --plugin my_family --expectation metrics.json
+pmlab record-trades --plugin my_family            # fills under the champion's costs
+```
+
+The model is written once and then carried, not retyped:
+
+- `backtest --output` records the costs its numbers are net of (the default model if
+  `--costs` was omitted) under a `costs` key.
+- `promote-champion --expectation metrics.json` publishes the champion with those costs.
+  `--costs` there is only needed without an expectation file, and it must agree with the
+  file's if both exist: a champion cannot be promoted on a backtest it did not run.
+- `record-trades` fills under `champion.json`'s costs by default. `--costs` may name a model
+  when the champion records none, but not a different one: trades filled under other costs
+  are left out of the watchdog's PnL comparison, so recording them would waste the evidence.
+
+A champion promoted with no costs anywhere still records `costs: null`, "unknown", and
+`pmlab monitor` then reports `cost_basis: "unknown"` instead of checking it.
 
 ---
 

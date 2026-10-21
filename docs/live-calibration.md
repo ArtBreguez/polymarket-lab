@@ -64,8 +64,12 @@ There is no reference to `direction`. So a `direction="no"` trade whose label
 ```
 direction=no, outcome_label=YES, winning_label=YES
   outcome      = "won"
-  realized_pnl = -6.6967
+  realized_pnl = -10.03
 ```
+
+(A stake of 10 on the NO token at 0.60, with a 30bps fee: the token paid nothing, so the
+whole stake and the fee are gone. Releases up to 0.9.0 booked -6.6967 here; see the
+CHANGELOG for how to find the trades they settled.)
 
 For calibration that is exactly what we want — we are scoring a forecast about
 the label, not the profitability of a position. But if you write your own

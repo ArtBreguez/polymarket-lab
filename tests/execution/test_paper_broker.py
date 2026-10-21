@@ -103,3 +103,42 @@ def test_trade_dict_has_required_fields(tmp_path):
     assert "fee_paid" in trade
     assert "edge_after_fee" in trade
     assert trade["flat_stake"] == 2.0
+
+
+def test_an_empty_allowlist_records_nothing_while_none_records_everything(tmp_path):
+    """The semantics `pmlab monitor` relies on: a set is a whitelist, even an empty one."""
+    signals = [make_signal()]
+    nothing = PaperBroker(trades_path=tmp_path / "a.json", allowed_segments=set())
+    everything = PaperBroker(trades_path=tmp_path / "b.json", allowed_segments=None)
+    now = datetime(2020, 1, 1, tzinfo=UTC)
+
+    assert nothing.record(signals, now_utc=now) == []
+    assert len(everything.record(signals, now_utc=now)) == 1
+
+
+def test_a_champion_promoted_on_an_aggregate_gate_records_every_segment(tmp_path):
+    """allowed_segments == {"all"} is what an aggregate gate produces. It used to match no
+    signal at all, because signals carry real segment names."""
+    broker = PaperBroker(trades_path=tmp_path / "t.json", allowed_segments={"all"})
+    signals = [
+        make_signal(city="Chicago", target_date="2099-12-30"),
+        make_signal(city="Dallas", target_date="2099-12-31"),
+    ]
+    assert len(broker.record(signals, now_utc=datetime(2020, 1, 1, tzinfo=UTC))) == 2
+
+
+def test_all_beside_a_named_segment_is_a_segment_not_the_wildcard(tmp_path):
+    broker = PaperBroker(trades_path=tmp_path / "t.json", allowed_segments={"all", "Miami"})
+    signals = [
+        make_signal(city="Chicago", target_date="2099-12-29"),
+        make_signal(city="Miami", target_date="2099-12-30"),
+        make_signal(city="all", target_date="2099-12-31"),
+    ]
+    recorded = broker.record(signals, now_utc=datetime(2020, 1, 1, tzinfo=UTC))
+    assert sorted(t["city_or_segment"] for t in recorded) == ["Miami", "all"]
+
+
+def test_named_segments_still_filter(tmp_path):
+    broker = PaperBroker(trades_path=tmp_path / "t.json", allowed_segments={"Dallas"})
+    signal = make_signal(city="Chicago")
+    assert broker.record([signal], now_utc=datetime(2020, 1, 1, tzinfo=UTC)) == []

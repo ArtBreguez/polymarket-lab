@@ -90,6 +90,15 @@ print(f"Total trades: {len(result.trades)}")
 print(f"Total PnL:    {result.trades['realized_pnl'].sum():.2f}")
 print(f"Hit rate:     {(result.trades['realized_pnl'] > 0).mean():.1%}")
 
+# By default the backtest is the historical one: YES on each market's most probable bin.
+# To backtest what `pmlab record-trades` actually trades (the best-edge bin and side, YES
+# or NO, when the after-fee edge clears the threshold), name the policy:
+from pmlab import TradePolicy
+
+live = rolling_origin_eval(panel, model, stride=30, min_train_rows=100,
+                           policy=TradePolicy.live(min_edge=0.20))
+print(live.trades["direction"].value_counts())   # yes / no
+
 # The trade log composes straight into metrics and the go/no-go gate —
 # no manual column wrangling.
 from pmlab import compute_metrics
@@ -569,10 +578,25 @@ pmlab status                                               # paper trade status
 pmlab scan-markets --plugin weather_tmax                   # discover open markets
 pmlab record-trades --plugin weather_tmax --min-edge 0.20  # record paper trades
 pmlab settle-trades --plugin weather_tmax                  # settle resolved positions
-pmlab backtest --plugin weather_tmax --stride 30           # walk-forward backtest
+pmlab resettle --trades forward_paper_trades.json          # fix NO trades an old release booked wrongly
+pmlab backtest --plugin weather_tmax --stride 30           # walk-forward backtest of the live policy
+# --policy top-bin-yes reproduces the old YES-only backtest; --min-edge matches record-trades
 pmlab promote-champion model.pkl --gate-path gate.json \   # promote if gate is GO
                --plugin weather_tmax
+# --costs costs.json on backtest / promote-champion / record-trades: one cost model
+# end to end (see docs/costs.md)
+pmlab monitor --reference panel.parquet --snapshots snaps/ # watchdog: silent when healthy
 ```
+
+`pmlab backtest` simulates what `record-trades` trades: per market the best-edge bin and
+side, YES or NO, taken when the after-fee edge clears `--min-edge` (default 0.20, the same
+default as `record-trades`). The threshold is recorded in `champion.json`, and
+`record-trades` uses it by default. See [docs/watchdog.md](docs/watchdog.md#the-backtest-expectation).
+
+`pmlab monitor` is built for cron — it prints nothing and exits 0 when drift,
+live calibration and live PnL are all within bounds, and otherwise says what is
+wrong and exits non-zero (10 warn, 20 alert, 30 could not check). See
+[docs/watchdog.md](docs/watchdog.md).
 
 ### Workspace isolation
 

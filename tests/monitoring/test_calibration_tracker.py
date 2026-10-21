@@ -148,7 +148,7 @@ class TestOutcomeIsAboutTheLabelNotTheProfit:
     def test_a_won_label_on_a_losing_no_trade_counts_as_occurred(self) -> None:
         """direction=no, label occurred: outcome="won", pnl<0, y_true must be 1."""
         losing_but_occurred = {
-            **_trade(0.40, True, pnl=-6.70),
+            **_trade(0.40, True, pnl=-10.03),
             "direction": "no",
         }
         tracker = CalibrationTracker([losing_but_occurred])
@@ -344,3 +344,33 @@ class TestReadingFromDisk:
     def test_a_missing_file_is_an_explicit_error(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             CalibrationTracker.from_path(tmp_path / "nope.json")
+
+
+class TestSquaredErrors:
+    """The watchdog needs the spread of the forecast error, not just its mean.
+
+    Whether a live Brier of 0.23 against a backtest 0.20 is a failure or noise
+    depends on how noisy the per-trade terms are, so the tracker exposes them
+    rather than making the watchdog re-derive (and possibly re-interpret) them.
+    """
+
+    def test_terms_are_squared_error_against_the_label(self) -> None:
+        trades = [_trade(0.9, True), _trade(0.8, False), _trade(0.3, True)]
+        terms = CalibrationTracker(trades).squared_errors()
+        assert terms == pytest.approx([0.01, 0.64, 0.49])
+
+    def test_their_mean_is_the_overall_brier_score(self) -> None:
+        trades = [_trade(0.55 + 0.01 * i, i % 3 == 0) for i in range(30)]
+        tracker = CalibrationTracker(trades)
+        overall = tracker.overall()
+        assert overall is not None
+        assert sum(tracker.squared_errors()) / 30 == pytest.approx(overall.brier_score)
+
+    def test_open_and_unforecast_trades_are_not_scored(self) -> None:
+        open_trade = {**_trade(0.9, True), "outcome": None, "realized_pnl": None}
+        unforecast = {k: v for k, v in _trade(0.9, True).items() if k != "model_prob"}
+        assert CalibrationTracker([open_trade, unforecast]).squared_errors() == []
+
+    def test_no_direction_trades_are_scored_on_the_label_not_the_profit(self) -> None:
+        losing_no = {**_trade(0.8, True), "direction": "no", "realized_pnl": -5.0}
+        assert CalibrationTracker([losing_no]).squared_errors() == pytest.approx([0.04])

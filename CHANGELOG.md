@@ -2,6 +2,208 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.1] — 2026-10-21
+
+### Added — Watchdog CLI
+
+Closes #14. The gate, live calibration and drift each compute numbers and stop;
+this is the layer that decides. It stays silent when healthy, so it can run from
+cron: `pmlab monitor ... || notify`.
+
+- **`pmlab monitor`** — drift, live calibration and live PnL against the champion,
+  each `ok` / `warn` / `alert` / `insufficient` with explicit reasons; the overall
+  status is the worst. A healthy run prints nothing (stdout or stderr) and exits 0;
+  `--verbose` prints the full report; `--json PATH|-` always writes it.
+- **Exit codes**: `0` healthy, `10` warn, `20` alert, `30` insufficient/unavailable,
+  `64` bad input, `70` internal error. They avoid 1 (an uncaught Python exception)
+  and 2 (a Click usage error) so a crash or a typo'd flag can never read as a
+  verdict, and nothing that goes wrong can exit 0.
+- **`health_report(champion=, trades=, drift=, as_of=)`** — the pure core: no I/O, no
+  clock, byte-identical output for identical inputs. `HealthReport` / `CheckResult` /
+  `WatchdogConfig` are frozen, strict-JSON-safe, with `to_dict()` / `from_dict()`.
+- **`BacktestExpectation`** — mean, standard deviation and count of per-stake PnL
+  (and of the per-trade squared forecast error), recorded in `champion.json` as
+  `backtest_expectation`. The gate keeps only totals, so a live run previously had
+  nothing to be surprised *against*. `ChampionManifest.publish(expectation=)`,
+  `pmlab promote-champion --expectation`, and `pmlab backtest --output` now writes the
+  block it consumes.
+- **`--costs PATH` on `backtest`, `promote-champion` and `record-trades`.** The CLI
+  could not reach `CostModel`: `backtest` ran at the default, `promote-champion`
+  published `costs: null` and `record-trades` built a `PaperBroker` without costs, so
+  a CLI user never got a champion whose cost basis the watchdog could check.
+  `backtest --output` records the costs it ran under, `promote-champion --expectation`
+  publishes the champion with them (a contradicting `--costs` is refused), and
+  `record-trades` fills under `champion.json`'s costs by default (a contradicting
+  `--costs` is refused). That last is a behaviour change for a champion that already
+  records costs: its paper trades now carry the slippage and fee the backtest charged.
+- `CalibrationTracker.squared_errors()`; `rolling_origin_eval` trades gain
+  `label_occurred` (its `outcome` is a profit flag; calibration needs the label).
+- `docs/watchdog.md`. Every Python block was re-run after the final edit and diffed
+  against its printed output; the CLI transcripts come from the built wheel installed
+  into a fresh venv.
+
+### Added — backtest/live parity, per-side and per-segment health, sequential detection
+
+- **The backtest can simulate what `record-trades` trades.** `TradePolicy` and one edge
+  computation, `quote_edges`, shared by the backtest, `EdgeSignal.from_quote` and
+  `record-trades`: per market the (bin, side) with the best after-fee edge, YES or NO, if it
+  clears `--min-edge` (default 0.20); a NO trade is a buy of the NO token at `1 - yes_price`
+  under the same cost model and arithmetic as `PaperBroker` and `SettlementEngine`.
+  `rolling_origin_eval(..., policy=TradePolicy.live())`; `pmlab backtest --policy
+  live|top-bin-yes --min-edge`. A test replays a backtest's signals through
+  `PaperBroker` and `SettlementEngine` and gets the same per-trade PnL.
+- **The expectation is recorded per side and per segment.** `BacktestExpectation.by_direction`
+  (YES, NO), `by_segment` (each with its own sides) and `policy`; a side or segment the
+  backtest traded fewer than 30 times is not given a promise it cannot back (`null` for a
+  segment). `champion.json` carries all of it. A champion published before this has the
+  single record: its NO trades are left out of the PnL comparison and counted (never read as
+  green), exactly as before.
+- **Calibration and PnL judge the book, each side and each segment.** Each live trade is
+  held to the backtest's record for the cell it fell in, so a book that trades another mix of
+  sides or segments than the backtest did is not mistaken for a decline (and a gate-rejected
+  segment cannot dilute the promise). Sides and segments are each a family corrected with
+  Holm-Bonferroni; a thin or unpromised scope is listed as *not assessed* and does not make a
+  conclusive check `insufficient`. The failing segment or side is named in the output and in the
+  JSON (`metrics.directions`, `metrics.segments`). Calibration scores the model's probability
+  that the label occurs whichever side was bought (pinned by a test).
+- **A sequential test** (one-sided CUSUM on each trade's standardized shortfall, in settlement
+  order, `h = 30`, threshold calibrated by simulation) makes a PnL alert possible when the
+  pooled mean dilutes a fade. It alerts while the statistic is above the threshold, so a healthy
+  book does not carry a stale alert. No single trade may add more than `cusum_increment_cap`
+  (5) to the statistic, so one total loss in a near-certain cell (a spread of almost nothing)
+  cannot raise an alert by itself. `PnLThresholds.sequential`, `cusum_*`, `mde_power`.
+- **Every PnL result says what it could have detected**: the minimum detectable shortfall at 80%
+  power, in `--verbose`, the JSON and the default output whenever a check is not ok.
+- **`pmlab resettle --trades PATH`** recomputes `realized_pnl` of settled trades that an older
+  release booked wrongly (see Fixed), from the fields they recorded: no network, unsettled
+  trades untouched, a timestamped backup first, `--dry-run` for the diff, idempotent. The
+  backup and the new log are synced to disk before the rename, and the directory after it.
+- `scripts/watchdog_power.py` regenerates every power and false-alarm table in
+  `docs/watchdog.md`; `tests/monitoring/test_power.py` holds its fast copies to `health_report`.
+
+### Changed
+
+- **`pmlab backtest` now defaults to `--policy live`** (YES and NO at a best edge of at
+  least 0.20, as `record-trades` trades), so its trade count, PnL and gate differ from a 0.9.0 run
+  on the same panel. **`--policy top-bin-yes` reproduces the historical backtest exactly**, and
+  the library function keeps that as its default (`policy=None`) so published numbers still
+  reproduce. `record-trades` takes its threshold from the champion's policy (a `--min-edge`
+  that differs is called out), skips signals on a side the policy does not trade, and records the
+  best signal per market.
+- **A champion promoted on an aggregate gate now records every segment.** Such a gate
+  allows `{"all"}`, and `PaperBroker` compared segment names with it literally, so
+  `record-trades` recorded nothing; `"all"` now means every segment in `ChampionManifest`,
+  `PaperBroker` and the watchdog alike. An empty allowlist still means none. `"all"` is the
+  wildcard only on its own: beside other names it is a segment called "all", so a per-segment
+  gate that graded such a segment does not widen to segments it never graded.
+- **`scripts/pmlab-workspace` and `pmlab -a artifacts -w <name>` now read and write the same
+  trade log.** The wrapper's artifacts directory is already `artifacts/workspaces/<name>`, and
+  the settings appended `workspaces/<name>` again (and looked up workspace `ops_daily`, because
+  the wrapper exported only `PMLAB_WORKSPACE_NAME`). No file moves, so no migration is needed.
+  The champion is the one difference between the entry styles: it is
+  `<artifacts dir>/public_models/champion.json`, so pass `--champion` if you use both.
+
+### Fixed
+
+- **NO-side realized PnL was wrong, in both directions.** `SettlementEngine` settled a
+  `direction="no"` trade as a short YES but handed the formula the *NO* price, which is
+  the wrong price for it. At a YES quote of 0.30 and a stake of 1 a NO bet whose label
+  occurred (it lost everything) booked -0.4286 instead of -1.0000, and one that won
+  booked +1.0000 instead of +0.4286: biased toward profit exactly when the NO side won.
+  A NO trade now settles as a buy of the NO token at its own price (`fill_price` when
+  recorded, else `1 - gamma_price`), the same per-stake arithmetic the backtest applies
+  to a buy, and `Position` gains `side="buy_no"` (an unknown `side` now raises instead
+  of falling through to the short-YES formula). `outcome` is unchanged: it still says
+  whether the *label* occurred, which is what calibration reads.
+  **Trades already settled keep their old number**, because settlement is idempotent
+  and never recomputes a settled trade. Every trade settled from now on carries
+  `"settlement_version": 1`; a NO trade settled by 0.9.0 or earlier has no such key.
+  **`pmlab resettle --trades PATH`** recomputes them (try `--dry-run` first). To list the
+  affected ones by hand:
+  `jq '[.trades[] | select(.direction == "no" and .outcome != null and .settlement_version == null)]' forward_paper_trades.json`
+- **Settlement ignored `fill_price`.** `PaperBroker` fills at the costed price and
+  records it, but `SettlementEngine` recomputed the entry from `gamma_price`, so with
+  any slippage in the cost model live `realized_pnl` read better than the backtest's
+  by exactly that friction (live 1.081 vs backtest 0.974 on the same trade at a quote
+  of 0.10). It now settles at `fill_price` and writes `settled_basis`
+  (`"fill_price"`, or `"quote"` when none was recorded). A trade with no `fill_price`
+  still enters at the quote, exactly as before. **A trade settled by 0.9.0 or earlier
+  keeps the number it was given even if it carries a `fill_price`: that number is the
+  frictionless one**, and it has no `settled_basis`. `pmlab monitor` leaves such trades
+  out of the PnL check (`n_excluded_legacy_settlement`) unless their `fill_price`
+  equals the quote, rather than judging them as cost-matched. A live-vs-backtest
+  comparison would otherwise have been biased toward green.
+
+### Notes on semantics
+
+- **A shortfall is a finding only if it is material *and* distinguishable from
+  noise**: an effect-size threshold, plus a one-sided two-sample Welch z using the
+  spread of both the live and the backtest sample. One-sided, so outperformance never
+  pages. `z_warn = 2`, `z_alert = 3` are deliberately stricter than the textbook
+  values: the watchdog looks every run.
+- **The checks have limited power, and the docs say so with numbers** (all from
+  `scripts/watchdog_power.py`, 400 simulated champions per cell, a 400-trade backtest).
+  The fixed PnL test false-alarms in about 3% of runs or fewer and notices a *completely
+  vanished* edge in 25% of runs at 100 live trades, 42% at 400 and 51% at 800; a *halved* edge
+  in 9%, 15% and 17%. The sequential test adds 3 points at 400 trades and 16 at 800 for a vanished
+  edge (45%, 67%), its median first crossing is trade 415 for a vanished edge and 904 for a
+  halved one, and a healthy book has its alert on in at most 2% of runs at any moment (though
+  26% of healthy champions cross the threshold at some point within 3000 trades). The Brier
+  check is not the earlier signal: at 100 trades it fires in 0.5% of runs where the PnL check fires
+  in 17% (a vanished 6-point edge), and a test of the mean forecast error has the PnL
+  check's power, no more. Ten segments judged on their own false-alarm in 25% of runs, with Holm
+  in 4%; the whole PnL check (book, sides, up to ten segments, sequential) warns or alerts for
+  nothing in 3-6% of runs and alerts in at most 1%. A quiet watchdog is weak evidence the
+  edge is intact, which is why every PnL result reports the shortfall it could have seen.
+- **`insufficient` is not healthy.** It outranks `ok`, loses to any measured problem,
+  and has its own exit code. `--insufficient warn` counts it as a warn; there is
+  deliberately no `ignore`.
+- **Only evidence that belongs to this champion counts**: settled trades in its allowed
+  segments (from `champion.json`), recorded at or after its publication, and settled
+  by `--as-of` (`SettlementEngine` now writes `settled_at`; a trade from an older
+  release has none and is judged by its `target_date`, counted in `n_no_settled_at`
+  and noted in the reasons). Every exclusion is counted. PnL also excludes trades on a side
+  the champion has no expectation for (a champion published before the per-side record
+  only bought YES, as far as its record goes), NO trades booked by an older release until
+  `pmlab resettle` recomputes them, trades settled at the quote by an older release
+  although they paid a different fill, and trades filled under a different cost model
+  than `champion.json` records.
+- **Old champions still load.** One published before v0.9.1 has no expectation, so
+  calibration and PnL report `insufficient` ("no backtest expectation recorded"); a
+  present but unusable record (non-finite number, negative spread, fewer than two
+  trades) is an error (exit 64), not a silent `None` and never a silent pass.
+- **A book with no trade in the champion's segments says so.** The checks stay
+  `insufficient` (exit 30), but the reason now leads with `0 of N settled trades are in
+  the champion's allowed segments [...]` instead of burying it in an exclusion tally,
+  and `allowed_segments` is in the metrics. A champion whose gate allows no segment at
+  all (an empty allowlist means *none*, as in `PaperBroker`) is malformed and exits 64.
+- **A zero or negative backtest mean keeps the PnL check `insufficient` for good**, and
+  the reason now says so (`... will stay insufficient on every run until the champion is
+  re-published on a backtest that earned money`) instead of leaving a cron job to wonder
+  why exit 30 never clears. Drift and calibration are still judged.
+- **A `model_prob` that is not a probability is bad data, not a Brier alert.** NaN,
+  infinite or outside [0, 1] is left out of calibration, counted in
+  `n_invalid_forecast`, and named in the reasons; scored, it would page as a
+  miscalibrated model or turn every statistic into NaN.
+- **A cutoff needs a UTC offset.** `--as-of` (and `--window-start`, and the `as_of`
+  argument of `health_report`) refuse a naive timestamp such as `2026-03-01` with exit
+  64 and a message asking for `Z` or an explicit offset, instead of reading it as UTC:
+  on a cron box in another zone that is a different instant and the report would still
+  look right. Timestamps inside the trade log stay lenient.
+- **Typo'd configuration is rejected**, not ignored: an unknown threshold key would
+  otherwise leave the default in force while the operator believed otherwise.
+- A trade log is put in a canonical order before any float sum. Shuffling the file
+  changed the report in the last bit (tied `target_date`s were scored in input order);
+  found by a test, fixed.
+
+### Not included
+
+- **Acting on an alert.** It reports and exits; pausing or retraining is the caller's.
+- **A CUSUM per segment or side.** The sequential test runs on the book; per-segment CUSUMs
+  would multiply the false alarms. The sides and segments are judged by the fixed test.
+- **Locking the trade log.** `pmlab resettle` (like `record-trades`) assumes nothing else is
+  writing to the log while it runs.
+
 ## [0.9.0] — 2026-10-21
 
 ### Added — Drift monitoring

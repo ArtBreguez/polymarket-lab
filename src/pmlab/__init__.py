@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
+from pmlab.backtest.expectation import BacktestExpectation, GroupExpectation, SegmentExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
 from pmlab.backtest.metrics import BacktestMetrics, compute_metrics
 from pmlab.config import PmlabSettings, get_settings
 from pmlab.core.costs import CostModel
-from pmlab.core.edge import compute_edge
+from pmlab.core.edge import DEFAULT_MIN_EDGE, QuoteEdges, compute_edge, quote_edges
 from pmlab.core.fees import estimate_fee
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
 from pmlab.core.pnl import Position, settle_position
+from pmlab.core.policy import TradePolicy
+from pmlab.core.segments import ALL_SEGMENTS, segment_allowed
 from pmlab.core.sizing import flat_stake_size, kelly_fraction, kelly_stake_size
 from pmlab.data import (
     FeatureSnapshotStore,
@@ -26,6 +29,7 @@ from pmlab.data import (
 from pmlab.execution.edge_signal import EdgeSignal
 from pmlab.execution.live_broker import LiveBroker, LiveBrokerError, OrderReceipt
 from pmlab.execution.paper_broker import PaperBroker
+from pmlab.execution.resettle import ResettleResult, resettle_trades
 from pmlab.execution.settlement import SettlementEngine
 from pmlab.features.transforms import (
     add_lags,
@@ -70,6 +74,15 @@ from pmlab.monitoring.drift import (
     drift_report,
     drift_report_from_store,
 )
+from pmlab.monitoring.watchdog import (
+    CalibrationThresholds,
+    CheckResult,
+    HealthReport,
+    PnLThresholds,
+    WatchdogConfig,
+    WatchdogInputError,
+    health_report,
+)
 from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
@@ -85,6 +98,12 @@ __all__ = [
     "Position",
     "settle_position",
     "compute_edge",
+    "quote_edges",
+    "QuoteEdges",
+    "DEFAULT_MIN_EDGE",
+    "TradePolicy",
+    "ALL_SEGMENTS",
+    "segment_allowed",
     "estimate_fee",
     "CostModel",
     "flat_stake_size",
@@ -94,6 +113,8 @@ __all__ = [
     "EdgeSignal",
     "PaperBroker",
     "SettlementEngine",
+    "resettle_trades",
+    "ResettleResult",
     "CalibrationTracker",
     "CalibrationWindow",
     # Monitoring
@@ -103,6 +124,16 @@ __all__ = [
     "FeatureDrift",
     "drift_report",
     "drift_report_from_store",
+    "BacktestExpectation",
+    "GroupExpectation",
+    "SegmentExpectation",
+    "CalibrationThresholds",
+    "CheckResult",
+    "HealthReport",
+    "PnLThresholds",
+    "WatchdogConfig",
+    "WatchdogInputError",
+    "health_report",
     "LiveBroker",
     "LiveBrokerError",
     "OrderReceipt",

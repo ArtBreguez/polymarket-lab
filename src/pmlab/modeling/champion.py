@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pmlab.backtest.expectation import BacktestExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult
 from pmlab.core.costs import CostModel
+from pmlab.core.segments import segment_allowed
 from pmlab.modeling.base import MarketForecaster
 
 if TYPE_CHECKING:
@@ -28,6 +30,10 @@ class ChampionManifest:
     # before costs were recorded — a live run cannot then verify it is trading
     # under the same assumptions the promotion was based on.
     costs: CostModel | None = None
+    # What the backtest promised (mean/spread/size of per-trade PnL, Brier), so a
+    # live run can be held against it. None for champions published before it was
+    # recorded: the watchdog then reports the check as unavailable, never as fine.
+    expectation: BacktestExpectation | None = None
 
     @classmethod
     def publish(
@@ -39,6 +45,7 @@ class ChampionManifest:
         model_name: str = "champion",
         calibrator: IsotonicCalibrator | None = None,
         costs: CostModel | None = None,
+        expectation: BacktestExpectation | None = None,
     ) -> ChampionManifest:
         """Publish a champion model.
 
@@ -49,6 +56,10 @@ class ChampionManifest:
                 live run assert it is trading with the same friction the promotion
                 assumed; without it, live and backtest PnL can diverge for reasons
                 that have nothing to do with the market.
+            expectation: The backtest's per-trade PnL and Brier statistics
+                (`BacktestExpectation.from_trades`). Without it, `pmlab monitor`
+                cannot say whether live PnL or calibration has fallen short of
+                what the promotion assumed.
         """
         if gate.decision != "GO":
             raise ValueError(
@@ -57,6 +68,15 @@ class ChampionManifest:
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        if expectation is not None and expectation.by_segment is not None:
+            # Every allowed segment is accounted for: one the backtest never traded is
+            # recorded as absent (null), so the watchdog can say "no expectation for this
+            # segment" rather than leave a hole that looks like an oversight.
+            allowed = {r.segment for r in gate.segment_results if r.passes}
+            missing = {name: None for name in sorted(allowed - set(expectation.by_segment))}
+            if missing:
+                expectation = replace(expectation, by_segment={**expectation.by_segment, **missing})
 
         model_path = output_dir / "champion.pkl"
         model.save(model_path)
@@ -76,6 +96,7 @@ class ChampionManifest:
             published_at=published_at,
             plugin_family=plugin_family,
             costs=costs,
+            expectation=expectation,
         )
 
         json_data = {
@@ -86,6 +107,7 @@ class ChampionManifest:
             "plugin_family": plugin_family,
             "publish_gate": gate.to_dict(),
             "costs": costs.to_dict() if costs is not None else None,
+            "backtest_expectation": expectation.to_dict() if expectation is not None else None,
         }
         json_path = output_dir / "champion.json"
         with open(json_path, "w") as f:
@@ -106,6 +128,13 @@ class ChampionManifest:
         # still loads instead of raising KeyError.
         raw_costs = data.get("costs")
         costs = CostModel(**raw_costs) if raw_costs else None
+        # Absent key (an older champion) means "unknown". A *present but broken*
+        # record raises: it must not quietly read as "unknown" and weaken the
+        # watchdog without anyone noticing.
+        raw_expectation = data.get("backtest_expectation")
+        expectation = (
+            BacktestExpectation.from_dict(raw_expectation) if raw_expectation is not None else None
+        )
 
         return cls(
             model_name=data["model_name"],
@@ -115,11 +144,20 @@ class ChampionManifest:
             published_at=data["published_at"],
             plugin_family=data["plugin_family"],
             costs=costs,
+            expectation=expectation,
         )
 
     def get_allowed_segments(self) -> set[str]:
-        """Return segments where the gate result passes."""
+        """Return segments where the gate result passes.
+
+        A champion promoted on an aggregate gate returns ``{"all"}``: it was graded on
+        the whole trade log and allows every segment (see `allows_segment`).
+        """
         return {r.segment for r in self.gate.segment_results if r.passes}
+
+    def allows_segment(self, segment: str) -> bool:
+        """May this champion trade `segment`? ``"all"`` among the allowed means yes."""
+        return segment_allowed(segment, self.get_allowed_segments())
 
     def load_model(self) -> MarketForecaster:
         """Load the champion model from disk."""

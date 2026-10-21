@@ -9,6 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pmlab.core.costs import CostModel
+from pmlab.core.segments import segment_allowed
 from pmlab.execution.edge_signal import EdgeSignal
 
 # Stale cutoffs per horizon: (day_offset, cutoff_hour_local)
@@ -37,7 +38,10 @@ class PaperBroker:
         Args:
             trades_path: JSON file the trade log is appended to.
             allowed_segments: Only record signals in these segments (from the
-                champion's passing gate segments). None means no filtering.
+                champion's passing gate segments). None means no filtering, and so
+                does ``"all"`` on its own: a champion promoted on an aggregate gate
+                makes no per-segment claim (see `pmlab.core.segments`); beside other
+                names it is a segment called "all". An empty set records nothing.
             flat_stake: Notional USDC per trade.
             taker_bps: Legacy fee-only knob. Mutually exclusive with ``costs``.
             costs: Full :class:`~pmlab.core.costs.CostModel`. Use the SAME model the
@@ -94,10 +98,7 @@ class PaperBroker:
         new_trades: list[dict[str, Any]] = []
         for signal in signals:
             # 1. Segment filter
-            if (
-                self.allowed_segments is not None
-                and signal.city_or_segment not in self.allowed_segments
-            ):
+            if not segment_allowed(signal.city_or_segment, self.allowed_segments):
                 continue
 
             # 2. Staleness check

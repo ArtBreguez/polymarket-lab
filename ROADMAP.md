@@ -6,13 +6,13 @@ tested, and reproducible.
 
 This roadmap is organized by the ML lifecycle. Each stage lists what **exists
 today** (✅) and what's **planned** (▢), with the target release. Status current
-as of **v0.9.0**.
+as of **v0.9.1**.
 
 ---
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.9.0) | Biggest gap |
+| Stage | Today (v0.9.1) | Biggest gap |
 |---|---|---|
 | 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning |
 | 2. Feature engineering | 5 transforms, per-plugin features, `build_panel`, leakage guards | No feature registry; more transforms deferred (#19) |
@@ -20,8 +20,8 @@ as of **v0.9.0**.
 | 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV, bootstrap stability report, **cost model** | ✅ core complete |
 | 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
 | 6. Execution | Paper + Live broker, settlement, one cost model shared with the backtest | No latency model; costs are an approximation, not a book walk |
-| 7. Monitoring | cost assumptions travel with the champion; live calibration on realized trades; PSI/KL drift on features and predictions | No alerting or scheduled health report (watchdog, #14) |
-| 8. Reproducibility & DX | CLI (8 cmds), typed, docs | No end-to-end tutorial, no seeds/config capture |
+| 7. Monitoring | cost assumptions and the backtest expectation travel with the champion; live calibration on realized trades; PSI/KL drift; `pmlab monitor` watchdog with cron-friendly exit codes | The watchdog reports, nothing acts on it (no pause or retrain trigger) |
+| 8. Reproducibility & DX | CLI (10 cmds), typed, docs | No end-to-end tutorial, no seeds/config capture |
 
 ---
 
@@ -104,8 +104,17 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
   Brier, Murphy reliability and reliability curves on realized trades, overall and
   per segment; `PaperBroker` now persists `model_prob` so the forecast is on record.
   Computes numbers only — thresholds belong to the watchdog.
-- ▢ **Watchdog CLI** — `pmlab monitor` producing a health report (drift, calib,
-  PnL vs backtest), designed to run on a schedule and stay silent when healthy.
+- ✅ **Watchdog CLI** *(v0.9.1)* — `pmlab monitor` judges drift, live calibration
+  and live PnL against the champion's own backtest expectation (recorded in
+  `champion.json` at promotion), and stays silent when healthy so it can run from
+  cron. A shortfall must be both material and distinguishable from noise; a check
+  that could not be measured is `insufficient`, never green; exit codes separate
+  warn / alert / insufficient / bad input / internal error. `health_report` is the
+  pure core. Reports and exits — acting on an alert is left to the caller.
+  The backtest simulates the live policy (YES and NO), so the book is held to the
+  backtest per side and per segment, Holm-corrected; a sequential test catches an
+  edge that fades; every PnL result says what it could have detected. `pmlab
+  resettle` repairs logs that an older release booked wrongly.
 
 ## v1.0.0 — Polish, DX, and stability guarantee
 
