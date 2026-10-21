@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
+
+if TYPE_CHECKING:
+    from pmlab.core.costs import CostModel
 
 app = typer.Typer(
     name="pmlab",
@@ -18,6 +21,42 @@ app = typer.Typer(
 )
 
 console = Console()
+
+_COSTS_HELP = (
+    "JSON file of CostModel fields (taker_bps, slippage_bps, slippage_fixed, "
+    "depth_bps_per_unit, depth_reference_stake), or any JSON with them under a "
+    "'costs' key such as the file `pmlab backtest --output` writes. "
+)
+
+
+def _costs_from(raw: object, source: str) -> CostModel:
+    """A CostModel from parsed JSON, or a clean exit 1 naming `source`."""
+    from pmlab.core.costs import CostModel
+
+    fields = raw.get("costs", raw) if isinstance(raw, dict) else raw
+    try:
+        if not isinstance(fields, dict):
+            raise TypeError("expected a JSON object of cost fields")
+        return CostModel(**fields)
+    except (TypeError, ValueError) as e:
+        rprint(f"[red]Not a valid cost model ({source}): {e}[/red]")
+        raise typer.Exit(1) from e
+
+
+def _load_costs(path: str | None) -> CostModel | None:
+    """Read a `--costs` file; None when the option was not given."""
+    if path is None:
+        return None
+    file = Path(path)
+    if not file.is_file():
+        rprint(f"[red]Costs file not found: {path}[/red]")
+        raise typer.Exit(1)
+    try:
+        raw = json.loads(file.read_text())
+    except (OSError, ValueError) as e:
+        rprint(f"[red]Not a valid cost model ({path}): costs file is unreadable: {e}[/red]")
+        raise typer.Exit(1) from e
+    return _costs_from(raw, path)
 
 
 @app.command("version")
@@ -162,6 +201,14 @@ def record_trades_cmd(
     ),
     min_edge: float = typer.Option(0.20, "--min-edge"),
     flat_stake: float = typer.Option(1.0, "--flat-stake"),
+    costs_path: str | None = typer.Option(
+        None,
+        "--costs",
+        help=(
+            _COSTS_HELP + "Default: the costs recorded in champion.json, so paper fills match "
+            "the backtest. Must agree with them if both exist."
+        ),
+    ),
 ) -> None:
     """Record paper trades from latest scan-edge signals."""
     from pmlab.config import PmlabSettings
@@ -178,6 +225,22 @@ def record_trades_cmd(
     manifest = ChampionManifest.load(settings.champion_json_path)
     allowed = manifest.get_allowed_segments()
     rprint(f"Champion: [green]{manifest.model_name}[/green], allowed segments: {allowed}")
+
+    # Fill under the cost model the champion was promoted under. A flag may name one
+    # when the champion records none, but not a different one: trades filled under
+    # other costs are left out of the watchdog's PnL comparison, so recording them
+    # would only waste the evidence.
+    costs = _load_costs(costs_path)
+    if costs is None:
+        costs = manifest.costs
+    elif manifest.costs is not None and costs != manifest.costs:
+        rprint(
+            "[red]--costs differs from the costs recorded in champion.json; paper trades "
+            "must be filled under the champion's cost model.[/red]"
+        )
+        rprint(f"  champion.json: {manifest.costs.to_dict()}")
+        rprint(f"  --costs:       {costs.to_dict()}")
+        raise typer.Exit(1)
 
     # Look for signals file in workspace
     signals_path = (
@@ -208,6 +271,7 @@ def record_trades_cmd(
         trades_path=trades_path,
         allowed_segments=allowed,
         flat_stake=flat_stake,
+        costs=costs,
     )
     new_trades = broker.record(signals)
     rprint(f"[green]Recorded {len(new_trades)} new trades.[/green]")
@@ -242,16 +306,23 @@ def backtest_cmd(
     stride: int = typer.Option(30, "--stride"),
     min_train_rows: int = typer.Option(20, "--min-train-rows"),
     flat_stake: float = typer.Option(1.0, "--flat-stake"),
+    costs_path: str | None = typer.Option(
+        None,
+        "--costs",
+        help=_COSTS_HELP + "Default: 30bps taker fee, fill at the quote.",
+    ),
     output: str | None = typer.Option(None, "--output", "-o", help="Save metrics JSON to path"),
 ) -> None:
     """Run walk-forward backtest on a historical panel."""
     if stride < 10:
         rprint(f"[red]stride={stride} is too low — minimum 10.[/red]")
         raise typer.Exit(1)
+    costs = _load_costs(costs_path)
 
     import pandas as pd
 
     from pmlab.backtest.rolling_origin import rolling_origin_eval
+    from pmlab.core.costs import CostModel
     from pmlab.modeling.lgbm_baseline import LGBMForecaster
 
     panel_file = Path(panel_path)
@@ -277,7 +348,12 @@ def backtest_cmd(
     forecaster = LGBMForecaster()
     with console.status("Running walk-forward backtest..."):
         result = rolling_origin_eval(
-            panel, forecaster, min_train_rows=min_train_rows, stride=stride, flat_stake=flat_stake
+            panel,
+            forecaster,
+            min_train_rows=min_train_rows,
+            stride=stride,
+            flat_stake=flat_stake,
+            costs=costs,
         )
 
     trades = result.trades
@@ -307,6 +383,9 @@ def backtest_cmd(
             "total_pnl": float(total_pnl),
             "hit_rate": float(hit_rate),
             "avg_edge": float(avg_edge),
+            # The friction these numbers are net of, so `promote-champion` can record
+            # the same model rather than trust the operator to retype it.
+            "costs": (costs or CostModel()).to_dict(),
         }
         if len(trades) >= 2:
             # What `promote-champion --expectation` records in champion.json, so the
@@ -335,6 +414,15 @@ def promote_champion_cmd(
             "'expectation' key written by `pmlab backtest --output`, or a bare "
             "expectation object. Without it `pmlab monitor` cannot check live PnL "
             "or calibration against the backtest."
+        ),
+    ),
+    costs_path: str | None = typer.Option(
+        None,
+        "--costs",
+        help=(
+            _COSTS_HELP + "Recorded in champion.json as the friction the gate was computed "
+            "under. Default: the costs the --expectation file was computed under, if it has "
+            "them. Must agree with them if both exist."
         ),
     ),
 ) -> None:
@@ -370,6 +458,7 @@ def promote_champion_cmd(
             )
         raise typer.Exit(1)
 
+    costs = _load_costs(costs_path)
     expectation = None
     if expectation_path is not None:
         from pmlab.backtest.expectation import BacktestExpectation
@@ -384,6 +473,21 @@ def promote_champion_cmd(
         except (ValueError, KeyError, TypeError, AttributeError) as e:
             rprint(f"[red]Not a valid backtest expectation ({expectation_path}): {e}[/red]")
             raise typer.Exit(1) from e
+        # `backtest --output` records the costs its numbers are net of. The champion
+        # must be published under those same costs, not whatever is remembered later.
+        if isinstance(raw, dict) and raw.get("costs") is not None:
+            backtest_costs = _costs_from(raw["costs"], expectation_path)
+            if costs is None:
+                costs = backtest_costs
+            elif costs != backtest_costs:
+                rprint(
+                    "[red]--costs differs from the costs the expectation was computed under "
+                    f"({expectation_path}); the champion would be promoted on a backtest it "
+                    "did not run.[/red]"
+                )
+                rprint(f"  expectation: {backtest_costs.to_dict()}")
+                rprint(f"  --costs:     {costs.to_dict()}")
+                raise typer.Exit(1)
 
     model = LGBMForecaster.load(model_file)
     try:
@@ -393,12 +497,14 @@ def promote_champion_cmd(
             output_dir=Path(output_dir),
             plugin_family=plugin,
             model_name=model_name,
+            costs=costs,
             expectation=expectation,
         )
         rprint("[green]Champion published![/green]")
         rprint(f"  Model: {manifest.model_path}")
         rprint(f"  Manifest: {output_dir}/champion.json")
         rprint(f"  Allowed segments: {manifest.get_allowed_segments()}")
+        rprint(f"  Costs: {costs.to_dict() if costs is not None else 'not recorded'}")
     except ValueError as e:
         rprint(f"[red]{e}[/red]")
         raise typer.Exit(1) from e

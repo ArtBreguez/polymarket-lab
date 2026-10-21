@@ -156,6 +156,36 @@ grid of prices and stakes in `tests/execution/test_cost_model_unified.py`.
 `manifest.costs` is `None` for champions published before v0.8.4. Treat that as
 "cost assumptions unknown" rather than "no costs".
 
+### From the command line
+
+`backtest`, `promote-champion` and `record-trades` each take `--costs PATH`, a JSON file
+of the same fields (`CostModel.to_dict()`):
+
+```json
+{"taker_bps": 30.0, "slippage_bps": 50.0, "slippage_fixed": 0.0,
+ "depth_bps_per_unit": 20.0, "depth_reference_stake": 10.0}
+```
+
+```bash
+pmlab backtest --plugin my_family --panel panel.parquet --costs costs.json --output metrics.json
+pmlab promote-champion model.pkl --gate-path gate.json --plugin my_family --expectation metrics.json
+pmlab record-trades --plugin my_family            # fills under the champion's costs
+```
+
+The model is written once and then carried, not retyped:
+
+- `backtest --output` records the costs its numbers are net of (the default model if
+  `--costs` was omitted) under a `costs` key.
+- `promote-champion --expectation metrics.json` publishes the champion with those costs.
+  `--costs` there is only needed without an expectation file, and it must agree with the
+  file's if both exist: a champion cannot be promoted on a backtest it did not run.
+- `record-trades` fills under `champion.json`'s costs by default. `--costs` may name a model
+  when the champion records none, but not a different one: trades filled under other costs
+  are left out of the watchdog's PnL comparison, so recording them would waste the evidence.
+
+A champion promoted with no costs anywhere still records `costs: null`, "unknown", and
+`pmlab monitor` then reports `cost_basis: "unknown"` instead of checking it.
+
 ---
 
 ## Compatibility

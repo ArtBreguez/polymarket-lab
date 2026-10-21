@@ -572,6 +572,8 @@ pmlab settle-trades --plugin weather_tmax                  # settle resolved pos
 pmlab backtest --plugin weather_tmax --stride 30           # walk-forward backtest
 pmlab promote-champion model.pkl --gate-path gate.json \   # promote if gate is GO
                --plugin weather_tmax
+# --costs costs.json on backtest / promote-champion / record-trades: one cost model
+# end to end (see docs/costs.md)
 pmlab monitor --reference panel.parquet --snapshots snaps/ # watchdog: silent when healthy
 ```
 

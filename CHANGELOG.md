@@ -27,6 +27,15 @@ cron: `pmlab monitor ... || notify`.
   nothing to be surprised *against*. `ChampionManifest.publish(expectation=)`,
   `pmlab promote-champion --expectation`, and `pmlab backtest --output` now writes the
   block it consumes.
+- **`--costs PATH` on `backtest`, `promote-champion` and `record-trades`.** The CLI
+  could not reach `CostModel`: `backtest` ran at the default, `promote-champion`
+  published `costs: null` and `record-trades` built a `PaperBroker` without costs, so
+  a CLI user never got a champion whose cost basis the watchdog could check.
+  `backtest --output` records the costs it ran under, `promote-champion --expectation`
+  publishes the champion with them (a contradicting `--costs` is refused), and
+  `record-trades` fills under `champion.json`'s costs by default (a contradicting
+  `--costs` is refused). That last is a behaviour change for a champion that already
+  records costs: its paper trades now carry the slippage and fee the backtest charged.
 - `CalibrationTracker.squared_errors()`; `rolling_origin_eval` trades gain
   `label_occurred` (its `outcome` is a profit flag; calibration needs the label).
 - `docs/watchdog.md`. Every Python block was re-run after the final edit and diffed

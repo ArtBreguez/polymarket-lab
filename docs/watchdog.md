@@ -409,12 +409,17 @@ rows. Traded rows, not the whole panel, because live trades are a selected subse
 comparison is only fair between like subsets.
 
 ```bash
-pmlab backtest --plugin my_family --panel panel.parquet --flat-stake 1.0 --output metrics.json
+pmlab backtest --plugin my_family --panel panel.parquet --flat-stake 1.0 --costs costs.json --output metrics.json
 pmlab promote-champion model.pkl --gate-path gate.json --plugin my_family --expectation metrics.json
+pmlab record-trades --plugin my_family
 ```
 
-`backtest --output` writes the expectation under an `expectation` key, and `--expectation` reads
-either that file or a bare expectation object. From Python:
+`backtest --output` writes the expectation under an `expectation` key and the cost model it ran
+under (`--costs`, else the default) under `costs`. `--expectation` reads either that file or a
+bare expectation object, and `promote-champion` publishes the champion with the file's costs, so
+`champion.json` records the friction the promise was made under; `record-trades` then fills the
+paper trades under the champion's costs. That is what lets the PnL check report a known
+`cost_basis` instead of `"unknown"`; see [Costs](costs.md#from-the-command-line). From Python:
 
 ```python
 import json
