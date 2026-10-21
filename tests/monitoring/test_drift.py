@@ -5,9 +5,10 @@ being fed today still looks like the world it was trained on.
 
 Traps this suite pins deliberately:
 
-1. **Bins come from the reference only.** If edges were re-derived from the
-   current sample, a distribution shifted wholesale would re-bin onto itself and
-   score ~0 — drift would hide exactly when it is largest.
+1. **Bins come from the reference only.** Bin each sample on its *own* quantiles
+   and both come out ~uniform, so a distribution shifted wholesale scores ~0 —
+   drift hides exactly when it is largest. Take the shared edges from the
+   *current* sample and the statistic depends on the sample being judged.
 2. **Empty bins must not blow up.** A value range the reference never saw is the
    most important drift there is, and it is also the case where a naive
    ``p * log(p / 0)`` returns ``inf``. It must come back large *and finite*.
@@ -164,10 +165,19 @@ class TestStatisticProperties:
 
 class TestReferenceOnlyBinning:
     def test_wholesale_shift_is_not_re_binned_onto_itself(self):
-        # Same shape, shifted by 3 sd. With edges taken from the *current* sample
-        # this scores ~0; with reference edges nearly all mass lands in one bin.
+        # Same shape, shifted by 3 sd. Bin each sample on its own quantiles and both
+        # come out ~uniform, so PSI is ~0 — the trap. On the reference's edges
+        # nearly all the current mass lands in one bin.
         ref = _normal(seed=1)
         cur = _normal(loc=3.0, seed=2)
+
+        def own_quantile_shares(x: np.ndarray) -> np.ndarray:
+            edges = np.quantile(x, np.linspace(0, 1, 11)[1:-1])
+            return np.bincount(np.searchsorted(edges, x), minlength=10) / len(x)
+
+        r, c = own_quantile_shares(ref), own_quantile_shares(cur)
+        assert float(np.sum((c - r) * np.log(c / r))) < 0.01  # what the trap reports
+
         fd = _one(drift_report({"x": ref}, {"x": cur}), "x")
         assert fd.psi is not None and fd.psi > 2.0
 
@@ -262,8 +272,8 @@ class TestSmoothing:
 
 
 class TestKLDirection:
-    _REF = ["a"] * 50 + ["b"] * 50
-    _CUR = ["a"] * 90 + ["b"] * 10
+    _REF = ["a"] * 500 + ["b"] * 500
+    _CUR = ["a"] * 900 + ["b"] * 100
 
     def test_kl_is_current_relative_to_reference(self):
         c, r = np.array([0.9, 0.1]), np.array([0.5, 0.5])
@@ -290,8 +300,8 @@ class TestKLDirection:
     def test_kl_punishes_current_mass_where_the_reference_has_none(self):
         # New category carries 20% of live traffic. KL(cur || ref) is large;
         # the reverse direction would barely notice.
-        ref = ["a"] * 50 + ["b"] * 50
-        cur = ["a"] * 40 + ["b"] * 40 + ["new"] * 20
+        ref = ["a"] * 500 + ["b"] * 500
+        cur = ["a"] * 400 + ["b"] * 400 + ["new"] * 200
         fwd = _one(drift_report({"f": ref}, {"f": cur}), "f")
         rev = _one(drift_report({"f": cur}, {"f": ref}), "f")
         assert fwd.kl is not None and rev.kl is not None
@@ -568,6 +578,27 @@ class TestThresholds:
         assert (t.kl_warn, t.kl_alert) == (0.05, 0.125)
         assert (t.missing_warn, t.missing_alert) == (0.05, 0.20)
 
+    def test_default_config_values(self):
+        cfg = DriftConfig()
+        assert (cfg.n_bins, cfg.min_samples, cfg.epsilon) == (10, 300, 1e-4)
+        assert cfg.thresholds == DriftThresholds()
+
+    def test_default_min_samples_keeps_an_unchanged_feature_quiet(self):
+        # PSI of an unchanged feature is not 0: its noise floor is ~ (n_bins - 1) / n.
+        # The default minimum is the smallest window where that stays well under the
+        # 0.10 warn line; at 100 values a large share of unchanged windows would warn.
+        def share_warning(n_current: int) -> float:
+            cfg = DriftConfig(min_samples=n_current)
+            hits = 0
+            for seed in range(200):
+                rng = np.random.default_rng(seed)
+                ref, cur = rng.normal(0, 1, 2000), rng.normal(0, 1, n_current)
+                hits += _one(drift_report({"x": ref}, {"x": cur}, config=cfg), "x").status != "ok"
+            return hits / 200
+
+        assert share_warning(DriftConfig().min_samples) <= 0.02
+        assert share_warning(100) >= 0.20
+
     def test_thresholds_are_configurable(self):
         ref, cur = _normal(seed=1), _normal(loc=0.35, seed=2)
         loose = _one(drift_report({"x": ref}, {"x": cur}, config=_psi_only(5.0, 9.0)), "x")
@@ -608,6 +639,11 @@ class TestThresholds:
         fd = _one(drift_report({"x": ref}, {"x": cur}, config=warn), "x")
         assert fd.status == "warn"
         assert "missing_rate" in fd.drivers
+
+    def test_a_single_cutoff_is_allowed(self):
+        # warn == alert means "no warn band": a legitimate policy, not an error.
+        t = DriftThresholds(psi_warn=0.2, psi_alert=0.2)
+        assert t.psi_warn == t.psi_alert == 0.2
 
     @pytest.mark.parametrize(
         "kwargs",
@@ -1036,7 +1072,7 @@ class TestFromStore:
 
     def test_a_snapshot_exactly_at_the_cutoff_is_not_visible(self, store):
         # Same strict-before rule as FeatureSnapshotStore.as_of.
-        store.append(_FAMILY, _live_snaps(n=200, shift=0.0))
+        store.append(_FAMILY, _live_snaps(n=300, shift=0.0))
         baseline = drift_report_from_store(store, _FAMILY, _reference_panel(), **_WINDOW)
         store.append(
             _FAMILY,
@@ -1047,7 +1083,7 @@ class TestFromStore:
         )
         report = drift_report_from_store(store, _FAMILY, _reference_panel(), **_WINDOW)
         assert report == baseline
-        assert report.n_current == 200
+        assert report.n_current == 300
 
     def test_a_later_snapshot_of_a_market_does_not_replace_its_earlier_one(self, store):
         # live0 is first seen sane, then re-captured after the cutoff with garbage.
@@ -1111,6 +1147,22 @@ class TestFromStore:
         report = drift_report_from_store(store, "never-captured", _reference_panel(), **_WINDOW)
         assert report.n_current == 0
         assert report.status == "insufficient"
+
+    def test_predict_fn_is_not_called_on_an_empty_window(self, store):
+        calls: list[int] = []
+
+        def predict(frame: pd.DataFrame) -> np.ndarray:
+            calls.append(len(frame))
+            if frame.empty:
+                raise AssertionError("predict_fn must not see an empty frame")
+            return np.full(len(frame), 0.5)
+
+        report = drift_report_from_store(
+            store, "never-captured", _reference_panel(), predict_fn=predict, **_WINDOW
+        )
+        assert calls == [400]  # the reference only
+        assert report.prediction is not None
+        assert report.prediction.status == "insufficient"
 
     def test_predictions_come_from_a_callable_applied_to_both_sides(self, store):
         store.append(_FAMILY, _live_snaps(n=400, shift=1.5))

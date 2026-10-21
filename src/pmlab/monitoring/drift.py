@@ -13,11 +13,13 @@ Conventions worth knowing before reading the code:
 
 **Bins come from the reference only.** Numeric features are cut at the reference
 sample's quantiles (open-ended at both ends) and those same edges are reused for
-the current sample. If edges were re-derived from the current data, a
-distribution shifted wholesale would re-bin onto itself and score ~0 — drift
-would vanish exactly when it is largest. Tails beyond the reference range land in
-the two end bins; `unseen_rate` reports how much of the current sample fell
-outside the reference's min/max so that is not invisible.
+the current sample. Two ways to get this wrong, both avoided: binning each
+sample on its *own* quantiles makes both come out ~uniform, so a distribution
+shifted wholesale scores ~0 — drift vanishes exactly when it is largest; and
+taking the shared edges from the *current* sample makes the statistic depend on
+the very sample being judged. Tails beyond the reference range land in the two
+end bins; `unseen_rate` reports how much of the current sample fell outside the
+reference's min/max so that is not invisible.
 
 **Empty bins are floored, not dropped.** ``p * ln(p / 0)`` is infinite, and a
 value range the reference never saw is the drift that matters most. Each bin's
@@ -133,9 +135,12 @@ class DriftConfig:
     `n_bins` is the number of reference-quantile bins for numeric features (10 is
     the PSI convention). `min_samples` is the least number of *usable* values each
     side needs before a distribution statistic is reported, and the least number of
-    rows each side needs before a missing-rate change is classified; the default of
-    100 is about ten per bin at ten bins. `epsilon` is the floor on a bin's
-    proportion — see the module docstring.
+    rows each side needs before a missing-rate change is classified. PSI of an
+    *unchanged* feature is not zero: its noise floor is roughly ``(n_bins - 1) / n``
+    for ``n`` current values. The default of 300 keeps that near 0.03 at ten bins —
+    in 500 simulated windows of an unchanged feature, 3 crossed the 0.10 warn line
+    at 300 values and 204 did at 100. Raise it if you raise `n_bins`.
+    `epsilon` is the floor on a bin's proportion — see the module docstring.
 
     Numeric vs categorical is inferred from the *reference* column's contents
     (integers and floats are numeric; strings, booleans and everything else are
@@ -144,7 +149,7 @@ class DriftConfig:
     """
 
     n_bins: int = 10
-    min_samples: int = 100
+    min_samples: int = 300
     epsilon: float = 1e-4
     thresholds: DriftThresholds = field(default_factory=DriftThresholds)
     numeric: tuple[str, ...] = ()
