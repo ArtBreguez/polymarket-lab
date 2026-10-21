@@ -65,6 +65,10 @@ class EdgeSignal:
         quote = quote_edges(model_prob, yes_price, costs, stake, directions)
         if quote.best_edge == -math.inf:
             return None
+        # A side that cannot be bought is -inf inside the policy; on a signal that would be
+        # written as `-Infinity`, which strict JSON refuses. It cannot do worse than losing
+        # the whole stake, so that is what it reads as.
+        floor = -1.0
         return cls(
             market_id=market_id,
             city_or_segment=city_or_segment,
@@ -72,10 +76,10 @@ class EdgeSignal:
             horizon=horizon,
             outcome_label=outcome_label,
             direction=quote.direction,
-            gamma_price=yes_price,
-            model_prob=model_prob,
+            gamma_price=float(yes_price),
+            model_prob=float(model_prob),
             best_edge=quote.best_edge,
-            yes_edge=quote.yes_edge,
-            no_edge=quote.no_edge,
+            yes_edge=max(quote.yes_edge, floor),
+            no_edge=max(quote.no_edge, floor),
             question=question,
         )

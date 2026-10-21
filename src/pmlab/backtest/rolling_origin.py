@@ -267,4 +267,6 @@ def _informational_edges(
     if not math.isfinite(prob):
         return math.nan, math.nan
     quote = quote_edges(min(max(prob, 0.0), 1.0), price, costs, stake)
-    return quote.yes_edge, quote.no_edge
+    # -inf (a side that cannot be bought) would not survive strict JSON; as on an EdgeSignal,
+    # it reads as losing the whole stake.
+    return max(quote.yes_edge, -1.0), max(quote.no_edge, -1.0)

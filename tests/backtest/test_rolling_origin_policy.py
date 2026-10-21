@@ -329,3 +329,15 @@ class TestNoLookahead:
         )
         for step in result.steps:
             assert step["train_rows"] == int((panel["decision_date"] < step["eval_date"]).sum())
+
+
+class TestTheEdgeColumnsAreFinite:
+    def test_an_unbuyable_side_reads_as_losing_the_stake_not_minus_infinity(self) -> None:
+        # YES at 0.70 plus 0.5 of slippage fills at 1.0: it cannot be bought. NO can.
+        costs = CostModel(taker_bps=0.0, slippage_fixed=0.5)
+        rows = [_row("m1", "2024-01-01", "a", "b", 0.70, 0.20)]
+        trades = _run(rows, TradePolicy.live(min_edge=-1.0), costs=costs)
+        trade = trades.iloc[0]
+        assert trade["direction"] == "no"
+        assert trade["yes_edge"] == -1.0
+        assert np.isfinite(trades[["yes_edge", "no_edge", "best_edge"]].to_numpy(dtype=float)).all()

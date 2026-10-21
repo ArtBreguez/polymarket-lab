@@ -15,8 +15,11 @@ promoted on a strategy that is not the one that trades.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import math
 
+import numpy as np
 import pytest
 
 from pmlab.core.costs import CostModel
@@ -214,3 +217,63 @@ class TestEdgeSignalFromQuote:
             directions=("no",),
         )
         assert signal is None
+
+
+class TestNumpyScalarsAreNumbers:
+    """Model outputs and DataFrame cells arrive as numpy scalars, not Python floats."""
+
+    @pytest.mark.parametrize("make", [np.float32, np.float64, np.longdouble])
+    def test_a_numpy_float_probability_and_price(self, make: type) -> None:
+        q = quote_edges(make(0.6), make(0.3), CostModel(), stake=1.0)  # type: ignore[arg-type]
+        assert q.yes_edge == pytest.approx(0.297, abs=1e-6)
+
+    def test_a_numpy_integer_endpoint(self) -> None:
+        q = quote_edges(np.int64(1), np.int64(0), CostModel(taker_bps=0.0), stake=1.0)  # type: ignore[arg-type]
+        assert q.yes_edge == -math.inf  # priced at 0: not a trade
+
+    def test_a_numpy_bool_is_still_not_a_probability(self) -> None:
+        with pytest.raises(ValueError, match="model_prob"):
+            quote_edges(np.bool_(True), 0.5, CostModel(), stake=1.0)  # type: ignore[arg-type]
+
+    def test_a_signal_built_from_numpy_scalars_holds_plain_floats(self) -> None:
+        signal = EdgeSignal.from_quote(
+            market_id="m",
+            city_or_segment="s",
+            target_date="2099-01-01",
+            horizon="morning_of",
+            outcome_label="x",
+            yes_price=np.float32(0.55),  # type: ignore[arg-type]
+            model_prob=np.float32(0.15),  # type: ignore[arg-type]
+            costs=CostModel(),
+            stake=1.0,
+        )
+        assert signal is not None
+        assert type(signal.gamma_price) is float
+        assert type(signal.model_prob) is float
+        json.dumps(dataclasses.asdict(signal), allow_nan=False)
+
+
+class TestASignalIsStrictJson:
+    """A side that cannot be bought has an edge of -inf inside the policy. On a signal that
+    would be written as `-Infinity`, which strict JSON parsers refuse."""
+
+    def test_the_unbuyable_side_reads_as_losing_the_whole_stake(self) -> None:
+        signal = EdgeSignal.from_quote(
+            market_id="m",
+            city_or_segment="s",
+            target_date="2099-01-01",
+            horizon="morning_of",
+            outcome_label="x",
+            yes_price=0.7,
+            model_prob=0.2,
+            costs=CostModel(taker_bps=0.0, slippage_fixed=0.5),  # YES fills at 1.0: no trade
+            stake=1.0,
+        )
+        assert signal is not None
+        assert signal.direction == "no"
+        assert signal.yes_edge == -1.0
+        json.dumps(dataclasses.asdict(signal), allow_nan=False)
+
+    def test_the_policy_itself_still_sees_minus_infinity(self) -> None:
+        q = quote_edges(0.2, 0.7, CostModel(taker_bps=0.0, slippage_fixed=0.5), stake=1.0)
+        assert q.yes_edge == -math.inf

@@ -7,6 +7,7 @@ our fair probability is than the market price, minus costs.
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass
 
 from pmlab.core.costs import CostModel
@@ -108,6 +109,10 @@ def quote_edges(
         raise ValueError(f"model_prob must be a number in [0, 1], got {model_prob!r}")
     if not _is_unit_interval(yes_price):
         raise ValueError(f"yes_price must be a number in [0, 1], got {yes_price!r}")
+    # numpy scalars (a model's output, a DataFrame cell) are numbers; the arithmetic below
+    # and what is stored on a signal are plain floats.
+    model_prob = float(model_prob)
+    yes_price = float(yes_price)
     yes_fill, yes_edge = _side_edge(model_prob, yes_price, costs, stake)
     no_fill, no_edge = _side_edge(1.0 - model_prob, 1.0 - yes_price, costs, stake)
     candidates = {"yes": yes_edge, "no": no_edge}
@@ -130,7 +135,7 @@ def edge_clears(best_edge: float, min_edge: float) -> bool:
 
 def _is_unit_interval(value: float) -> bool:
     return (
-        isinstance(value, (int, float))
+        isinstance(value, numbers.Real)
         and not isinstance(value, bool)
         and math.isfinite(value)
         and 0.0 <= value <= 1.0
