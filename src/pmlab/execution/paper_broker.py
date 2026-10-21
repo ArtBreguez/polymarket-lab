@@ -39,9 +39,9 @@ class PaperBroker:
             trades_path: JSON file the trade log is appended to.
             allowed_segments: Only record signals in these segments (from the
                 champion's passing gate segments). None means no filtering, and so
-                does ``"all"`` in the set: a champion promoted on an aggregate gate
-                makes no per-segment claim (see `pmlab.core.segments`). An empty set
-                records nothing.
+                does ``"all"`` on its own: a champion promoted on an aggregate gate
+                makes no per-segment claim (see `pmlab.core.segments`); beside other
+                names it is a segment called "all". An empty set records nothing.
             flat_stake: Notional USDC per trade.
             taker_bps: Legacy fee-only knob. Mutually exclusive with ``costs``.
             costs: Full :class:`~pmlab.core.costs.CostModel`. Use the SAME model the

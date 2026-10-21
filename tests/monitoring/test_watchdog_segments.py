@@ -540,6 +540,16 @@ class TestAChampionPromotedOnAnAggregateGate:
         assert calibration.metrics["n_out_of_segment"] == 0
         assert calibration.metrics["n_trades"] == 80
 
+    def test_a_segment_named_all_beside_others_does_not_make_the_champion_an_aggregate_one(
+        self,
+    ) -> None:
+        trades = _trades("A", 40) + _trades("all", 40) + _trades("Chicago", 40)
+        pnl = _check(
+            _report(trades, _expectation({"A": _seg(), "all": _seg()}), ("A", "all")), "pnl"
+        )
+        assert pnl.metrics["n_out_of_segment"] == 40  # Chicago was graded in neither
+        assert pnl.metrics["n_trades"] == 80
+
     def test_a_named_segment_champion_still_leaves_other_segments_out(self) -> None:
         trades = _trades("A", 40) + _trades("Chicago", 40)
         pnl = _check(_report(trades, _expectation(None), ("A",)), "pnl")

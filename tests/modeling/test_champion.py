@@ -173,6 +173,27 @@ def test_a_per_segment_champion_allows_only_the_segments_that_passed(tmp_path):
     assert not manifest.allows_segment("Chicago")
 
 
+def test_a_per_segment_champion_with_a_segment_named_all_does_not_allow_every_segment(tmp_path):
+    rows = [
+        {"realized_pnl": 0.1, "outcome": "won", "segment": segment}
+        for segment in ("A", "all")
+        for _ in range(50)
+    ]
+    gate = HoldoutGateResult.evaluate(
+        pd.DataFrame(rows), required_segments=["A", "all"], min_trades_per_segment=40
+    )
+    assert gate.decision == "GO"
+    manifest = ChampionManifest.publish(
+        model=_make_fitted_lgbm(), gate=gate, output_dir=tmp_path / "out", plugin_family="test"
+    )
+    assert manifest.get_allowed_segments() == {"A", "all"}
+    assert manifest.allows_segment("A")
+    assert manifest.allows_segment("all")
+    assert not manifest.allows_segment("Chicago")  # graded in neither segment
+    loaded = ChampionManifest.load(tmp_path / "out" / "champion.json")
+    assert not loaded.allows_segment("Chicago")
+
+
 def test_a_champion_promoted_on_an_aggregate_gate_allows_every_segment(tmp_path):
     from pmlab.backtest.holdout_gate import HoldoutGateResult
 

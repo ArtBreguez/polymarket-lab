@@ -127,10 +127,15 @@ def test_a_champion_promoted_on_an_aggregate_gate_records_every_segment(tmp_path
     assert len(broker.record(signals, now_utc=datetime(2020, 1, 1, tzinfo=UTC))) == 2
 
 
-def test_all_beside_a_named_segment_still_records_everything(tmp_path):
+def test_all_beside_a_named_segment_is_a_segment_not_the_wildcard(tmp_path):
     broker = PaperBroker(trades_path=tmp_path / "t.json", allowed_segments={"all", "Miami"})
-    signal = make_signal(city="Chicago")
-    assert len(broker.record([signal], now_utc=datetime(2020, 1, 1, tzinfo=UTC))) == 1
+    signals = [
+        make_signal(city="Chicago", target_date="2099-12-29"),
+        make_signal(city="Miami", target_date="2099-12-30"),
+        make_signal(city="all", target_date="2099-12-31"),
+    ]
+    recorded = broker.record(signals, now_utc=datetime(2020, 1, 1, tzinfo=UTC))
+    assert sorted(t["city_or_segment"] for t in recorded) == ["Miami", "all"]
 
 
 def test_named_segments_still_filter(tmp_path):

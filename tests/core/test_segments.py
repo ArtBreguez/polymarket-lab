@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from pmlab.core.segments import ALL_SEGMENTS, segment_allowed
+from pmlab.core.segments import ALL_SEGMENTS, allows_every_segment, segment_allowed
 
 
 def test_the_wildcard_is_the_name_the_aggregate_gate_uses() -> None:
@@ -29,8 +29,23 @@ def test_all_allows_every_segment(segment: str) -> None:
     assert segment_allowed(segment, {"all"})
 
 
-def test_all_beside_named_segments_still_allows_everything() -> None:
-    assert segment_allowed("Chicago", {"all", "Dallas"})
+def test_all_beside_named_segments_is_a_segment_called_all_not_the_wildcard() -> None:
+    # A per-segment gate that happens to contain a segment named "all" graded that segment,
+    # not the whole log: it must not widen trading to every segment.
+    allowed = {"all", "Dallas"}
+    assert not segment_allowed("Chicago", allowed)
+    assert segment_allowed("Dallas", allowed)
+    assert segment_allowed("all", allowed)
+
+
+@pytest.mark.parametrize("allowed", [{"all"}, ["all"], ("all", "all")])
+def test_all_on_its_own_is_the_wildcard(allowed: object) -> None:
+    assert allows_every_segment(allowed)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("allowed", [{"all", "Dallas"}, {"Dallas"}, set(), ["all", "ALL"]])
+def test_nothing_else_is_the_wildcard(allowed: object) -> None:
+    assert not allows_every_segment(allowed)  # type: ignore[arg-type]
 
 
 def test_named_segments_allow_only_themselves() -> None:

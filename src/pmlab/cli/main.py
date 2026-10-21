@@ -66,9 +66,9 @@ def _load_costs(path: str | None) -> CostModel | None:
 
 def _describe_segments(allowed: set[str]) -> str:
     """The allowed segments for the console; ``"all"`` is what an aggregate gate allows."""
-    from pmlab.core.segments import ALL_SEGMENTS
+    from pmlab.core.segments import allows_every_segment
 
-    if ALL_SEGMENTS in allowed:
+    if allows_every_segment(allowed):
         return "every segment (the gate was graded in aggregate)"
     return str(allowed)
 

@@ -46,7 +46,28 @@ def _aggregate_gate(tmp_path: Path) -> Path:
     )
 
 
-def _publish(tmp_path: Path) -> Path:
+def _per_segment_gate(tmp_path: Path, *segments: str) -> Path:
+    return _write(
+        tmp_path / "gate.json",
+        {
+            "decision": "GO",
+            "segment_results": [
+                {
+                    "segment": segment,
+                    "num_trades": 100,
+                    "total_pnl": 10.0,
+                    "passes": True,
+                    "reason": "ok",
+                }
+                for segment in segments
+            ],
+            "aggregate_pnl": 10.0 * len(segments),
+            "aggregate_trades": 100 * len(segments),
+        },
+    )
+
+
+def _publish(tmp_path: Path, gate: Path | None = None) -> Path:
     artifacts = tmp_path / "art"
     _backtest(tmp_path, "--min-edge", "0.1")
     result = runner.invoke(
@@ -55,7 +76,7 @@ def _publish(tmp_path: Path) -> Path:
             "promote-champion",
             str(_model(tmp_path)),
             "--gate-path",
-            str(_aggregate_gate(tmp_path)),
+            str(gate or _aggregate_gate(tmp_path)),
             "--plugin",
             "politics",
             "--output-dir",
@@ -177,3 +198,15 @@ def test_a_per_segment_champion_is_unchanged(tmp_path: Path) -> None:
 @pytest.mark.parametrize("flag", ["--expectation"])
 def test_promote_help_still_documents_the_expectation(flag: str) -> None:
     assert flag in runner.invoke(app, ["promote-champion", "--help"]).output
+
+
+def test_a_gate_with_a_segment_named_all_records_only_the_segments_it_graded(
+    tmp_path: Path,
+) -> None:
+    artifacts = _publish(tmp_path, _per_segment_gate(tmp_path, "Chicago", "all"))
+    _signals(artifacts, segments=("Chicago", "Dallas", "all"))
+    result = _record(artifacts, "ws", "--min-edge", "0.1")
+    assert result.exit_code == 0, result.output
+    assert "every segment" not in result.output
+    trades = json.loads(_trades_file(artifacts, "ws").read_text())["trades"]
+    assert {t["city_or_segment"] for t in trades} == {"Chicago", "all"}  # not Dallas
