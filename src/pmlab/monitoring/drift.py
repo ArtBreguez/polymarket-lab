@@ -94,8 +94,10 @@ _PREDICTION = "prediction"
 class DriftThresholds:
     """Where each signal turns from ``ok`` to ``warn`` to ``alert``.
 
-    A value at or above a threshold is in that band. The defaults are conventions,
-    not laws — tune them on your own data:
+    A value at or above a threshold is in that band, with 1e-9 of slack for float
+    round-off (a missing rate going 10% -> 30% changes by 0.19999999999999998, and
+    is still an alert at 0.20). The defaults are conventions, not laws — tune them
+    on your own data:
 
     - **PSI 0.10 / 0.25** is the widely used credit-scoring convention: below 0.10
       no meaningful shift, 0.10-0.25 moderate, above 0.25 significant.
@@ -475,10 +477,16 @@ def _categorical_counts(
     return ref_counts, cur_counts, sum(unseen.values()) / len(cur), len(unseen), listed
 
 
+# PSI, KL and the missing-rate change are float arithmetic: 0.30 - 0.10 is
+# 0.19999999999999998, which would read as just short of the documented
+# ``>= 0.20`` alert line. A value within this of a threshold is at it.
+_TOLERANCE = 1e-9
+
+
 def _band(value: float, warn: float, alert: float) -> DriftStatus:
-    if value >= alert:
+    if value >= alert - _TOLERANCE:
         return "alert"
-    if value >= warn:
+    if value >= warn - _TOLERANCE:
         return "warn"
     return "ok"
 

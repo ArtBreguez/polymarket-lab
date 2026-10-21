@@ -787,6 +787,71 @@ class TestThresholds:
         assert fd.status == "warn"
         assert "missing_rate" in fd.drivers
 
+    @pytest.mark.parametrize(
+        ("ref_missing", "cur_missing", "expected"),
+        [
+            (0.10, 0.30, "alert"),  # 0.30 - 0.10 == 0.19999999999999998 in floats
+            (0.30, 0.10, "alert"),  # the same step downwards
+            (0.10, 0.15, "warn"),  # 0.15 - 0.10 == 0.04999999999999999
+            (0.15, 0.10, "warn"),
+            (0.00, 0.05, "warn"),
+            (0.00, 0.20, "alert"),
+            (0.10, 0.299, "warn"),  # a real shortfall is not rounded up
+            (0.10, 0.149, "ok"),
+        ],
+    )
+    def test_missing_rate_change_exactly_at_a_threshold_is_in_the_band(
+        self, ref_missing, cur_missing, expected
+    ):
+        n = 1000
+        ref, cur = _normal(n, seed=1), _normal(n, seed=1)
+        ref[: round(ref_missing * n)] = np.nan
+        cur[: round(cur_missing * n)] = np.nan
+        fd = _one(drift_report({"x": ref}, {"x": cur}), "x")
+        assert fd.status == expected
+        if expected != "ok":
+            assert fd.drivers == ("missing_rate",)
+
+    def test_the_float_trap_is_real(self):
+        # Why the tolerance exists: the documented line is >= 0.20.
+        assert 0.30 - 0.10 < 0.20
+        ref, cur = _normal(1000, seed=1), _normal(1000, seed=1)
+        ref[:100] = np.nan
+        cur[:300] = np.nan
+        change = _one(drift_report({"x": ref}, {"x": cur}), "x").missing_rate_change
+        assert change is not None and change < 0.20 and change == pytest.approx(0.20)
+
+    def test_psi_and_kl_within_round_off_of_a_threshold_are_in_the_band(self):
+        ref, cur = _normal(seed=1), _normal(loc=0.5, seed=2)
+        base = _one(drift_report({"x": ref}, {"x": cur}), "x")
+        assert base.psi is not None and base.kl is not None
+        round_off = 1e-12  # what a threshold computed another way would differ by
+
+        psi_cfg = _psi_only(base.psi + round_off, base.psi + 1.0)
+        assert _one(drift_report({"x": ref}, {"x": cur}, config=psi_cfg), "x").status == "warn"
+        psi_cfg = _psi_only(0.0, base.psi + round_off)
+        assert _one(drift_report({"x": ref}, {"x": cur}, config=psi_cfg), "x").status == "alert"
+
+        kl_cfg = DriftConfig(
+            thresholds=DriftThresholds(
+                psi_warn=_UNREACHABLE,
+                psi_alert=_UNREACHABLE,
+                kl_warn=base.kl + round_off,
+                kl_alert=base.kl + 1.0,
+                missing_warn=_UNREACHABLE,
+                missing_alert=_UNREACHABLE,
+            )
+        )
+        fd = _one(drift_report({"x": ref}, {"x": cur}, config=kl_cfg), "x")
+        assert fd.status == "warn" and fd.drivers == ("kl",)
+
+    def test_a_threshold_a_real_margin_above_the_value_is_not_reached(self):
+        ref, cur = _normal(seed=1), _normal(loc=0.5, seed=2)
+        psi = _one(drift_report({"x": ref}, {"x": cur}), "x").psi
+        assert psi is not None
+        cfg = _psi_only(psi + 1e-6, psi + 1.0)
+        assert _one(drift_report({"x": ref}, {"x": cur}, config=cfg), "x").status == "ok"
+
     def test_a_single_cutoff_is_allowed(self):
         # warn == alert means "no warn band": a legitimate policy, not an error.
         t = DriftThresholds(psi_warn=0.2, psi_alert=0.2)
