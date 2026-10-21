@@ -104,8 +104,8 @@ def mixture_reference[K](
         ``(mean, variance_of_the_mean)`` of the reference.
 
     Raises:
-        ValueError: No live trades, a negative count, or live trades in a group that has
-            no reference.
+        ValueError: No live trades, a negative count, live trades in a group that has no
+            reference, or a group whose reference rests on no backtest trades.
     """
     if any(c < 0 for c in counts.values()):
         raise ValueError(f"counts must not be negative, got {dict(counts)}")
@@ -116,6 +116,9 @@ def mixture_reference[K](
     missing = [group for group in live if group not in groups]
     if missing:
         raise ValueError(f"no reference for group(s) {missing}")
+    unbacked = [group for group in live if groups[group][2] < 1]
+    if unbacked:
+        raise ValueError(f"group(s) {unbacked} are promised on fewer than one backtest trade")
     mean = 0.0
     variance = 0.0
     for group, count in live.items():

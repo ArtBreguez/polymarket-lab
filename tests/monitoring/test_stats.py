@@ -147,6 +147,15 @@ class TestMixtureReference:
         mean, variance = mixture_reference({"yes": 10, "no": 0}, both)
         assert (mean, variance) == pytest.approx((0.2, 1.0 / 100))
 
+    def test_a_record_with_no_backtest_trades_is_refused_by_name_not_by_division(self) -> None:
+        with pytest.raises(ValueError, match=r"yes.*backtest trade"):
+            mixture_reference({"yes": 5}, {"yes": (0.1, 1.0, 0)})
+
+    def test_a_record_with_no_backtest_trades_is_harmless_while_it_has_no_live_trades(self) -> None:
+        groups = {"yes": (0.2, 1.0, 100), "no": (0.0, 1.0, 0)}
+        mean, variance = mixture_reference({"yes": 10, "no": 0}, groups)
+        assert (mean, variance) == pytest.approx((0.2, 1.0 / 100))
+
     def test_the_weights_follow_the_live_mix_not_the_backtest_mix(self) -> None:
         groups = {"yes": (0.30, 1.0, 100), "no": (0.00, 1.0, 100)}
         mostly_yes, _ = mixture_reference({"yes": 9, "no": 1}, groups)
@@ -173,6 +182,8 @@ class TestMixtureReference:
             ({"yes": 0}, {"yes": (0.1, 1.0, 10)}),
             ({"yes": 5, "no": 5}, {"yes": (0.1, 1.0, 10)}),  # NO has live trades, no reference
             ({"yes": -1}, {"yes": (0.1, 1.0, 10)}),
+            ({"yes": 5}, {"yes": (0.1, 1.0, 0)}),  # promised on no backtest trades at all
+            ({"yes": 5}, {"yes": (0.1, 1.0, -3)}),
         ],
     )
     def test_a_mix_that_cannot_be_referenced_is_refused(
