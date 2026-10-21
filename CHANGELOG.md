@@ -2,6 +2,87 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.1] — 2026-10-21
+
+### Added — Watchdog CLI
+
+Closes #14. The gate, live calibration and drift each compute numbers and stop;
+this is the layer that decides. It stays silent when healthy, so it can run from
+cron: `pmlab monitor ... || notify`.
+
+- **`pmlab monitor`** — drift, live calibration and live PnL against the champion,
+  each `ok` / `warn` / `alert` / `insufficient` with explicit reasons; the overall
+  status is the worst. A healthy run prints nothing (stdout or stderr) and exits 0;
+  `--verbose` prints the full report; `--json PATH|-` always writes it.
+- **Exit codes**: `0` healthy, `10` warn, `20` alert, `30` insufficient/unavailable,
+  `64` bad input, `70` internal error. They avoid 1 (an uncaught Python exception)
+  and 2 (a Click usage error) so a crash or a typo'd flag can never read as a
+  verdict, and nothing that goes wrong can exit 0.
+- **`health_report(champion=, trades=, drift=, as_of=)`** — the pure core: no I/O, no
+  clock, byte-identical output for identical inputs. `HealthReport` / `CheckResult` /
+  `WatchdogConfig` are frozen, strict-JSON-safe, with `to_dict()` / `from_dict()`.
+- **`BacktestExpectation`** — mean, standard deviation and count of per-stake PnL
+  (and of the per-trade squared forecast error), recorded in `champion.json` as
+  `backtest_expectation`. The gate keeps only totals, so a live run previously had
+  nothing to be surprised *against*. `ChampionManifest.publish(expectation=)`,
+  `pmlab promote-champion --expectation`, and `pmlab backtest --output` now writes the
+  block it consumes.
+- `CalibrationTracker.squared_errors()`; `rolling_origin_eval` trades gain
+  `label_occurred` (its `outcome` is a profit flag; calibration needs the label).
+- `docs/watchdog.md`. Every Python block was re-run after the final edit and diffed
+  against its printed output; the CLI transcripts come from the built wheel installed
+  into a fresh venv.
+
+### Fixed
+
+- **Settlement ignored `fill_price`.** `PaperBroker` fills at the costed price and
+  records it, but `SettlementEngine` recomputed the entry from `gamma_price`, so with
+  any slippage in the cost model live `realized_pnl` read better than the backtest's
+  by exactly that friction (live 1.081 vs backtest 0.974 on the same trade at a quote
+  of 0.10). It now settles at `fill_price`; logs written before it was recorded fall
+  back to the quote and settle to the same number as before. A live-vs-backtest
+  comparison would otherwise have been biased toward green.
+
+### Notes on semantics
+
+- **A shortfall is a finding only if it is material *and* distinguishable from
+  noise**: an effect-size threshold, plus a one-sided two-sample Welch z using the
+  spread of both the live and the backtest sample. One-sided, so outperformance never
+  pages. `z_warn = 2`, `z_alert = 3` are deliberately stricter than the textbook
+  values: the watchdog looks every run.
+- **The checks have limited power, and the docs say so with numbers.** Simulated: the
+  PnL check false-alarms 1.5-4.8% of the time, but notices a *completely vanished*
+  edge in about 19% of runs at 100 live trades and 37% at 400, because per-trade PnL
+  is far noisier than its mean. The Brier check fires in most runs at 400 trades only
+  once forecasts are off by about 0.2 in probability (squared error is insensitive to
+  smaller shifts). A quiet watchdog is weak evidence the edge is intact.
+- **`insufficient` is not healthy.** It outranks `ok`, loses to any measured problem,
+  and has its own exit code. `--insufficient warn` counts it as a warn; there is
+  deliberately no `ignore`.
+- **Only evidence that belongs to this champion counts**: settled trades in its allowed
+  segments (from `champion.json`), recorded at or after its publication, knowable by
+  `--as-of`. Every exclusion is counted. PnL also excludes trades filled under a
+  different cost model than `champion.json` records.
+- **Old champions still load.** One published before v0.9.1 has no expectation, so
+  calibration and PnL report `insufficient` ("no backtest expectation recorded"); a
+  present but malformed record is an error, not a silent `None`.
+- **Typo'd configuration is rejected**, not ignored: an unknown threshold key would
+  otherwise leave the default in force while the operator believed otherwise.
+- A trade log is put in a canonical order before any float sum. Shuffling the file
+  changed the report in the last bit (tied `target_date`s were scored in input order);
+  found by a test, fixed.
+
+### Not included
+
+- **Per-segment health.** The checks pool the allowed segments; the expectation is not
+  recorded per segment. `n_by_segment` is reported and `CalibrationTracker.by_segment()`
+  gives the per-segment numbers.
+- **Acting on an alert.** It reports and exits; pausing or retraining is the caller's.
+- `scripts/pmlab-workspace` exports `PMLAB_ARTIFACTS_DIR` already inside the workspace
+  while `PmlabSettings` appends `workspaces/<name>` again, so default trade-log paths
+  resolve wrongly there. Pre-existing and shared with `status`/`record-trades`; not
+  changed here. Pass `--trades` explicitly under the script (see `docs/watchdog.md`).
+
 ## [0.9.0] — 2026-10-21
 
 ### Added — Drift monitoring

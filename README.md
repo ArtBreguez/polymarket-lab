@@ -572,7 +572,13 @@ pmlab settle-trades --plugin weather_tmax                  # settle resolved pos
 pmlab backtest --plugin weather_tmax --stride 30           # walk-forward backtest
 pmlab promote-champion model.pkl --gate-path gate.json \   # promote if gate is GO
                --plugin weather_tmax
+pmlab monitor --reference panel.parquet --snapshots snaps/ # watchdog: silent when healthy
 ```
+
+`pmlab monitor` is built for cron — it prints nothing and exits 0 when drift,
+live calibration and live PnL are all within bounds, and otherwise says what is
+wrong and exits non-zero (10 warn, 20 alert, 30 could not check). See
+[docs/watchdog.md](docs/watchdog.md).
 
 ### Workspace isolation
 
