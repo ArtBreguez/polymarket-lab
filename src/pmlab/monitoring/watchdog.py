@@ -566,6 +566,7 @@ _EXCLUSION_LABELS = (
     ("n_before_champion", "recorded before this champion was published"),
     ("n_after_as_of", "not yet knowable at as_of"),
     ("n_unscoreable", "with no usable stake or PnL"),
+    ("n_excluded_no_side", "on the NO side (the backtest only buys YES)"),
     ("n_excluded_cost_basis", "filled under different costs than champion.json records"),
 )
 
@@ -832,6 +833,7 @@ def _pnl_check(
 ) -> CheckResult:
     returns: list[float] = []
     n_unscoreable = 0
+    n_no_side = 0
     n_cost_excluded = 0
     n_cost_unverified = 0
     for trade in selection.trades:
@@ -839,6 +841,12 @@ def _pnl_check(
         pnl = trade.get("realized_pnl")
         if not _is_number(stake) or not _is_number(pnl) or stake <= 0 or not math.isfinite(pnl):
             n_unscoreable += 1
+            continue
+        # The backtest only buys YES, so its mean and spread describe that
+        # strategy. A NO trade's per-stake PnL is the same arithmetic, but it is not
+        # a draw from the distribution being tested against: leave it out, counted.
+        if trade.get("direction", "yes") != "yes":
+            n_no_side += 1
             continue
         if costs is not None:
             verdict = _cost_basis(trade, costs, float(stake))
@@ -854,6 +862,7 @@ def _pnl_check(
         "n_by_segment": selection.by_segment,
         "n_trades": len(returns),
         "n_unscoreable": n_unscoreable,
+        "n_excluded_no_side": n_no_side,
         "n_excluded_cost_basis": n_cost_excluded,
         "n_cost_unverified": n_cost_unverified if costs is not None else None,
         "cost_basis": (

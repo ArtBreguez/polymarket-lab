@@ -277,11 +277,18 @@ n_after_as_of         4
 n_unattributed        3
 ```
 
-The PnL check also excludes trades that were filled under a **different cost model**
-than `champion.json` records (`n_excluded_cost_basis`), because live and backtest PnL
-are only comparable if both paid the same friction (see [Costs](costs.md)). A trade with
-no cost fields is kept and counted in `n_cost_unverified`; if the champion records no
-costs at all, the report says `cost_basis: "unknown"`.
+The PnL check also leaves out, counted in the report:
+
+- **NO-side trades** (`n_excluded_no_side`, anything whose `direction` is not `"yes"`).
+  The backtest only ever buys YES, so its mean and spread describe that strategy; a NO
+  trade's per-stake PnL is the same arithmetic, but it is not a draw from the
+  distribution being tested against, so the z test's null does not cover it.
+  Calibration still counts them: a forecast is about the label, whichever side was taken.
+- trades filled under a **different cost model** than `champion.json` records
+  (`n_excluded_cost_basis`), because live and backtest PnL are only comparable if both
+  paid the same friction (see [Costs](costs.md)). A trade with no cost fields is kept and
+  counted in `n_cost_unverified`; if the champion records no costs at all, the report
+  says `cost_basis: "unknown"`.
 
 ---
 

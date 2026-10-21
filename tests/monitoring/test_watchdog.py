@@ -39,6 +39,7 @@ from pmlab.monitoring.watchdog import (
     PnLThresholds,
     WatchdogConfig,
     WatchdogInputError,
+    _cost_basis,
     exit_code_for,
     health_report,
 )
@@ -567,12 +568,14 @@ class TestCostBasis:
         assert check.metrics["n_cost_unverified"] == 60
 
     def test_the_no_direction_quote_is_the_complement(self) -> None:
-        champ = _champion(costs=self._COSTS)
-        fill = round(self._COSTS.fill_price(0.60, stake=1.0), 8)  # 1 - 0.40
+        """NO trades are left out of the PnL check before the cost basis is read, so
+        the complement arithmetic is pinned on the function that owns it."""
         fee = round(self._COSTS.fee(1.0), 6)
-        trades = _trades(60, direction="no", fill_price=fill, fee_paid=fee)
-        check = _check(_report(trades=trades, champion=champ), "pnl")
-        assert check.metrics["n_excluded_cost_basis"] == 0
+        fill = round(self._COSTS.fill_price(0.60, stake=1.0), 8)  # 1 - 0.40
+        wrong = round(self._COSTS.fill_price(0.40, stake=1.0), 8)  # the YES quote
+        base = {"direction": "no", "gamma_price": 0.40, "fee_paid": fee}
+        assert _cost_basis({**base, "fill_price": fill}, self._COSTS, 1.0) == "match"
+        assert _cost_basis({**base, "fill_price": wrong}, self._COSTS, 1.0) == "mismatch"
 
 
 # --------------------------------------------------------------------------
@@ -1191,3 +1194,65 @@ class TestThresholdsAreInclusive:
         assert check.metrics["degradation_rel"] == pytest.approx(0.30)
         assert check.metrics["z"] > 3.0
         assert check.status == "warn"
+
+
+# --------------------------------------------------------------------------
+# NO-side trades are not the strategy the backtest measured
+# --------------------------------------------------------------------------
+
+
+class TestNoSideTradesAreLeftOutOfThePnlComparison:
+    """The backtest only ever buys YES, at the model's top-ranked bin.
+
+    A NO trade's per-stake PnL is the same arithmetic now that NO settles as a buy
+    of the NO token, but it is not a draw from the distribution the backtest's mean
+    and spread describe: the backtest never ran that strategy, so the z test's null
+    hypothesis does not cover it. They are counted, not silently dropped.
+    """
+
+    def test_no_trades_do_not_count_toward_the_pnl_evidence(self) -> None:
+        check = _check(_report(trades=_trades(60, direction="no", settlement_version=1)), "pnl")
+        assert check.status == "insufficient"
+        assert check.cause == "too_few_samples"
+        assert check.metrics["n_trades"] == 0
+        assert check.metrics["n_excluded_no_side"] == 60
+
+    def test_the_reason_says_why_they_were_left_out(self) -> None:
+        check = _check(_report(trades=_trades(60, direction="no", settlement_version=1)), "pnl")
+        text = " ".join(check.reasons)
+        assert "60" in text
+        assert "NO side" in text
+        assert "only buys YES" in text
+
+    def test_losing_no_trades_cannot_page_a_healthy_yes_book(self) -> None:
+        yes = _trades(60, pnl=0.10)
+        losing_no = _trades(40, pnl=-1.0, pnl_sd=0.0, direction="no", settlement_version=1)
+        check = _check(_report(trades=yes + losing_no), "pnl")
+        assert check.status == "ok"
+        assert check.metrics["n_trades"] == 60
+        assert check.metrics["n_excluded_no_side"] == 40
+
+    def test_yes_trades_are_still_judged_beside_no_trades(self) -> None:
+        yes = _trades(60, pnl=-0.20)
+        no = _trades(40, pnl=0.50, direction="no", settlement_version=1)
+        check = _check(_report(trades=yes + no), "pnl")
+        assert check.status == "alert"
+        assert check.metrics["n_trades"] == 60
+
+    def test_no_trades_still_count_for_calibration(self) -> None:
+        """The forecast is about the label, whichever side was taken."""
+        trades = _trades(60, direction="no", settlement_version=1)
+        check = _check(_report(trades=trades), "calibration")
+        assert check.status == "ok"
+        assert check.metrics["n_trades"] == 60
+        assert "n_excluded_no_side" not in check.metrics
+
+    def test_a_trade_with_no_direction_is_a_yes_trade(self) -> None:
+        trades = [{k: v for k, v in t.items() if k != "direction"} for t in _trades(60)]
+        check = _check(_report(trades=trades), "pnl")
+        assert check.metrics["n_trades"] == 60
+        assert check.metrics["n_excluded_no_side"] == 0
+
+    def test_the_exclusion_is_listed_in_the_rendered_summary(self) -> None:
+        report = _report(trades=_trades(10, direction="no", settlement_version=1))
+        assert "10 on the NO side" in report.render()
