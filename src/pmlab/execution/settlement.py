@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,10 +28,30 @@ class SettlementEngine:
         self,
         specs: list[MarketSpec],
         today_str: str | None = None,
+        now_utc: datetime | None = None,
     ) -> dict[str, Any]:
-        """Settle all unsettled trades that have a final truth available."""
+        """Settle all unsettled trades that have a final truth available.
+
+        Each trade it settles is stamped with ``settled_at`` (UTC): when its PnL
+        became known, which is what lets the watchdog replay an earlier ``--as-of``
+        without seeing truth that had not arrived yet.
+
+        Args:
+            specs: The markets to resolve against.
+            today_str: ``YYYY-MM-DD`` of "today"; trades dated after it stay open.
+            now_utc: The settlement time to stamp (injected for testing; defaults
+                to now). Must be timezone-aware.
+
+        Raises:
+            ValueError: If ``now_utc`` is naive.
+        """
         if today_str is None:
             today_str = date.today().isoformat()
+        if now_utc is None:
+            now_utc = datetime.now(UTC)
+        elif now_utc.tzinfo is None:
+            raise ValueError("now_utc must be timezone-aware (a naive time has no zone to stamp)")
+        settled_at = now_utc.astimezone(UTC).isoformat()
 
         if not self.trades_path.exists():
             return {"settled": 0, "pending": 0, "total_pnl": 0.0}
@@ -92,7 +112,7 @@ class SettlementEngine:
                 updated_trades.append(trade)
                 continue
 
-            settled_trade = self._settle_trade(trade, winning_label)
+            settled_trade = self._settle_trade(trade, winning_label, settled_at)
             settled_count += 1
             total_pnl += float(settled_trade["realized_pnl"])
             updated_trades.append(settled_trade)
@@ -105,7 +125,9 @@ class SettlementEngine:
             "total_pnl": round(total_pnl, 6),
         }
 
-    def _settle_trade(self, trade: dict[str, Any], winning_label: str) -> dict[str, Any]:
+    def _settle_trade(
+        self, trade: dict[str, Any], winning_label: str, settled_at: str
+    ) -> dict[str, Any]:
         """Compute PnL and outcome for a single trade."""
         direction = trade.get("direction", "yes")
         gamma_price = float(trade["gamma_price"])
@@ -141,6 +163,7 @@ class SettlementEngine:
             **trade,
             "outcome": outcome,
             "realized_pnl": round(pnl, 6),
+            "settled_at": settled_at,
             "settled_basis": basis,
             "settlement_version": SETTLEMENT_VERSION,
         }

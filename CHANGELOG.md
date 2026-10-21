@@ -80,12 +80,17 @@ cron: `pmlab monitor ... || notify`.
   and has its own exit code. `--insufficient warn` counts it as a warn; there is
   deliberately no `ignore`.
 - **Only evidence that belongs to this champion counts**: settled trades in its allowed
-  segments (from `champion.json`), recorded at or after its publication, knowable by
-  `--as-of`. Every exclusion is counted. PnL also excludes trades filled under a
-  different cost model than `champion.json` records.
+  segments (from `champion.json`), recorded at or after its publication, and settled
+  by `--as-of` (`SettlementEngine` now writes `settled_at`; a trade from an older
+  release has none and is judged by its `target_date`, counted in `n_no_settled_at`
+  and noted in the reasons). Every exclusion is counted. PnL also excludes NO-side
+  trades (the backtest only buys YES), trades settled at the quote by an older release
+  although they paid a different fill, and trades filled under a different cost model
+  than `champion.json` records.
 - **Old champions still load.** One published before v0.9.1 has no expectation, so
   calibration and PnL report `insufficient` ("no backtest expectation recorded"); a
-  present but malformed record is an error, not a silent `None`.
+  present but unusable record (non-finite number, negative spread, fewer than two
+  trades) is an error (exit 64), not a silent `None` and never a silent pass.
 - **Typo'd configuration is rejected**, not ignored: an unknown threshold key would
   otherwise leave the default in force while the operator believed otherwise.
 - A trade log is put in a canonical order before any float sum. Shuffling the file

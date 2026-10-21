@@ -333,3 +333,61 @@ class TestTheSettlementRecordsItsBasis:
         legacy = {**_trade(direction="yes", fill=0.315), "outcome": "won", "realized_pnl": 2.333333}
         settled = _settle(tmp_path, legacy, truth="YES")
         assert "settled_basis" not in settled
+
+
+class TestTheSettlementIsTimestamped:
+    """`settled_at` is when the PnL became known, so a replay at an earlier as-of can
+    tell a trade whose truth had not arrived yet from one it could already see."""
+
+    def _settle_at(self, tmp_path: Path, now: datetime | None) -> dict[str, Any]:
+        path = tmp_path / "t.json"
+        path.write_text(json.dumps({"trades": [_trade(direction="yes")]}))
+        SettlementEngine(plugin=_Truth("YES"), trades_path=path).settle_all(
+            specs=[_spec()], today_str="2026-06-16", now_utc=now
+        )
+        trade: dict[str, Any] = json.loads(path.read_text())["trades"][0]
+        return trade
+
+    def test_settled_at_is_the_injected_clock_in_utc(self, tmp_path: Path) -> None:
+        now = datetime(2026, 6, 16, 3, 30, tzinfo=UTC)
+        assert self._settle_at(tmp_path, now)["settled_at"] == "2026-06-16T03:30:00+00:00"
+
+    def test_a_non_utc_clock_is_written_in_utc(self, tmp_path: Path) -> None:
+        from datetime import timedelta, timezone
+
+        paris = datetime(2026, 6, 16, 5, 30, tzinfo=timezone(timedelta(hours=2)))
+        assert self._settle_at(tmp_path, paris)["settled_at"] == "2026-06-16T03:30:00+00:00"
+
+    def test_the_default_clock_is_now_and_aware(self, tmp_path: Path) -> None:
+        before = datetime.now(UTC)
+        stamped = datetime.fromisoformat(self._settle_at(tmp_path, None)["settled_at"])
+        assert stamped.tzinfo is not None
+        assert before <= stamped <= datetime.now(UTC)
+
+    def test_a_naive_clock_is_refused(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="timezone"):
+            self._settle_at(tmp_path, datetime(2026, 6, 16, 3, 30))
+
+    def test_an_already_settled_trade_keeps_its_original_settled_at(self, tmp_path: Path) -> None:
+        path = tmp_path / "t.json"
+        path.write_text(json.dumps({"trades": [_trade(direction="yes")]}))
+        engine = SettlementEngine(plugin=_Truth("YES"), trades_path=path)
+        engine.settle_all(
+            specs=[_spec()], today_str="2026-06-16", now_utc=datetime(2026, 6, 16, 3, tzinfo=UTC)
+        )
+        engine.settle_all(
+            specs=[_spec()], today_str="2026-06-17", now_utc=datetime(2026, 6, 17, 9, tzinfo=UTC)
+        )
+        assert (
+            json.loads(path.read_text())["trades"][0]["settled_at"] == "2026-06-16T03:00:00+00:00"
+        )
+
+    def test_an_open_trade_is_not_stamped(self, tmp_path: Path) -> None:
+        path = tmp_path / "t.json"
+        path.write_text(
+            json.dumps({"trades": [{**_trade(direction="yes"), "target_date": "2099-01-01"}]})
+        )
+        SettlementEngine(plugin=_Truth("YES"), trades_path=path).settle_all(
+            specs=[], today_str="2026-06-16"
+        )
+        assert "settled_at" not in json.loads(path.read_text())["trades"][0]

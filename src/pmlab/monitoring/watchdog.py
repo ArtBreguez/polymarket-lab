@@ -15,8 +15,10 @@ Four things worth knowing before reading the code:
 **Only evidence that belongs to this champion counts.** A trade log accumulates
 across champions and across segments the gate rejected. The calibration and PnL
 checks therefore see only settled trades in the champion's allowed segments,
-recorded at or after it was published, whose truth had arrived by `as_of`. Anything
-else is counted and reported, never silently folded in.
+recorded at or after it was published, and settled by `as_of` (`settled_at`, which
+`SettlementEngine` writes; a trade from an older release has none and is judged by
+its `target_date` instead, counted and noted in the reasons). Anything else is
+counted and reported, never silently folded in.
 
 **A shortfall needs two things to be a finding.** It has to be *material* (an
 effect-size threshold) and *distinguishable from noise* (a one-sided two-sample z
@@ -36,7 +38,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from datetime import UTC, datetime
 from typing import Any, Literal, TypeGuard, cast
 
@@ -526,6 +528,7 @@ def _select_trades(
         "n_unattributed": 0,
         "n_before_champion": 0,
         "n_after_as_of": 0,
+        "n_no_settled_at": 0,
     }
     kept: list[Mapping[str, Any]] = []
     by_segment: dict[str, int] = {}
@@ -547,9 +550,25 @@ def _select_trades(
         if recorded < published_at:
             counts["n_before_champion"] += 1
             continue
-        if recorded > as_of or target.date() > as_of.date():
+        if recorded > as_of:
             counts["n_after_as_of"] += 1
             continue
+        # When did the truth arrive? `settled_at` says so exactly. Without it (a trade
+        # from an older release) the best available bound is the target date, which
+        # is a *date*: it admits a trade settled later on the as-of day itself.
+        if trade.get("settled_at") is None:
+            if target.date() > as_of.date():
+                counts["n_after_as_of"] += 1
+                continue
+            counts["n_no_settled_at"] += 1
+        else:
+            settled = parse_timestamp(trade["settled_at"])
+            if settled is None:
+                counts["n_unattributed"] += 1
+                continue
+            if settled > as_of:
+                counts["n_after_as_of"] += 1
+                continue
         kept.append(trade)
         by_segment[segment] = by_segment.get(segment, 0) + 1
     counts["n_in_scope"] = len(kept)
@@ -565,7 +584,7 @@ _EXCLUSION_LABELS = (
     ("n_out_of_segment", "outside the champion's allowed segments"),
     ("n_unattributed", "with no usable recorded_at/target_date"),
     ("n_before_champion", "recorded before this champion was published"),
-    ("n_after_as_of", "not yet knowable at as_of"),
+    ("n_after_as_of", "not yet settled at as_of"),
     ("n_unscoreable", "with no usable stake or PnL"),
     ("n_excluded_no_side", "on the NO side (the backtest only buys YES)"),
     (
@@ -702,6 +721,19 @@ def _invalid_statistic(
         ],
         metrics,
     )
+
+
+def _with_settled_at_note(result: CheckResult, counts: Mapping[str, int]) -> CheckResult:
+    """Say, on the result, that some evidence could only be dated by its target_date."""
+    missing = counts["n_no_settled_at"]
+    if not missing:
+        return result
+    note = (
+        f"note: {missing} of {counts['n_in_scope']} in-scope trades have no settled_at (settled "
+        "by an older release), so they are judged by target_date and may include truth that "
+        "arrived after as_of"
+    )
+    return replace(result, reasons=(*result.reasons, note))
 
 
 def _drift_check(report: DriftReport | None) -> CheckResult:
@@ -1075,8 +1107,9 @@ def health_report(
         trades: The paper/live trade log rows (`{"trades": [...]}`'s list).
         drift: A `DriftReport`, or None if drift was not evaluated (reported as
             unavailable, not as fine).
-        as_of: ISO-8601 cutoff. Nothing recorded after it, and no trade whose
-            `target_date` is after it, is evidence. Naive means UTC.
+        as_of: ISO-8601 cutoff. Nothing recorded after it, and no trade settled
+            after it (`settled_at`; `target_date` for a trade from an older release
+            that has none), is evidence. Naive means UTC.
         config: Thresholds and the `insufficient` policy; defaults if omitted.
         checks: Which of `CHECKS` to run. The rest are listed in `skipped`.
 
@@ -1113,9 +1146,11 @@ def health_report(
         if name == "drift":
             results.append(_drift_check(drift))
         elif name == "calibration":
-            results.append(_calibration_check(selection, champion.expectation, config.calibration))
+            calibration = _calibration_check(selection, champion.expectation, config.calibration)
+            results.append(_with_settled_at_note(calibration, selection.counts))
         else:
-            results.append(_pnl_check(selection, champion.expectation, champion.costs, config.pnl))
+            pnl = _pnl_check(selection, champion.expectation, champion.costs, config.pnl)
+            results.append(_with_settled_at_note(pnl, selection.counts))
 
     ref = ChampionRef(
         model_name=champion.model_name,

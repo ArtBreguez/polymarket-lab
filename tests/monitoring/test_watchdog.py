@@ -1431,3 +1431,117 @@ class TestTradesSettledBeforeThePnlCarriedTheFill:
         check = _check(_report(trades=self._legacy()), "calibration")
         assert check.metrics["n_trades"] == 60
         assert check.status == "ok"
+
+
+# --------------------------------------------------------------------------
+# as_of is point-in-time for settlement
+# --------------------------------------------------------------------------
+
+_MIDNIGHT = "2026-03-01T00:00:00+00:00"
+
+
+class TestAsOfIsPointInTimeForSettlement:
+    """A trade counts only if its truth had arrived by `as_of`.
+
+    `target_date` is a *date*: a trade for 2026-03-01 is eligible at a midnight
+    as-of on 2026-03-01 by the date rule, yet cannot have settled before the day
+    played out. `settled_at` is the timestamp that says when it did.
+    """
+
+    def _on(self, day: str, settled_at: str | None, n: int = 60) -> list[dict]:
+        extra: dict = {} if settled_at is None else {"settled_at": settled_at}
+        return _trades(n, target_date=day, recorded_at="2026-02-20T10:00:00+00:00", **extra)
+
+    def _pnl(self, trades: list[dict], as_of: str = _MIDNIGHT):
+        report = health_report(
+            champion=_champion(), trades=trades, drift=None, as_of=as_of, checks=("pnl",)
+        )
+        return report.checks[0]
+
+    def test_settled_after_as_of_on_the_as_of_day_is_excluded(self) -> None:
+        """The reviewer's case: target_date == the as-of day, as-of at 00:00."""
+        trades = self._on("2026-03-01", "2026-03-01T06:00:00+00:00")
+        check = self._pnl(trades)
+        assert check.metrics["n_after_as_of"] == 60
+        assert check.metrics["n_in_scope"] == 0
+        assert check.metrics["n_trades"] == 0
+
+    def test_the_same_trades_count_once_as_of_is_after_they_settled(self) -> None:
+        trades = self._on("2026-03-01", "2026-03-01T06:00:00+00:00")
+        check = self._pnl(trades, as_of="2026-03-01T06:00:00+00:00")
+        assert check.metrics["n_after_as_of"] == 0
+        assert check.metrics["n_trades"] == 60
+
+    def test_settled_exactly_at_as_of_counts(self) -> None:
+        trades = self._on("2026-02-28", _MIDNIGHT)
+        assert self._pnl(trades).metrics["n_trades"] == 60
+
+    def test_a_second_after_as_of_does_not(self) -> None:
+        trades = self._on("2026-02-28", "2026-03-01T00:00:01+00:00")
+        assert self._pnl(trades).metrics["n_after_as_of"] == 60
+
+    def test_settled_at_decides_when_it_is_present(self) -> None:
+        """Even where the date rule would have excluded it."""
+        trades = self._on("2026-03-05", "2026-02-28T12:00:00+00:00")
+        assert self._pnl(trades).metrics["n_trades"] == 60
+
+    def test_calibration_uses_the_same_rule(self) -> None:
+        trades = self._on("2026-03-01", "2026-03-01T06:00:00+00:00")
+        report = health_report(
+            champion=_champion(),
+            trades=trades,
+            drift=None,
+            as_of=_MIDNIGHT,
+            checks=("calibration",),
+        )
+        assert report.checks[0].metrics["n_after_as_of"] == 60
+
+    def test_an_unparseable_settled_at_is_unattributed_not_assumed_current(self) -> None:
+        trades = self._on("2026-02-28", "yesterday-ish")
+        check = self._pnl(trades)
+        assert check.metrics["n_unattributed"] == 60
+        assert check.metrics["n_trades"] == 0
+
+    def test_a_trade_without_settled_at_falls_back_to_the_target_date_rule(self) -> None:
+        late = self._on("2026-03-02", None, n=10)
+        early = self._on("2026-02-28", None, n=60)
+        check = self._pnl(early + late)
+        assert check.metrics["n_after_as_of"] == 10
+        assert check.metrics["n_trades"] == 60
+
+    def test_trades_without_settled_at_are_counted_and_the_report_says_so(self) -> None:
+        check = self._pnl(self._on("2026-02-28", None))
+        assert check.metrics["n_no_settled_at"] == 60
+        text = " ".join(check.reasons)
+        assert "60" in text and "settled_at" in text and "target_date" in text
+
+    def test_a_trade_with_settled_at_is_not_counted_as_lacking_it(self) -> None:
+        check = self._pnl(self._on("2026-02-28", "2026-03-01T00:00:00+00:00"))
+        assert check.metrics["n_no_settled_at"] == 0
+        assert "settled_at" not in " ".join(check.reasons)
+
+    def test_the_note_is_in_a_calibration_reason_too(self) -> None:
+        report = health_report(
+            champion=_champion(),
+            trades=self._on("2026-02-28", None),
+            drift=None,
+            as_of=_MIDNIGHT,
+            checks=("calibration",),
+        )
+        assert "settled_at" in " ".join(report.checks[0].reasons)
+
+    def test_the_note_survives_when_the_check_is_insufficient(self) -> None:
+        check = self._pnl(self._on("2026-02-28", None, n=5))
+        assert check.status == "insufficient"
+        assert check.metrics["n_no_settled_at"] == 5
+        assert any("settled_at" in r for r in check.reasons)
+
+    def test_the_note_does_not_make_a_healthy_run_noisy(self) -> None:
+        report = health_report(
+            champion=_champion(),
+            trades=self._on("2026-02-28", None),
+            drift=None,
+            as_of=_MIDNIGHT,
+            checks=("pnl",),
+        )
+        assert report.status == "ok" and report.render() == ""

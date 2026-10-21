@@ -215,8 +215,15 @@ this champion, as of `--as-of`**:
   it is not assumed to be current;
 - **recorded at or after the champion was published** (a re-promotion must not be
   judged on the previous champion's trades);
-- **knowable at `--as-of`**: recorded by then, with a `target_date` not after it (replaying
-  an old `--as-of` must not see truth that had not arrived).
+- **settled by `--as-of`**: recorded by then, and `settled_at` (written by
+  `SettlementEngine` when it settles the trade) not after it. Replaying an old `--as-of`
+  must not see truth that had not arrived: a trade for 2026-03-01 settled at 06:00 that
+  day is not evidence at a midnight `--as-of` on 2026-03-01.
+  **A trade from a release before 0.9.1 has no `settled_at`.** It falls back to the
+  weaker rule, `target_date` not after the as-of *date*, which can admit a trade that
+  settled later on the as-of day itself. Those trades are counted in `n_no_settled_at`
+  (a subset of `n_in_scope`, not an exclusion) and the check's reasons say so whenever the
+  count is not zero. A `settled_at` that cannot be parsed is `n_unattributed`.
 
 Each excluded trade is counted under the first rule above that excludes it, so the counts
 add up to `n_total`, and they are in the report: nothing disappears silently.
