@@ -2,6 +2,82 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.0] — 2026-10-21
+
+### Added — Drift monitoring
+
+Closes #12. The gate and live calibration both need outcomes, which arrive days or
+weeks after the forecast. A feature that has moved is visible today.
+
+- **`drift_report(reference, current)`** (`pmlab.monitoring`) — a pure function: no
+  I/O, no randomness, same inputs give an identical report. PSI and
+  KL(current ‖ reference) per feature, plus the same machinery on the model's
+  predicted probabilities (`reference_predictions=` / `current_predictions=`),
+  reported separately as `report.prediction`.
+- **`DriftReport` / `FeatureDrift` / `DriftConfig` / `DriftThresholds`** — frozen,
+  `to_dict()`/`from_dict()`, strict-JSON-safe. The report carries flat numeric
+  summaries (`n_alert`, `max_psi`, …) because trackers log only top-level numerics,
+  and `ExperimentTracker.log_metrics(report)` works as-is.
+- **Threshold-classified**: each feature is `ok` / `warn` / `alert` / `insufficient`,
+  with `drivers` naming the signal(s) responsible. Thresholds are explicit
+  configuration written into every report, not buried constants — this is what the
+  watchdog (#14) will consume.
+- **`drift_report_from_store(store, family, reference, window_start=, cutoff=)`** —
+  builds the live window through `FeatureSnapshotStore.as_of`, so nothing captured
+  at or after `cutoff` can leak in. `window_start` is required: without a lower
+  bound "current" would include the training-era markets and understate drift.
+- `docs/drift-monitoring.md`. Every number in it is produced by running its
+  snippets; a small generator executes each block and writes its real output.
+
+### Notes on semantics
+
+- **Bins come from the reference only** (its quantiles, open-ended at both ends),
+  reused for the live sample. Binning each sample on its *own* quantiles scores a
+  3-sd wholesale shift at PSI 0.00; on reference edges it is 6.59.
+- **Empty bins are floored at `epsilon` (1e-4) and renormalised**, never dropped, so
+  a value range the reference never saw scores large but finite — never `inf`/`NaN`.
+  Bins empty on both sides are omitted.
+- **KL is directional: `kl` = KL(current ‖ reference).** PSI is the sum of both
+  directions, so swapping the arguments leaves PSI unchanged and changes `kl`
+  (0.3681 vs 0.5108 in the docs example). Asserted against a hand computation.
+- **Missing is drift.** NaN/None/±inf are excluded from the distribution but counted,
+  and the change in missing rate is classified on its own: 0% → 40% missing is an
+  alert even when the remaining values look identical.
+- **Unseen categories are drift, not dropped** — pooled into one zero-reference bin
+  and listed. Numeric vs categorical is decided from the *reference* column, so a
+  feed that dies into all-`None` is still a numeric feature that went missing.
+- **`insufficient` never reads as `ok`.** Below `min_samples` the statistics are
+  `None`. Precedence is alert > warn > insufficient > ok; an empty live window is
+  `insufficient`, not clean.
+- **`min_samples` defaults to 300, not 100**, because PSI of an *unchanged* feature
+  has a noise floor of roughly `(n_bins − 1) / n`. Simulated over 500 windows, an
+  unchanged feature crossed the 0.10 warn line in 204 at 100 values and in 3 at 300.
+  The first draft used 100; running the numbers showed it would false-warn about
+  two windows in five.
+- **Defaults are conventions, labelled as such.** PSI 0.10 / 0.25 is the standard
+  credit-scoring convention. KL 0.05 / 0.125 is *derived* (half the PSI bands) and
+  the missing-rate bands 0.05 / 0.20 are judgment; neither has an industry standard.
+- Classification, not action: deciding what to do about an alert is the watchdog's
+  job (#14).
+
+### Verification
+
+708 passed, 1 skipped; mypy `--strict` clean on 66 files; ruff check + format
+clean; 100% line and branch coverage on `drift.py` (88.41% overall).
+
+38 mutations tested one at a time (reference vs current bin edges, own-quantile
+binning, epsilon removed, smoothing not renormalised, KL direction swapped, lookahead
+admitted, `window_start` ignored, missing rate ignored or taken signed, unseen
+categories dropped, min-sample checks and boundaries, status precedence, band
+edges, feature ordering, defaults, and more); none survives. Three **survived** the
+first pass of 29 and each exposed a weak test: the smoothing convention was
+unpinned (a skipped renormalisation passed everything), numeric `unseen_rate` was
+never asserted, and the unseen-category ranking test used data whose frequency
+order equalled alphabetical order. Each now has a test that fails against the
+mutant. Separately, an incorrect claim in my own docstring (that taking edges
+from the current sample scores ~0 — it is the *own-quantile* binning that does)
+was caught by running the counterfactual and corrected.
+
 ## [0.8.5] — 2026-09-30
 
 ### Added — Live calibration tracking
