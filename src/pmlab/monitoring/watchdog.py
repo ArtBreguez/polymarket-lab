@@ -621,7 +621,8 @@ def _one_sided_welch(
 
 
 def _fmt_z(z: float | None) -> str:
-    return "inf" if z is None else f"{z:.1f}"
+    # `+ 0.0` turns -0.0 into 0.0: a z that rounds to zero must not print a sign.
+    return "inf" if z is None else f"{round(z, 1) + 0.0:.1f}"
 
 
 # --------------------------------------------------------------------------
@@ -695,10 +696,10 @@ def _drift_check(report: DriftReport | None) -> CheckResult:
 
     max_psi = report.max_psi
     psi_text = "n/a" if max_psi is None else f"{max_psi:.3f}"
-    reason = (
-        f"{len(assessed)} feature(s) within thresholds "
-        f"(max psi {psi_text}, {report.n_current} live rows)"
-    )
+    subject = f"{len(report.features)} feature(s)"
+    if report.prediction is not None:
+        subject += " and the prediction"
+    reason = f"{subject} within thresholds (max psi {psi_text}, {report.n_current} live rows)"
     return CheckResult("drift", "ok", (reason,), metrics)
 
 

@@ -268,6 +268,18 @@ class TestDriftCheck:
         assert check.status == "warn"
         assert check.metrics["offending"] == ["feature_price"]
 
+    def test_the_ok_summary_counts_features_and_names_the_prediction_separately(self) -> None:
+        """A prediction is not a feature: 2 features plus a prediction must not read as 3."""
+        rng = np.random.default_rng(1)
+        pred = rng.beta(5, 5, 2000)
+        without = _check(_report(drift=_drift(0.0)), "drift")
+        with_pred = _check(
+            _report(drift=_drift(0.0, reference_predictions=pred, current_predictions=pred.copy())),
+            "drift",
+        )
+        assert without.reasons[0].startswith("2 feature(s) within thresholds")
+        assert with_pred.reasons[0].startswith("2 feature(s) and the prediction within thresholds")
+
     def test_the_status_is_the_drift_reports_own_classification(self) -> None:
         """Consume the classification; do not re-derive it from the numbers."""
         lenient = DriftConfig(
@@ -1023,6 +1035,12 @@ class TestConfigValidationMessages:
 
 
 class TestRender:
+    def test_a_z_score_that_rounds_to_zero_never_prints_a_minus_sign(self) -> None:
+        """`-0.0` in a report reads as a bug, and is one in a log that gets grepped."""
+        for pnl in (0.10 + 1e-9, 0.10 - 1e-9):
+            text = " ".join(_check(_report(trades=_trades(pnl=pnl)), "pnl").reasons)
+            assert "z=-0.0" not in text and "z=0.0" in text, text
+
     def test_a_healthy_report_renders_to_nothing(self) -> None:
         assert _report().render() == ""
 
