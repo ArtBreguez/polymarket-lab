@@ -440,9 +440,10 @@ def _numeric_counts(
 
     Three kinds of bin, in order: ``x < min(ref)``; the in-range bins; ``x > max(ref)``.
     The in-range bins are cut at the interior quantiles of `ref`, de-duplicated
-    (ties collapse bins) and dropped where they sit at the maximum (nothing is left
-    above them inside the range); a value falls in range-bin ``i`` when
-    ``edges[i-1] < x <= edges[i]``.
+    (ties collapse bins); a value falls in range-bin ``i`` when
+    ``edges[i-1] < x <= edges[i]``. A quantile edge that lands on the maximum
+    leaves an empty bin above it, which drops out of PSI like any bin empty on
+    both sides.
 
     The two outer bins are what makes a constant or heavily tied reference safe.
     Were the first and last bins open-ended instead, a constant reference would
@@ -451,7 +452,6 @@ def _numeric_counts(
     """
     lo, hi = ref.min(), ref.max()
     edges = np.unique(np.quantile(ref, np.linspace(0.0, 1.0, n_bins + 1)[1:-1]))
-    edges = edges[edges < hi]
     size = len(edges) + 3
 
     def counts(x: npt.NDArray[np.float64]) -> npt.NDArray[np.int64]:
