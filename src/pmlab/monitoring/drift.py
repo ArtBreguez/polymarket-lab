@@ -12,14 +12,17 @@ its point-in-time read.
 Conventions worth knowing before reading the code:
 
 **Bins come from the reference only.** Numeric features are cut at the reference
-sample's quantiles (open-ended at both ends) and those same edges are reused for
-the current sample. Two ways to get this wrong, both avoided: binning each
-sample on its *own* quantiles makes both come out ~uniform, so a distribution
-shifted wholesale scores ~0 — drift vanishes exactly when it is largest; and
-taking the shared edges from the *current* sample makes the statistic depend on
-the very sample being judged. Tails beyond the reference range land in the two
-end bins; `unseen_rate` reports how much of the current sample fell outside the
-reference's min/max so that is not invisible.
+sample's quantiles and those same edges are reused for the current sample. Two
+ways to get this wrong, both avoided: binning each sample on its *own* quantiles
+makes both come out ~uniform, so a distribution shifted wholesale scores ~0 —
+drift vanishes exactly when it is largest; and taking the shared edges from the
+*current* sample makes the statistic depend on the very sample being judged.
+Everything strictly below the reference minimum and everything strictly above its
+maximum gets a bin of its own, whatever the reference looks like. A constant or
+heavily tied reference collapses its quantile edges, and with open-ended end bins
+a value below the reference would then share a bin with the reference's own mass
+and score 0. Those outer bins are empty in the reference, so out-of-range mass is
+floored (see below) and moves PSI by itself; `unseen_rate` reports its share.
 
 **Empty bins are floored, not dropped.** ``p * ln(p / 0)`` is infinite, and a
 value range the reference never saw is the drift that matters most. Each bin's
@@ -223,8 +226,9 @@ class FeatureDrift:
     its absolute value. `unseen_rate` is the share of usable current values the
     reference never contained: outside the reference's min/max for a numeric
     feature, in a category absent from the reference for a categorical one. It is
-    informational for numeric features (their tails fall in the end bins) and is
-    already inside `psi` / `kl` for categorical ones.
+    already inside `psi` / `kl` in both cases (out-of-range mass has its own bins),
+    so it has no thresholds; it stays on the report because a coarse `epsilon`
+    makes that mass cheap and can hide it from the status.
 
     `drivers` names the signals (``"psi"``, ``"kl"``, ``"missing_rate"``) that set
     `status`; empty when ``ok``.
@@ -425,16 +429,30 @@ def _numeric_counts(
 ) -> tuple[npt.NDArray[np.int64], npt.NDArray[np.int64], float]:
     """Bin counts on reference-quantile edges, plus the out-of-reference-range rate.
 
-    Edges are the interior quantiles of `ref`, de-duplicated (ties collapse bins).
-    A value falls in bin ``i`` when ``edges[i-1] < x <= edges[i]``; the first and
-    last bins are open-ended.
+    Three kinds of bin, in order: ``x < min(ref)``; the in-range bins; ``x > max(ref)``.
+    The in-range bins are cut at the interior quantiles of `ref`, de-duplicated
+    (ties collapse bins) and dropped where they sit at the maximum (nothing is left
+    above them inside the range); a value falls in range-bin ``i`` when
+    ``edges[i-1] < x <= edges[i]``.
+
+    The two outer bins are what makes a constant or heavily tied reference safe.
+    Were the first and last bins open-ended instead, a constant reference would
+    leave only ``x <= c`` and ``x > c``, and everything below ``c`` would share a
+    bin with the reference's own mass and score 0.
     """
+    lo, hi = ref.min(), ref.max()
     edges = np.unique(np.quantile(ref, np.linspace(0.0, 1.0, n_bins + 1)[1:-1]))
-    size = len(edges) + 1
-    ref_counts = np.bincount(np.searchsorted(edges, ref, side="left"), minlength=size)
-    cur_counts = np.bincount(np.searchsorted(edges, cur, side="left"), minlength=size)
-    outside = (cur < ref.min()) | (cur > ref.max())
-    return ref_counts.astype(np.int64), cur_counts.astype(np.int64), float(outside.mean())
+    edges = edges[edges < hi]
+    size = len(edges) + 3
+
+    def counts(x: npt.NDArray[np.float64]) -> npt.NDArray[np.int64]:
+        index = np.searchsorted(edges, x, side="left") + 1
+        index[x < lo] = 0
+        index[x > hi] = size - 1
+        return np.bincount(index, minlength=size).astype(np.int64)
+
+    outside = (cur < lo) | (cur > hi)
+    return counts(ref), counts(cur), float(outside.mean())
 
 
 def _category_key(value: Any) -> tuple[str, str]:

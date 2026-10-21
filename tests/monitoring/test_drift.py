@@ -182,16 +182,36 @@ class TestReferenceOnlyBinning:
         assert fd.psi is not None and fd.psi > 2.0
 
     def test_matches_an_independent_oracle_built_from_reference_quantiles(self):
+        # Bins: below the reference minimum | ten-ish quantile bins inside its range |
+        # above its maximum. The oracle builds them with np.histogram, then applies
+        # the documented floor-and-renormalise by hand.
         ref, cur = _normal(seed=1), _normal(loc=0.4, scale=1.2, seed=2)
+        assert (cur > ref.max()).any()  # the outer bin is exercised
+        interior = np.quantile(ref, np.linspace(0, 1, 11)[1:-1])
+        full = np.concatenate(
+            [[-np.inf, ref.min()], interior, [np.nextafter(ref.max(), np.inf)], [np.inf]]
+        )
+        r = np.histogram(ref, bins=full)[0] / len(ref)
+        c = np.histogram(cur, bins=full)[0] / len(cur)
+        keep = (r + c) > 0
+        r, c = np.maximum(r[keep], 1e-4), np.maximum(c[keep], 1e-4)
+        r, c = r / r.sum(), c / c.sum()
+        fd = _one(drift_report({"x": ref}, {"x": cur}), "x")
+        assert fd.psi == pytest.approx(float(np.sum((c - r) * np.log(c / r))), rel=1e-6)
+        assert fd.kl == pytest.approx(float(np.sum(c * np.log(c / r))), rel=1e-6)
+
+    def test_inside_the_reference_range_it_is_plain_quantile_binning(self):
+        # With nothing outside the reference range the outer bins are empty on both
+        # sides and drop out, leaving exactly the textbook quantile-bin PSI.
+        ref = _normal(seed=1)
+        cur = np.clip(_normal(loc=0.4, scale=1.2, seed=2), ref.min(), ref.max())
         edges = np.quantile(ref, np.linspace(0, 1, 11)[1:-1])
         full = np.concatenate([[-np.inf], edges, [np.inf]])
         r = np.histogram(ref, bins=full)[0] / len(ref)
         c = np.histogram(cur, bins=full)[0] / len(cur)
-        expected_psi = float(np.sum((c - r) * np.log(c / r)))
-        expected_kl = float(np.sum(c * np.log(c / r)))
         fd = _one(drift_report({"x": ref}, {"x": cur}), "x")
-        assert fd.psi == pytest.approx(expected_psi, rel=1e-6)
-        assert fd.kl == pytest.approx(expected_kl, rel=1e-6)
+        assert fd.psi == pytest.approx(float(np.sum((c - r) * np.log(c / r))), rel=1e-6)
+        assert fd.kl == pytest.approx(float(np.sum(c * np.log(c / r))), rel=1e-6)
 
     def test_n_bins_is_configurable(self):
         ref, cur = _normal(seed=1), _normal(loc=0.5, seed=2)
@@ -211,6 +231,133 @@ class TestReferenceOnlyBinning:
         ref = np.full(500, 3.0)
         fd = _one(drift_report({"x": ref}, {"x": np.full(500, 9.0)}), "x")
         assert fd.psi is not None and math.isfinite(fd.psi) and fd.psi > 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Mass outside the reference range always gets its own bin
+# --------------------------------------------------------------------------- #
+
+
+# Quantile edges of a constant or heavily tied reference collapse. If the
+# first/last bins were open-ended, everything below the reference minimum would
+# share a bin with the reference's own mass and score 0.
+def _psi_alert(fd: FeatureDrift) -> bool:
+    return fd.status == "alert" and "psi" in fd.drivers
+
+
+class TestOutOfRangeMass:
+    def test_constant_reference_flags_mass_below_it(self):
+        fd = _one(drift_report({"x": [1.0] * 500}, {"x": [1.0] * 250 + [0.0] * 250}), "x")
+        assert _psi_alert(fd)
+        assert fd.psi is not None and fd.psi > 1.0
+        assert fd.unseen_rate == pytest.approx(0.5)
+
+    def test_constant_reference_flags_mass_above_it(self):
+        fd = _one(drift_report({"x": [1.0] * 500}, {"x": [1.0] * 250 + [2.0] * 250}), "x")
+        assert _psi_alert(fd)
+
+    def test_constant_zero_reference_against_negative_values(self):
+        fd = _one(drift_report({"x": [0.0] * 500}, {"x": [0.0] * 250 + [-5.0] * 250}), "x")
+        assert _psi_alert(fd)
+
+    def test_below_and_above_score_the_same_for_a_constant_reference(self):
+        below = _one(drift_report({"x": [1.0] * 500}, {"x": [1.0] * 250 + [0.0] * 250}), "x")
+        above = _one(drift_report({"x": [1.0] * 500}, {"x": [1.0] * 250 + [2.0] * 250}), "x")
+        assert below.psi == pytest.approx(above.psi)
+        assert below.kl == pytest.approx(above.kl)
+
+    def test_tied_reference_flags_a_current_sample_entirely_below_it(self):
+        # 95% zeros + 5% normal; everything now far below the reference minimum.
+        ref = np.concatenate([np.zeros(950), _normal(50, seed=1)])
+        fd = _one(drift_report({"x": ref}, {"x": np.full(500, -5.0)}), "x")
+        assert _psi_alert(fd)
+        assert fd.psi is not None and fd.psi > 5.0  # was 0.255: the zeros' bin absorbed it
+
+    def test_mirrored_tied_reference_flags_a_current_sample_entirely_above_it(self):
+        ref = -np.concatenate([np.zeros(950), _normal(50, seed=1)])
+        fd = _one(drift_report({"x": ref}, {"x": np.full(500, 5.0)}), "x")
+        assert _psi_alert(fd)
+        assert fd.psi is not None and fd.psi > 5.0
+
+    def test_predictions_constant_reference_flags_a_move_in_either_direction(self):
+        for ref_value, cur_value in ((0.7, 0.3), (0.3, 0.7)):
+            report = drift_report(
+                {},
+                {},
+                reference_predictions=[ref_value] * 500,
+                current_predictions=[cur_value] * 500,
+            )
+            assert report.prediction is not None
+            assert _psi_alert(report.prediction), (ref_value, cur_value)
+            assert report.status == "alert"
+
+    def test_lower_and_upper_tails_are_symmetric_for_continuous_data(self):
+        ref = _normal(seed=1)
+        cur = _normal(seed=2)
+        cur[:200] = ref.min() - 1.0
+        up = _one(drift_report({"x": ref}, {"x": cur}), "x")
+        down = _one(drift_report({"x": -ref}, {"x": -cur}), "x")
+        # mirrored: the low tail became the high tail
+        assert up.psi == pytest.approx(down.psi, rel=1e-9)
+        assert up.kl == pytest.approx(down.kl, rel=1e-9)
+
+    def test_mass_just_outside_the_range_is_not_merged_with_the_nearest_bin(self):
+        ref = _normal(seed=1)
+        inside, outside = _normal(seed=2), _normal(seed=2)
+        inside[:100] = ref.min()  # at the minimum: in the first bin
+        outside[:100] = ref.min() - 1e-9  # a hair below it: its own bin
+        a = _one(drift_report({"x": ref}, {"x": inside}), "x")
+        b = _one(drift_report({"x": ref}, {"x": outside}), "x")
+        assert a.unseen_rate == 0.0 and b.unseen_rate == pytest.approx(0.05)
+        assert b.psi is not None and a.psi is not None and b.psi > a.psi + 0.1
+
+    @pytest.mark.parametrize(
+        "make",
+        [
+            pytest.param(lambda: np.full(500, 3.0), id="constant"),
+            pytest.param(
+                lambda: np.concatenate([np.zeros(700), _normal(300, loc=5, seed=1)]), id="tied"
+            ),
+            pytest.param(lambda: np.random.default_rng(0).integers(0, 4, 800), id="discrete"),
+            pytest.param(lambda: _normal(seed=1), id="continuous"),
+        ],
+    )
+    def test_a_sample_against_itself_is_exactly_zero(self, make):
+        x = make()
+        fd = _one(drift_report({"x": x}, {"x": x}), "x")
+        assert fd.psi == 0.0 and fd.kl == 0.0
+        assert fd.status == "ok" and fd.unseen_rate == 0.0
+
+    def test_a_discrete_reference_flags_a_value_beyond_its_largest(self):
+        ref = np.random.default_rng(0).integers(0, 4, 800)
+        cur = np.random.default_rng(1).integers(0, 4, 800)
+        cur[:400] = 9
+        assert _psi_alert(_one(drift_report({"x": ref}, {"x": cur}), "x"))
+
+    def test_out_of_range_mass_alone_decides_the_status_at_the_default_thresholds(self):
+        # Why `unseen_rate` needs no thresholds of its own: the outer bins are empty
+        # in the reference, so the out-of-range share already moves PSI by itself.
+        ref = _normal(5000, seed=1)
+
+        def status_for(share: float) -> str:
+            cur = _normal(5000, seed=1).copy()  # same draw: in-range part is identical
+            cur[: int(share * len(cur))] = ref.max() + 1.0
+            return _one(drift_report({"x": ref}, {"x": cur}), "x").status
+
+        assert status_for(0.001) == "ok"
+        assert status_for(0.02) == "warn"
+        assert status_for(0.05) == "alert"
+        assert status_for(0.20) == "alert"
+
+    def test_a_coarse_epsilon_can_hide_out_of_range_mass_so_unseen_rate_still_reports_it(self):
+        # The flip side, and why `unseen_rate` stays on the report: a large epsilon
+        # makes the empty outer bin cheap, so 5% out of range no longer moves the status.
+        ref = _normal(5000, seed=1)
+        cur = _normal(5000, seed=1).copy()
+        cur[:250] = ref.max() + 1.0
+        fd = _one(drift_report({"x": ref}, {"x": cur}, config=DriftConfig(epsilon=1e-2)), "x")
+        assert fd.status == "ok"
+        assert fd.unseen_rate == pytest.approx(0.05)
 
 
 # --------------------------------------------------------------------------- #
