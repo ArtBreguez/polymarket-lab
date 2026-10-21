@@ -101,6 +101,19 @@ class TestPerDirection:
         assert exp.by_direction is not None
         assert set(exp.by_direction) == {"yes"}
 
+    def test_the_only_side_traded_is_kept_however_few_trades_it_has(self) -> None:
+        # With no other side, it IS the pooled expectation, which has always been usable
+        # from two trades up. Dropping it would leave a YES-only backtest with no promise.
+        exp = BacktestExpectation.from_trades(_trades(12, 0))
+        assert exp.by_direction is not None
+        assert set(exp.by_direction) == {"yes"}
+        assert exp.by_direction["yes"].n_trades == 12
+        assert exp.by_direction["yes"].mean_pnl_per_stake == exp.mean_pnl_per_stake
+
+    def test_when_both_sides_are_thin_neither_is_recorded(self) -> None:
+        exp = BacktestExpectation.from_trades(_trades(12, 12))
+        assert exp.by_direction == {}
+
     def test_the_minimum_is_configurable(self) -> None:
         exp = BacktestExpectation.from_trades(_trades(80, 12), min_group_trades=10)
         assert exp.by_direction is not None

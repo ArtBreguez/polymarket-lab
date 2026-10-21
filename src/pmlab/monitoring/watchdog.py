@@ -46,9 +46,11 @@ import numpy as np
 
 from pmlab.backtest.expectation import BacktestExpectation
 from pmlab.core.costs import CostModel
+from pmlab.execution.settlement import MIN_TRUSTED_NO_SETTLEMENT_VERSION
 from pmlab.modeling.champion import ChampionManifest
 from pmlab.monitoring.calibration_tracker import CalibrationTracker
 from pmlab.monitoring.drift import DriftConfig, DriftReport, DriftStatus, FeatureDrift
+from pmlab.monitoring.stats import holm_adjust, mixture_reference, normal_isf
 
 __all__ = [
     "CHECKS",
@@ -617,7 +619,12 @@ _EXCLUSION_LABELS = (
     ("n_after_as_of", "not yet settled at as_of"),
     ("n_unscoreable", "with no usable stake or PnL"),
     ("n_invalid_forecast", "with a model_prob that is not a probability"),
-    ("n_excluded_no_side", "on the NO side (the backtest only buys YES)"),
+    ("n_excluded_no_side", "on the NO side (champion.json records no NO expectation)"),
+    ("n_excluded_yes_side", "on the YES side (champion.json records no YES expectation)"),
+    (
+        "n_excluded_unfixed_no",
+        "NO trades settled by a release that booked them wrongly (run `pmlab resettle`)",
+    ),
     (
         "n_excluded_legacy_settlement",
         "settled at the quote by an older release although they paid a different fill",
@@ -627,7 +634,14 @@ _EXCLUSION_LABELS = (
 
 
 def _excluded_summary(metrics: Mapping[str, Any]) -> str:
-    parts = [f"{metrics[key]} {label}" for key, label in _EXCLUSION_LABELS if metrics.get(key)]
+    parts: list[str] = []
+    for key, label in _EXCLUSION_LABELS:
+        if not metrics.get(key):
+            continue
+        if key == "n_excluded_no_side" and metrics.get("expectation_directions") is None:
+            # A champion with no per-side record: its backtest only ever bought YES.
+            label = "on the NO side (the backtest only buys YES)"
+        parts.append(f"{metrics[key]} {label}")
     return "excluded: " + "; ".join(parts) if parts else "none excluded"
 
 
@@ -657,8 +671,7 @@ def _one_sided_welch(
     live_var: float,
     n_live: int,
     ref_mean: float,
-    ref_std: float,
-    ref_n: int,
+    ref_variance: float,
     worse_when_higher: bool,
 ) -> _Evidence:
     """Welch's z for "live is worse than the reference", normal approximation.
@@ -666,10 +679,12 @@ def _one_sided_welch(
     The standard error combines both sides: the live sample's own noise and the
     backtest's, because the backtest mean is itself an estimate. A promise made on
     20 trades is a weak promise and falling short of it means less than falling
-    short of one made on 2000.
+    short of one made on 2000. `ref_variance` is the sampling variance of the
+    reference mean: ``std**2 / n`` for one group, and for a mix of sides the weighted
+    sum `pmlab.monitoring.stats.mixture_reference` returns.
     """
     gap = (live_mean - ref_mean) if worse_when_higher else (ref_mean - live_mean)
-    se = math.sqrt(live_var / n_live + ref_std**2 / ref_n)
+    se = math.sqrt(live_var / n_live + ref_variance)
     if se <= 0:
         return _Evidence(gap=gap, z=None, p_value=None)
     z = gap / se
@@ -698,6 +713,24 @@ def _insufficient(
     )
 
 
+def _unusable_numbers(group: Any, *, calibration: bool, prefix: str) -> list[str]:
+    """What stops one group of backtest numbers being compared against."""
+    problems: list[str] = []
+    n_trades = group.n_trades
+    if isinstance(n_trades, bool) or not isinstance(n_trades, int) or n_trades < 2:
+        problems.append(f"{prefix}n_trades is {n_trades!r} (need an integer >= 2)")
+    fields = (
+        ("brier_score", "brier_std") if calibration else ("mean_pnl_per_stake", "std_pnl_per_stake")
+    )
+    for name in fields:
+        value = getattr(group, name)
+        if not _is_number(value) or not math.isfinite(value):
+            problems.append(f"{prefix}{name} is {value!r} (need a finite number)")
+        elif "std" in name and value < 0:
+            problems.append(f"{prefix}{name} is {value:g} (a spread cannot be negative)")
+    return problems
+
+
 def _unusable_expectation(expectation: BacktestExpectation, *, calibration: bool) -> list[str]:
     """What stops `expectation` being compared against, or [] if nothing does.
 
@@ -706,19 +739,10 @@ def _unusable_expectation(expectation: BacktestExpectation, *, calibration: bool
     compares false with everything, so an unchecked NaN spread turns a z test into
     "no evidence" and the check into a silent pass; a zero count divides by zero.
     """
-    problems: list[str] = []
-    n_trades = expectation.n_trades
-    if isinstance(n_trades, bool) or not isinstance(n_trades, int) or n_trades < 2:
-        problems.append(f"n_trades is {n_trades!r} (need an integer >= 2)")
-    fields = (
-        ("brier_score", "brier_std") if calibration else ("mean_pnl_per_stake", "std_pnl_per_stake")
-    )
-    for name in fields:
-        value = getattr(expectation, name)
-        if not _is_number(value) or not math.isfinite(value):
-            problems.append(f"{name} is {value!r} (need a finite number)")
-        elif "std" in name and value < 0:
-            problems.append(f"{name} is {value:g} (a spread cannot be negative)")
+    problems = _unusable_numbers(expectation, calibration=calibration, prefix="")
+    if expectation.by_direction is not None:
+        for side, group in expectation.by_direction.items():
+            problems.extend(_unusable_numbers(group, calibration=calibration, prefix=f"{side}."))
     return problems
 
 
@@ -736,22 +760,26 @@ def _invalid_expectation(
     )
 
 
+def _bad_statistics(**statistics: float | None) -> list[str]:
+    """Names of the statistics that are NaN or infinite."""
+    return sorted(k for k, v in statistics.items() if v is not None and not math.isfinite(v))
+
+
+def _invalid_statistic_reason(bad: Sequence[str]) -> str:
+    return (
+        f"non-finite statistic(s) {', '.join(bad)}: the live data or the expectation cannot "
+        "be compared, so this check is unavailable rather than healthy; inspect the trade log"
+    )
+
+
 def _invalid_statistic(
     name: str, metrics: dict[str, Any], **statistics: float | None
 ) -> CheckResult | None:
     """An `insufficient` result if any statistic is NaN or infinite, else None."""
-    bad = sorted(k for k, v in statistics.items() if v is not None and not math.isfinite(v))
+    bad = _bad_statistics(**statistics)
     if not bad:
         return None
-    return _insufficient(
-        name,
-        "invalid_statistic",
-        [
-            f"non-finite statistic(s) {', '.join(bad)}: the live data or the expectation cannot "
-            "be compared, so this check is unavailable rather than healthy; inspect the trade log"
-        ],
-        metrics,
-    )
+    return _insufficient(name, "invalid_statistic", [_invalid_statistic_reason(bad)], metrics)
 
 
 def _too_few_samples(name: str, n: int, min_trades: int, metrics: dict[str, Any]) -> CheckResult:
@@ -871,6 +899,19 @@ def _is_invalid_forecast(trade: Mapping[str, Any]) -> bool:
     return _is_number(prob) and not (math.isfinite(prob) and 0.0 <= prob <= 1.0)
 
 
+def _with_unfixed_no_note(result: CheckResult) -> CheckResult:
+    """Say, on the PnL result, that NO trades with a wrong PnL were left out (and how to fix it)."""
+    unfixed = result.metrics.get("n_excluded_unfixed_no", 0)
+    if not unfixed:
+        return result
+    note = (
+        f"note: {unfixed} NO trades were settled by a release that booked them as a short YES, "
+        "so their realized_pnl is wrong and they were left out; run `pmlab resettle --trades "
+        "PATH` to recompute them"
+    )
+    return replace(result, reasons=(*result.reasons, note))
+
+
 def _with_bad_forecast_note(result: CheckResult) -> CheckResult:
     """Say, on the calibration result, that some forecasts were not scored as data errors."""
     bad = result.metrics.get("n_invalid_forecast", 0)
@@ -883,6 +924,350 @@ def _with_bad_forecast_note(result: CheckResult) -> CheckResult:
     return replace(result, reasons=(*result.reasons, note))
 
 
+# --------------------------------------------------------------------------
+# Sides and scopes
+# --------------------------------------------------------------------------
+#
+# A check judges the whole book (the "overall" scope) and, when both sides trade, each
+# side on its own. A scope is one comparison of live numbers with the backtest's: its
+# status, the sentence that says why, and the numbers behind it. The check's verdict is
+# the worst of the *conclusive* scopes; a scope that cannot be measured (too few trades
+# on a thin side) is reported as not assessed and does not make the check insufficient
+# when the overall comparison is conclusive.
+
+_SIDES = ("yes", "no")
+_SIDE_LABEL = {"yes": "YES side", "no": "NO side"}
+
+# (mean, std, n) of one group of backtest trades.
+_Group = tuple[float, float, int]
+
+
+@dataclass(frozen=True)
+class _Scope:
+    """One comparison of live numbers with the backtest's, and its verdict.
+
+    `metrics` holds the numbers only; `status`, `cause` and the trade count are on the
+    scope itself and are added when it is reported.
+    """
+
+    key: str
+    label: str  # "" for the whole book
+    n: int
+    status: str
+    cause: str | None
+    reason: str
+    metrics: dict[str, Any]
+
+    def entry(self) -> dict[str, Any]:
+        """This scope as it appears under the check's `directions` metric."""
+        return {"status": self.status, "cause": self.cause, "n_trades": self.n, **self.metrics}
+
+
+@dataclass(frozen=True)
+class _Welch:
+    live: float
+    live_var: float
+    ref_mean: float
+    ref_variance: float
+    evidence: _Evidence
+
+    def problems(self, **extra: float | None) -> list[str]:
+        """Names of the non-finite statistics, the live ones first (they explain the rest)."""
+        bad = _bad_statistics(live_mean=self.live, live_variance=self.live_var)
+        return bad or _bad_statistics(gap=self.evidence.gap, z=self.evidence.z, **extra)
+
+
+def _direction_of(trade: Mapping[str, Any]) -> str:
+    """The side a trade bought, read as settlement reads it: anything but "yes" is NO."""
+    return "yes" if trade.get("direction", "yes") == "yes" else "no"
+
+
+def _no_settlement_is_trusted(trade: Mapping[str, Any]) -> bool:
+    """Was this NO trade booked by the arithmetic that settles it correctly?
+
+    Before 0.9.1 a NO trade was settled as a short YES at the NO price, so its
+    `realized_pnl` is wrong in both directions. The settlement version says which
+    arithmetic booked it; a trade without one is not evidence about the NO strategy
+    until `pmlab resettle` has recomputed it.
+    """
+    version = trade.get("settlement_version")
+    return _is_number(version) and version >= MIN_TRUSTED_NO_SETTLEMENT_VERSION
+
+
+def _pnl_groups(expectation: BacktestExpectation) -> dict[str, _Group]:
+    """The backtest's (mean, std, n) of per-stake PnL for each side it can speak for."""
+    split = expectation.by_direction
+    if split is None:
+        # No split recorded: the pooled numbers describe the historical backtest, which
+        # only ever bought YES.
+        return {
+            "yes": (
+                expectation.mean_pnl_per_stake,
+                expectation.std_pnl_per_stake,
+                expectation.n_trades,
+            )
+        }
+    return {
+        side: (g.mean_pnl_per_stake, g.std_pnl_per_stake, g.n_trades) for side, g in split.items()
+    }
+
+
+def _brier_groups(expectation: BacktestExpectation) -> dict[str, _Group] | None:
+    """The backtest's (Brier, std, n) per side; None when no split was recorded.
+
+    None means the pooled Brier stands for every trade, as it always did.
+    """
+    split = expectation.by_direction
+    if split is None:
+        return None
+    groups: dict[str, _Group] = {}
+    for side, g in split.items():
+        if g.brier_score is not None and g.brier_std is not None:
+            groups[side] = (g.brier_score, g.brier_std, g.n_trades)
+    return groups
+
+
+def _welch(
+    values: Sequence[float],
+    *,
+    counts: Mapping[str, int],
+    groups: Mapping[str, _Group] | None,
+    pooled: _Group | None,
+    worse_when_higher: bool,
+) -> _Welch:
+    """Hold a live sample against the backtest.
+
+    With per-side `groups` the reference is the backtest's side means weighted by the
+    live `counts` (`mixture_reference`); with none, the `pooled` group stands for every
+    trade.
+    """
+    arr = np.array(values, dtype=float)
+    with np.errstate(all="ignore"):  # an overflow is reported by the caller, not printed
+        live = float(arr.mean())
+        live_var = float(arr.var(ddof=1))
+    if groups is not None:
+        ref_mean, ref_variance = mixture_reference(counts, groups)
+    else:
+        assert pooled is not None  # callers pass one or the other
+        ref_mean, ref_std, ref_n = pooled
+        ref_variance = ref_std**2 / ref_n
+    evidence = _one_sided_welch(
+        live_mean=live,
+        live_var=live_var,
+        n_live=len(arr),
+        ref_mean=ref_mean,
+        ref_variance=ref_variance,
+        worse_when_higher=worse_when_higher,
+    )
+    return _Welch(live, live_var, ref_mean, ref_variance, evidence)
+
+
+def _holm_evidence(evidences: Mapping[str, _Evidence]) -> dict[str, _Evidence]:
+    """Each scope's evidence after Holm-Bonferroni adjustment across the family.
+
+    Judging several sibling scopes (the two sides) on their own multiplies the chance
+    that one of them alarms by luck. Holm's adjusted p-value is what each scope would
+    have to clear, and it is turned back into a z so the same thresholds apply: with
+    one scope in the family nothing changes.
+    """
+    keys = list(evidences)
+    raw: list[float] = []
+    for key in keys:
+        evidence = evidences[key]
+        if evidence.p_value is not None:
+            raw.append(evidence.p_value)
+        else:
+            # No spread at all: the gap is certain, in one direction or the other.
+            raw.append(0.0 if evidence.gap > 0 else 1.0)
+    result: dict[str, _Evidence] = {}
+    for key, p in zip(keys, holm_adjust(raw), strict=True):
+        z = None if p <= 0.0 else normal_isf(p)
+        result[key] = _Evidence(gap=evidences[key].gap, z=z, p_value=p)
+    return result
+
+
+def _pnl_level(shortfall: float, evidence: _Evidence, cfg: PnLThresholds) -> tuple[str, str]:
+    """(status, the sentence about the threshold) for a PnL shortfall."""
+    if shortfall >= cfg.shortfall_alert - _TOLERANCE and evidence.clears(cfg.z_alert):
+        return (
+            "alert",
+            f"; alert needs shortfall >= {cfg.shortfall_alert:.0%}, z >= {cfg.z_alert:g}",
+        )
+    if shortfall >= cfg.shortfall_warn - _TOLERANCE and evidence.clears(cfg.z_warn):
+        return "warn", f"; warn needs shortfall >= {cfg.shortfall_warn:.0%}, z >= {cfg.z_warn:g}"
+    return "ok", "; within thresholds"
+
+
+def _brier_level(
+    gap: float, rel: float, evidence: _Evidence, cfg: CalibrationThresholds
+) -> tuple[str, str]:
+    """(status, the sentence about the threshold) for a Brier gap."""
+    if (
+        gap >= cfg.brier_alert_abs - _TOLERANCE
+        and rel >= cfg.brier_alert_rel - _TOLERANCE
+        and evidence.clears(cfg.z_alert)
+    ):
+        return "alert", (
+            f"; alert needs >= +{cfg.brier_alert_abs:g} abs, >= +{cfg.brier_alert_rel:.0%} rel, "
+            f"z >= {cfg.z_alert:g}"
+        )
+    if (
+        gap >= cfg.brier_warn_abs - _TOLERANCE
+        and rel >= cfg.brier_warn_rel - _TOLERANCE
+        and evidence.clears(cfg.z_warn)
+    ):
+        return "warn", (
+            f"; warn needs >= +{cfg.brier_warn_abs:g} abs, >= +{cfg.brier_warn_rel:.0%} rel, "
+            f"z >= {cfg.z_warn:g}"
+        )
+    return "ok", "; within thresholds"
+
+
+def _z_text(raw: _Evidence, used: _Evidence, family: int) -> str:
+    """`z=3.4` or, inside a family of scopes, `z=3.4, Holm z=3.1`."""
+    text = f"z={_fmt_z(raw.z)}"
+    if family > 1:
+        text += f", Holm z={_fmt_z(used.z)}"
+    return text
+
+
+def _unmeasurable(key: str, label: str, n: int, cause: str, reason: str) -> _Scope:
+    return _Scope(key, label, n, "insufficient", cause, reason, {})
+
+
+def _too_few_for_a_side(key: str, n: int, min_trades: int) -> _Scope:
+    return _unmeasurable(
+        key,
+        _SIDE_LABEL[key],
+        n,
+        "too_few_samples",
+        f"{n} scoreable settled trades, need >= {min_trades}",
+    )
+
+
+def _assemble(
+    name: str, overall: _Scope, sides: Sequence[_Scope], metrics: dict[str, Any]
+) -> CheckResult:
+    """The check's verdict: the worst of the conclusive scopes.
+
+    `insufficient` is reserved for a check in which nothing could be measured. A side
+    with too few trades is listed as not assessed and does not turn an otherwise
+    conclusive check insufficient: with many thin scopes that would make the exit code
+    permanently 30, and the overall comparison already covers their trades.
+    """
+    if sides:
+        metrics["directions"] = {sc.key: sc.entry() for sc in sides}
+    scopes = [overall, *sides]
+    conclusive = [sc for sc in scopes if sc.status != "insufficient"]
+    if not conclusive:
+        return _insufficient(name, overall.cause or "too_few_samples", [overall.reason], metrics)
+    # Worst first. At equal severity the specific scope (a side) leads, because it names
+    # what is wrong and the overall line only repeats that the book as a whole is.
+    problems = sorted(
+        (sc for sc in conclusive if sc.status != "ok"),
+        key=lambda sc: (-_SEVERITY[sc.status], sc is overall),
+    )
+    status = problems[0].status if problems else "ok"
+    reasons = [sc.reason for sc in problems]
+    if overall not in problems:
+        # The whole story when nothing is wrong, context for the lines above otherwise.
+        reasons.append(f"overall: {overall.reason}" if problems else overall.reason)
+    unmeasured = [sc for sc in scopes if sc.status == "insufficient"]
+    if unmeasured:
+        listed = ", ".join(f"{sc.label or 'overall'} ({sc.reason})" for sc in unmeasured)
+        reasons.append(f"not assessed: {listed}")
+    return CheckResult(name, cast(HealthStatus, status), tuple(reasons), metrics)
+
+
+# --------------------------------------------------------------------------
+# Calibration
+# --------------------------------------------------------------------------
+
+
+def _brier_scope(
+    key: str,
+    label: str,
+    n: int,
+    welch: _Welch,
+    used: _Evidence | None,
+    cfg: CalibrationThresholds,
+    *,
+    family: int,
+) -> _Scope:
+    """The verdict on one measured calibration scope.
+
+    `used` is the evidence to judge by (Holm-adjusted inside a family); None judges the
+    scope on its own evidence.
+    """
+    bad = welch.problems()
+    if bad:
+        return _unmeasurable(key, label, n, "invalid_statistic", _invalid_statistic_reason(bad))
+    evidence = used or welch.evidence
+    gap = welch.evidence.gap
+    rel = gap / welch.ref_mean if welch.ref_mean > 0 else math.inf
+    status, tail = _brier_level(gap, rel, evidence, cfg)
+    prefix = f"{label}: " if label else ""
+    summary = (
+        f"{prefix}Brier {welch.live:.3f} vs backtest {welch.ref_mean:.3f} "
+        f"({gap:+.3f} abs, {rel:+.1%} rel, {_z_text(welch.evidence, evidence, family)}, n={n})"
+    )
+    metrics: dict[str, Any] = {
+        "brier_live": welch.live,
+        "brier_backtest": welch.ref_mean,
+        "degradation_abs": gap,
+        "degradation_rel": rel,
+        "z": welch.evidence.z,
+        "p_value": welch.evidence.p_value,
+    }
+    if used is not None:
+        metrics["p_adjusted"] = used.p_value
+        metrics["z_adjusted"] = used.z
+    return _Scope(key, label, n, status, None, f"{summary}{tail}", metrics)
+
+
+def _brier_family(
+    by_side: Mapping[str, Sequence[float]],
+    groups: Mapping[str, _Group],
+    cfg: CalibrationThresholds,
+) -> list[_Scope]:
+    """Each side's calibration on its own, Holm-adjusted across the sides assessed."""
+    measured: dict[str, _Welch] = {}
+    scopes: dict[str, _Scope] = {}
+    for side in _SIDES:
+        terms = by_side.get(side)
+        if terms is None:
+            continue
+        n = len(terms)
+        if n < cfg.min_trades:
+            scopes[side] = _too_few_for_a_side(side, n, cfg.min_trades)
+            continue
+        welch = _welch(
+            terms,
+            counts={side: n},
+            groups={side: groups[side]},
+            pooled=None,
+            worse_when_higher=True,
+        )
+        bad = welch.problems()
+        if bad:
+            reason = _invalid_statistic_reason(bad)
+            scopes[side] = _unmeasurable(side, _SIDE_LABEL[side], n, "invalid_statistic", reason)
+            continue
+        measured[side] = welch
+    adjusted = _holm_evidence({side: welch.evidence for side, welch in measured.items()})
+    for side, welch in measured.items():
+        scopes[side] = _brier_scope(
+            side,
+            _SIDE_LABEL[side],
+            len(by_side[side]),
+            welch,
+            adjusted[side],
+            cfg,
+            family=len(measured),
+        )
+    return [scopes[side] for side in _SIDES if side in scopes]
+
+
 def _calibration_check(
     selection: _Selection, expectation: BacktestExpectation | None, cfg: CalibrationThresholds
 ) -> CheckResult:
@@ -890,16 +1275,46 @@ def _calibration_check(
     # turned out wrong: the recording step is broken. Scoring it would page as a Brier
     # alert, or (NaN) poison the statistics. Count it as bad data and leave it out.
     scoreable = [t for t in selection.trades if not _is_invalid_forecast(t)]
+    n_invalid = len(selection.trades) - len(scoreable)
+    groups = _brier_groups(expectation) if expectation is not None else None
+    n_no_side = n_yes_side = 0
+    if groups is not None:
+        # A champion that recorded a per-side split can only speak for the sides it
+        # recorded. (One without a split pools every trade against its single Brier.)
+        covered: list[Mapping[str, Any]] = []
+        for trade in scoreable:
+            side = _direction_of(trade)
+            if side in groups:
+                covered.append(trade)
+            elif side == "no":
+                n_no_side += 1
+            else:
+                n_yes_side += 1
+        scoreable = covered
     tracker = CalibrationTracker([dict(t) for t in scoreable], n_bins=cfg.n_bins)
+    side_terms: dict[str, list[float]] = {}
+    for side in _SIDES:
+        side_tracker = CalibrationTracker(
+            [dict(t) for t in scoreable if _direction_of(t) == side], n_bins=cfg.n_bins
+        )
+        if side_tracker.n_realized:
+            side_terms[side] = side_tracker.squared_errors()
+    counts = {side: len(terms) for side, terms in side_terms.items()}
+
     metrics: dict[str, Any] = {
         **selection.counts,
-        "n_invalid_forecast": len(selection.trades) - len(scoreable),
+        "n_invalid_forecast": n_invalid,
         "allowed_segments": list(selection.allowed_segments),
         "n_by_segment": selection.by_segment,
         "n_trades": tracker.n_realized,
+        "n_by_direction": counts,
         "n_skipped_no_forecast": tracker.n_skipped,
         "min_trades": cfg.min_trades,
     }
+    if groups is not None:
+        metrics["n_excluded_no_side"] = n_no_side
+        metrics["n_excluded_yes_side"] = n_yes_side
+        metrics["expectation_directions"] = sorted(groups)
 
     if expectation is None or expectation.brier_score is None or expectation.brier_std is None:
         return _insufficient(
@@ -911,77 +1326,48 @@ def _calibration_check(
             ],
             metrics,
         )
+    if groups is not None and not groups:
+        return _insufficient(
+            "calibration",
+            "no_expectation",
+            [
+                "champion.json records no per-side Brier expectation (the backtest traded each "
+                "side too rarely to promise anything): re-publish the champion on a backtest "
+                "with more trades"
+            ],
+            metrics,
+        )
     problems = _unusable_expectation(expectation, calibration=True)
     if problems:
         return _invalid_expectation("calibration", problems, metrics)
     if tracker.n_realized < cfg.min_trades:
         return _too_few_samples("calibration", tracker.n_realized, cfg.min_trades, metrics)
 
-    terms = np.array(tracker.squared_errors(), dtype=float)
-    overall = tracker.overall()
-    assert overall is not None  # n_realized >= min_trades >= 2
-    reference = expectation.brier_score
-    with np.errstate(all="ignore"):  # an overflow is reported below, not printed by numpy
-        live = float(terms.mean())
-        live_var = float(terms.var(ddof=1))
-    unusable = _invalid_statistic("calibration", metrics, live_mean=live, live_variance=live_var)
-    if unusable is not None:
-        return unusable
-    evidence = _one_sided_welch(
-        live_mean=live,
-        live_var=live_var,
-        n_live=len(terms),
-        ref_mean=reference,
-        ref_std=expectation.brier_std,
-        ref_n=expectation.n_trades,
-        worse_when_higher=True,
-    )
-    unusable = _invalid_statistic("calibration", metrics, gap=evidence.gap, z=evidence.z)
-    if unusable is not None:
-        return unusable
-    gap = evidence.gap
-    rel = gap / reference if reference > 0 else math.inf
-    metrics.update(
-        {
-            "brier_live": live,
-            "brier_backtest": reference,
-            "degradation_abs": gap,
-            "degradation_rel": rel,
-            "z": evidence.z,
-            "p_value": evidence.p_value,
-            "reliability_live": overall.reliability,
-        }
-    )
+    pooled: _Group = (expectation.brier_score, expectation.brier_std, expectation.n_trades)
+    terms = tracker.squared_errors()
+    welch = _welch(terms, counts=counts, groups=groups, pooled=pooled, worse_when_higher=True)
+    overall = _brier_scope("overall", "", len(terms), welch, None, cfg, family=1)
+    if overall.cause == "invalid_statistic":
+        # Nothing about this book can be measured.
+        return _insufficient("calibration", "invalid_statistic", [overall.reason], metrics)
+    overall_window = tracker.overall()
+    assert overall_window is not None  # n_realized >= min_trades >= 2
+    metrics.update(overall.metrics)
+    metrics["reliability_live"] = overall_window.reliability
 
-    summary = (
-        f"Brier {live:.3f} vs backtest {reference:.3f} "
-        f"({gap:+.3f} abs, {rel:+.1%} rel, z={_fmt_z(evidence.z)}, n={len(terms)})"
-    )
-    if (
-        gap >= cfg.brier_alert_abs - _TOLERANCE
-        and rel >= cfg.brier_alert_rel - _TOLERANCE
-        and evidence.clears(cfg.z_alert)
-    ):
-        needs = (
-            f"alert needs >= +{cfg.brier_alert_abs:g} abs, >= +{cfg.brier_alert_rel:.0%} rel, "
-            f"z >= {cfg.z_alert:g}"
-        )
-        return CheckResult("calibration", "alert", (f"{summary}; {needs}",), metrics)
-    if (
-        gap >= cfg.brier_warn_abs - _TOLERANCE
-        and rel >= cfg.brier_warn_rel - _TOLERANCE
-        and evidence.clears(cfg.z_warn)
-    ):
-        needs = (
-            f"warn needs >= +{cfg.brier_warn_abs:g} abs, >= +{cfg.brier_warn_rel:.0%} rel, "
-            f"z >= {cfg.z_warn:g}"
-        )
-        return CheckResult("calibration", "warn", (f"{summary}; {needs}",), metrics)
-    return CheckResult("calibration", "ok", (f"{summary}; within thresholds",), metrics)
+    sides: list[_Scope] = []
+    if len(counts) > 1 and groups is not None:
+        sides = _brier_family(side_terms, groups, cfg)
+    return _assemble("calibration", overall, sides, metrics)
+
+
+# --------------------------------------------------------------------------
+# PnL
+# --------------------------------------------------------------------------
 
 
 def _pnl_is_on_the_recorded_fill(trade: Mapping[str, Any]) -> bool:
-    """Does this YES trade's realized_pnl carry the price its fill_price says it paid?
+    """Does this trade's realized_pnl carry the price its fill_price says it paid?
 
     Settlement writes `settled_basis` when it settles. A trade without it was settled
     by 0.9.0 or earlier, which entered at the quote even when a `fill_price` was
@@ -991,15 +1377,19 @@ def _pnl_is_on_the_recorded_fill(trade: Mapping[str, Any]) -> bool:
     rest would replace a number the operator can see in their log with one derived
     here, so they are left out instead.
 
-    Takes YES trades only: NO trades never get this far (`n_excluded_no_side`).
+    The quote is the price of the token bought: the YES price, or for a NO trade
+    ``1 - gamma_price``.
     """
     if trade.get("settled_basis") == "fill_price":
         return True
     fill = trade.get("fill_price")
     if fill is None:
         return True
-    quote = trade.get("gamma_price")
-    return _is_number(fill) and _is_number(quote) and abs(float(fill) - float(quote)) <= 1e-8
+    gamma = trade.get("gamma_price")
+    if not (_is_number(fill) and _is_number(gamma)):
+        return False
+    quote = float(gamma) if _direction_of(trade) == "yes" else 1.0 - float(gamma)
+    return abs(float(fill) - quote) <= 1e-8
 
 
 def _cost_basis(trade: Mapping[str, Any], costs: CostModel, stake: float) -> str:
@@ -1018,15 +1408,117 @@ def _cost_basis(trade: Mapping[str, Any], costs: CostModel, stake: float) -> str
     return "match" if all(verdicts) else "mismatch"
 
 
+def _describe_promise(groups: Mapping[str, _Group]) -> str:
+    """`+0.100 over 2000 trades`, or per side when the backtest recorded several."""
+    if len(groups) == 1:
+        ((mean, _, n),) = groups.values()
+        return f"{mean:+.3f} over {n} trades"
+    return ", ".join(
+        f"{_SIDE_LABEL[s]} {m:+.3f} over {n} trades" for s, (m, _, n) in groups.items()
+    )
+
+
+def _pnl_scope(
+    key: str,
+    label: str,
+    n: int,
+    welch: _Welch,
+    used: _Evidence | None,
+    cfg: PnLThresholds,
+    *,
+    family: int,
+) -> _Scope:
+    """The verdict on one measured PnL scope. `used` is the (adjusted) evidence to judge by."""
+    shortfall = welch.evidence.gap / welch.ref_mean
+    bad = welch.problems(shortfall=shortfall)
+    if bad:
+        return _unmeasurable(key, label, n, "invalid_statistic", _invalid_statistic_reason(bad))
+    evidence = used or welch.evidence
+    status, tail = _pnl_level(shortfall, evidence, cfg)
+    prefix = f"{label}: " if label else ""
+    summary = (
+        f"{prefix}mean PnL/stake {welch.live:+.3f} vs backtest {welch.ref_mean:+.3f} "
+        f"(shortfall {shortfall:.0%}, {_z_text(welch.evidence, evidence, family)}, n={n})"
+    )
+    metrics: dict[str, Any] = {
+        "mean_live": welch.live,
+        "std_live": math.sqrt(welch.live_var),
+        "mean_backtest": welch.ref_mean,
+        "shortfall_rel": shortfall,
+        "z": welch.evidence.z,
+        "p_value": welch.evidence.p_value,
+    }
+    if used is not None:
+        metrics["p_adjusted"] = used.p_value
+        metrics["z_adjusted"] = used.z
+    return _Scope(key, label, n, status, None, f"{summary}{tail}", metrics)
+
+
+def _pnl_family(
+    by_side: Mapping[str, Sequence[float]], groups: Mapping[str, _Group], cfg: PnLThresholds
+) -> list[_Scope]:
+    """Each side's PnL on its own, Holm-adjusted across the sides assessed."""
+    measured: dict[str, _Welch] = {}
+    scopes: dict[str, _Scope] = {}
+    for side in _SIDES:
+        values = by_side.get(side)
+        if values is None:
+            continue
+        n, label = len(values), _SIDE_LABEL[side]
+        mean, _, n_backtest = groups[side]
+        if n < cfg.min_trades:
+            scopes[side] = _too_few_for_a_side(side, n, cfg.min_trades)
+            continue
+        if mean <= 0:
+            scopes[side] = _unmeasurable(
+                side,
+                label,
+                n,
+                "invalid_expectation",
+                f"backtest mean PnL per stake is {mean:+.3f} over {n_backtest} trades: a "
+                "shortfall needs a positive expectation to be measured against",
+            )
+            continue
+        welch = _welch(
+            values,
+            counts={side: n},
+            groups={side: groups[side]},
+            pooled=None,
+            worse_when_higher=False,
+        )
+        bad = welch.problems()
+        if bad:
+            scopes[side] = _unmeasurable(
+                side, label, n, "invalid_statistic", _invalid_statistic_reason(bad)
+            )
+            continue
+        measured[side] = welch
+    adjusted = _holm_evidence({side: welch.evidence for side, welch in measured.items()})
+    for side, welch in measured.items():
+        scopes[side] = _pnl_scope(
+            side,
+            _SIDE_LABEL[side],
+            len(by_side[side]),
+            welch,
+            adjusted[side],
+            cfg,
+            family=len(measured),
+        )
+    return [scopes[side] for side in _SIDES if side in scopes]
+
+
 def _pnl_check(
     selection: _Selection,
     expectation: BacktestExpectation | None,
     costs: CostModel | None,
     cfg: PnLThresholds,
 ) -> CheckResult:
-    returns: list[float] = []
+    groups = _pnl_groups(expectation) if expectation is not None else {"yes": (0.0, 0.0, 2)}
+    rows: list[tuple[str, float]] = []
     n_unscoreable = 0
     n_no_side = 0
+    n_yes_side = 0
+    n_unfixed_no = 0
     n_legacy = 0
     n_cost_excluded = 0
     n_cost_unverified = 0
@@ -1036,11 +1528,18 @@ def _pnl_check(
         if not _is_number(stake) or not _is_number(pnl) or stake <= 0 or not math.isfinite(pnl):
             n_unscoreable += 1
             continue
-        # The backtest only buys YES, so its mean and spread describe that
-        # strategy. A NO trade's per-stake PnL is the same arithmetic, but it is not
-        # a draw from the distribution being tested against: leave it out, counted.
-        if trade.get("direction", "yes") != "yes":
-            n_no_side += 1
+        side = _direction_of(trade)
+        # A side the backtest recorded no expectation for is not a draw from any
+        # distribution being tested against: leave it out, counted.
+        if side not in groups:
+            if side == "no":
+                n_no_side += 1
+            else:
+                n_yes_side += 1
+            continue
+        # A NO trade settled before the NO arithmetic was fixed carries a wrong PnL.
+        if side == "no" and not _no_settlement_is_trusted(trade):
+            n_unfixed_no += 1
             continue
         if not _pnl_is_on_the_recorded_fill(trade):
             n_legacy += 1
@@ -1052,15 +1551,27 @@ def _pnl_check(
                 continue
             if verdict == "unverified":
                 n_cost_unverified += 1
-        returns.append(float(pnl) / float(stake))
+        rows.append((side, float(pnl) / float(stake)))
 
+    by_side: dict[str, list[float]] = {}
+    for side, value in rows:
+        by_side.setdefault(side, []).append(value)
+    counts = {side: len(by_side[side]) for side in _SIDES if side in by_side}
     metrics: dict[str, Any] = {
         **selection.counts,
         "allowed_segments": list(selection.allowed_segments),
         "n_by_segment": selection.by_segment,
-        "n_trades": len(returns),
+        "n_trades": len(rows),
+        "n_by_direction": counts,
+        "expectation_directions": (
+            sorted(groups)
+            if expectation is not None and expectation.by_direction is not None
+            else None
+        ),
         "n_unscoreable": n_unscoreable,
         "n_excluded_no_side": n_no_side,
+        "n_excluded_yes_side": n_yes_side,
+        "n_excluded_unfixed_no": n_unfixed_no,
         "n_excluded_legacy_settlement": n_legacy,
         "n_excluded_cost_basis": n_cost_excluded,
         "n_cost_unverified": n_cost_unverified if costs is not None else None,
@@ -1080,69 +1591,55 @@ def _pnl_check(
             ],
             metrics,
         )
+    if not groups:
+        return _insufficient(
+            "pnl",
+            "no_expectation",
+            [
+                "champion.json records no per-side PnL expectation (the backtest traded each "
+                "side too rarely to promise anything): re-publish the champion on a backtest "
+                "with more trades"
+            ],
+            metrics,
+        )
     problems = _unusable_expectation(expectation, calibration=False)
     if problems:
         return _invalid_expectation("pnl", problems, metrics)
-    if expectation.mean_pnl_per_stake <= 0:
+    if not any(mean > 0 for mean, _, _ in groups.values()):
         return _insufficient(
             "pnl",
             "invalid_expectation",
             [
-                f"backtest mean PnL per stake is {expectation.mean_pnl_per_stake:+.3f} over "
-                f"{expectation.n_trades} trades: a shortfall needs a positive expectation to "
-                "be measured against, so this check will stay insufficient on every run until "
-                "the champion is re-published on a backtest that earned money"
+                f"backtest mean PnL per stake is {_describe_promise(groups)}: a shortfall needs "
+                "a positive expectation to be measured against, so this check will stay "
+                "insufficient on every run until the champion is re-published on a backtest "
+                "that earned money"
             ],
             metrics,
         )
-    if len(returns) < cfg.min_trades:
-        return _too_few_samples("pnl", len(returns), cfg.min_trades, metrics)
+    if len(rows) < cfg.min_trades:
+        return _too_few_samples("pnl", len(rows), cfg.min_trades, metrics)
 
-    arr = np.array(returns, dtype=float)
-    reference = expectation.mean_pnl_per_stake
-    with np.errstate(all="ignore"):  # an overflow is reported below, not printed by numpy
-        live = float(arr.mean())
-        live_var = float(arr.var(ddof=1))
-    unusable = _invalid_statistic("pnl", metrics, live_mean=live, live_variance=live_var)
-    if unusable is not None:
-        return unusable
-    evidence = _one_sided_welch(
-        live_mean=live,
-        live_var=live_var,
-        n_live=len(arr),
-        ref_mean=reference,
-        ref_std=expectation.std_pnl_per_stake,
-        ref_n=expectation.n_trades,
-        worse_when_higher=False,
-    )
-    shortfall = evidence.gap / reference
-    unusable = _invalid_statistic(
-        "pnl", metrics, gap=evidence.gap, shortfall=shortfall, z=evidence.z
-    )
-    if unusable is not None:
-        return unusable
-    metrics.update(
-        {
-            "mean_live": live,
-            "std_live": math.sqrt(live_var),
-            "mean_backtest": reference,
-            "shortfall_rel": shortfall,
-            "z": evidence.z,
-            "p_value": evidence.p_value,
-        }
-    )
+    values = [value for _, value in rows]
+    welch = _welch(values, counts=counts, groups=groups, pooled=None, worse_when_higher=False)
+    if welch.ref_mean <= 0:
+        # Each side that traded has a promise, but this mix of them averages to nothing.
+        return _insufficient(
+            "pnl",
+            "invalid_expectation",
+            [
+                f"backtest mean PnL per stake for this mix of sides is {welch.ref_mean:+.3f}: a "
+                "shortfall needs a positive expectation to be measured against"
+            ],
+            metrics,
+        )
+    overall = _pnl_scope("overall", "", len(values), welch, None, cfg, family=1)
+    if overall.cause == "invalid_statistic":
+        return _insufficient("pnl", "invalid_statistic", [overall.reason], metrics)
+    metrics.update(overall.metrics)
 
-    summary = (
-        f"mean PnL/stake {live:+.3f} vs backtest {reference:+.3f} "
-        f"(shortfall {shortfall:.0%}, z={_fmt_z(evidence.z)}, n={len(arr)})"
-    )
-    if shortfall >= cfg.shortfall_alert - _TOLERANCE and evidence.clears(cfg.z_alert):
-        needs = f"alert needs shortfall >= {cfg.shortfall_alert:.0%}, z >= {cfg.z_alert:g}"
-        return CheckResult("pnl", "alert", (f"{summary}; {needs}",), metrics)
-    if shortfall >= cfg.shortfall_warn - _TOLERANCE and evidence.clears(cfg.z_warn):
-        needs = f"warn needs shortfall >= {cfg.shortfall_warn:.0%}, z >= {cfg.z_warn:g}"
-        return CheckResult("pnl", "warn", (f"{summary}; {needs}",), metrics)
-    return CheckResult("pnl", "ok", (f"{summary}; within thresholds",), metrics)
+    sides = _pnl_family(by_side, groups, cfg) if len(counts) > 1 else []
+    return _assemble("pnl", overall, sides, metrics)
 
 
 # --------------------------------------------------------------------------
@@ -1222,6 +1719,7 @@ def health_report(
             results.append(_with_settled_at_note(calibration, selection.counts))
         else:
             pnl = _pnl_check(selection, champion.expectation, champion.costs, config.pnl)
+            pnl = _with_unfixed_no_note(pnl)
             results.append(_with_settled_at_note(pnl, selection.counts))
 
     ref = ChampionRef(

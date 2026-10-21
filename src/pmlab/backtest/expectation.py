@@ -98,7 +98,9 @@ class BacktestExpectation:
     ``None`` means the backtest did not record a split (a champion published before
     0.9.1, or a frame without a `direction` column): the pooled numbers then describe
     the historical backtest, which only bought YES. A side the backtest traded fewer
-    than `MIN_GROUP_TRADES` times is absent from the mapping.
+    than `MIN_GROUP_TRADES` times is absent from the mapping, unless it traded nothing
+    else (then it is the pooled expectation); an empty mapping means neither side traded
+    enough to be promised.
 
     `policy` is the decision rule the backtest ran (`TradePolicy`), recorded so live
     trading can use the same threshold. ``None`` when not recorded.
@@ -201,7 +203,11 @@ class BacktestExpectation:
             by_direction = {}
             for side in _DIRECTIONS:
                 mask = sides == side
-                if int(mask.sum()) >= min_group_trades:
+                n_side = int(mask.sum())
+                # A side that holds every trade is the pooled expectation, which has
+                # always been usable from two trades up; only a side that shares the
+                # book with the other one needs enough trades to stand on its own.
+                if n_side >= min_group_trades or n_side == len(sides):
                     by_direction[side] = _summarise(
                         per_stake[mask],
                         None if prob is None else prob[mask],

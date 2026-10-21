@@ -16,6 +16,11 @@ from pmlab.plugins.base import MarketPlugin
 # is idempotent, so it is never recomputed. 1 = NO settled as a buy of the NO token.
 SETTLEMENT_VERSION = 1
 
+# The first version whose NO trades carry a correct realized_pnl. A NO trade stamped with
+# a lower version (or none) was booked by the short-YES arithmetic and must not be used
+# as evidence about the NO strategy; `pmlab resettle` recomputes it.
+MIN_TRUSTED_NO_SETTLEMENT_VERSION = 1
+
 
 class SettlementEngine:
     """Settles open paper trades using plugin truth resolution."""
