@@ -93,6 +93,24 @@ class TestOneRowPerBin:
             assert row["feature_fcst"] == 31.0
             assert row["feature_lead"] == 1.0
 
+    def test_a_feature_cannot_overwrite_a_structural_key(self) -> None:
+        # A forecast client may return any keys. The row's identity and price are not its to set.
+        hostile = {
+            "market_price": 9.9,
+            "outcome_label": "bogus",
+            "winning_label": "bogus",
+            "market_id": "bogus",
+            "price_ts": "bogus",
+            "feature_ok": 1.0,
+        }
+        rows = _rows(plugin=_plugin(features=hostile))
+        assert [r["outcome_label"] for r in rows] == list(LABELS)
+        assert [r["market_price"] for r in rows] == [0.2, 0.5, 0.3]
+        assert {r["winning_label"] for r in rows} == {"hot"}
+        assert {r["market_id"] for r in rows} == {"t1"}
+        assert {r["price_ts"] for r in rows} == {BEFORE}
+        assert {r["feature_ok"] for r in rows} == {1.0}
+
     def test_a_numeric_string_price_is_accepted(self) -> None:
         rows = _rows(_spec(prices=("0.25", 0.5, 0.25)))
         assert [r["market_price"] for r in rows] == [0.25, 0.5, 0.25]
@@ -274,6 +292,17 @@ class TestLegacySingularRow:
             row = _plugin().build_training_row(_spec(), "morning_of")
         assert row is not None
         assert "decision_ts" not in row and "decision_date" not in row
+
+    def test_an_unparseable_decision_time_is_refused_not_ignored(self) -> None:
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="decision_time"):
+            _plugin().build_training_row(_spec(), "morning_of", decision_time="whenever")
+
+    def test_a_decision_time_it_is_given_is_enforced(self) -> None:
+        with pytest.warns(DeprecationWarning):
+            row = _plugin().build_training_row(
+                _spec(observed=AFTER), "morning_of", decision_time=DECISION
+            )
+        assert row is None  # the only price was seen after the decision
 
     def test_it_returns_none_when_the_winners_price_is_unusable(self) -> None:
         with pytest.warns(DeprecationWarning):

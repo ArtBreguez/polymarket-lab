@@ -160,6 +160,10 @@ class TestBuildPanelPerBinRows:
         panel = build_panel([None, _bin_rows("m1"), [], single, None])
         assert len(panel) == 4
 
+    def test_a_none_inside_a_list_is_dropped(self):
+        a, b = _bin_rows("m1")[:2]
+        assert len(build_panel([[a, None, b]])) == 2
+
     def test_a_generator_of_lists_is_accepted(self):
         panel = build_panel(_bin_rows(f"m{i}") for i in range(4))
         assert len(panel) == 12
