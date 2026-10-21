@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-__version__ = "0.9.0"
+__version__ = "0.9.1"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
+from pmlab.backtest.expectation import BacktestExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
 from pmlab.backtest.metrics import BacktestMetrics, compute_metrics
 from pmlab.config import PmlabSettings, get_settings
@@ -70,6 +71,15 @@ from pmlab.monitoring.drift import (
     drift_report,
     drift_report_from_store,
 )
+from pmlab.monitoring.watchdog import (
+    CalibrationThresholds,
+    CheckResult,
+    HealthReport,
+    PnLThresholds,
+    WatchdogConfig,
+    WatchdogInputError,
+    health_report,
+)
 from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
@@ -103,6 +113,14 @@ __all__ = [
     "FeatureDrift",
     "drift_report",
     "drift_report_from_store",
+    "BacktestExpectation",
+    "CalibrationThresholds",
+    "CheckResult",
+    "HealthReport",
+    "PnLThresholds",
+    "WatchdogConfig",
+    "WatchdogInputError",
+    "health_report",
     "LiveBroker",
     "LiveBrokerError",
     "OrderReceipt",
