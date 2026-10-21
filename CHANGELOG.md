@@ -26,14 +26,32 @@ weeks after the forecast. A feature that has moved is visible today.
   builds the live window through `FeatureSnapshotStore.as_of`, so nothing captured
   at or after `cutoff` can leak in. `window_start` is required: without a lower
   bound "current" would include the training-era markets and understate drift.
-- `docs/drift-monitoring.md`. Every number in it is produced by running its
-  snippets; a small generator executes each block and writes its real output.
+- `docs/drift-monitoring.md`. Every number in it comes from running its snippets:
+  all 15 blocks were re-run after the review fixes below and diffed against their
+  printed output.
 
 ### Notes on semantics
 
-- **Bins come from the reference only** (its quantiles, open-ended at both ends),
-  reused for the live sample. Binning each sample on its *own* quantiles scores a
-  3-sd wholesale shift at PSI 0.00; on reference edges it is 6.59.
+- **Bins come from the reference only** (its quantiles), reused for the live
+  sample. Binning each sample on its *own* quantiles scores a 3-sd wholesale shift
+  at PSI 0.00; on reference edges it is 9.21.
+- **Out-of-range mass has its own bins.** Everything strictly below the reference
+  minimum and strictly above its maximum gets a bin of its own, symmetrically. The
+  first draft left the end bins open-ended, so a constant or heavily tied reference
+  (whose quantile edges collapse) merged everything below it into its own bin:
+  a constant reference scored PSI 0.0 against a sample that was half below it, and
+  `[0.7] * 500` vs `[0.3] * 500` predictions scored 0 and read `ok`. They now score
+  4.60 and 18.42 and alert. A sample against itself is still exactly 0.0 for
+  constant, tied, discrete and continuous references.
+- **`unseen_rate` has no thresholds, and needs none.** Because out-of-range mass
+  now sits in bins the reference left empty, it moves PSI and KL by itself: at the
+  default `epsilon`, 1% beyond the reference range is `ok`, 1.5% `warn`, 3% `alert`.
+  It stays on the report because a coarse `epsilon` makes that mass cheap (at 1e-2,
+  5% out of range is still `ok`); the docs say so and a test pins it.
+- **Threshold comparisons carry 1e-9 of slack** for float round-off, for PSI, KL and
+  missing rate alike. A missing rate going 10% → 30% changes by
+  `0.19999999999999998` and used to read `warn` against the documented `>= 0.20`
+  alert line.
 - **Empty bins are floored at `epsilon` (1e-4) and renormalised**, never dropped, so
   a value range the reference never saw scores large but finite — never `inf`/`NaN`.
   Bins empty on both sides are omitted.
@@ -45,15 +63,35 @@ weeks after the forecast. A feature that has moved is visible today.
   alert even when the remaining values look identical.
 - **Unseen categories are drift, not dropped** — pooled into one zero-reference bin
   and listed. Numeric vs categorical is decided from the *reference* column, so a
-  feed that dies into all-`None` is still a numeric feature that went missing.
+  feed that dies into all-`None` is still a numeric feature that went missing. Two
+  consequences are documented and tested rather than changed: `1`, `1.0` and `True`
+  are one category (a `Counter` merges values that hash alike), and one stray string
+  in a numeric reference column makes it categorical (`DriftConfig(numeric=...)`
+  then fails loudly, naming the feature).
+- **Predictions are validated.** Values outside `[0, 1]` (including `±inf`) and
+  non-numbers raise `ValueError` naming the side and how many offend; `NaN` is
+  missing, as for features. Reference and current arrays may differ in length.
+  `drift_report_from_store` requires `predict_fn` to return exactly one number per
+  row for both the reference panel and the live window.
+- **The live window excludes the training markets.** `drift_report_from_store` drops
+  markets whose `market_id` is in the reference panel (`exclude_reference_markets=True`
+  by default) and reports the count as `DriftReport.n_current_excluded_overlap`
+  (in `to_dict` / `from_dict`). A reference without a `market_id` column raises
+  rather than silently skipping the check. The docs also warn that the store gives
+  each market its latest snapshot before the cutoff while the panel holds the one at
+  decision time, so part of the measured drift can be markets at a different age.
+- **Quiet failures now raise:** an unknown `family` (nothing in the store for it at
+  all), `window_start` after `cutoff`, and an empty feature list. An
+  empty-but-valid window is still `insufficient`.
 - **`insufficient` never reads as `ok`.** Below `min_samples` the statistics are
   `None`. Precedence is alert > warn > insufficient > ok; an empty live window is
   `insufficient`, not clean.
 - **`min_samples` defaults to 300, not 100**, because PSI of an *unchanged* feature
   has a noise floor of roughly `(n_bins − 1) / n`. Simulated over 500 windows, an
-  unchanged feature crossed the 0.10 warn line in 204 at 100 values and in 3 at 300.
-  The first draft used 100; running the numbers showed it would false-warn about
-  two windows in five.
+  unchanged feature crossed the 0.10 warn line in 223 at 100 values and in 3 at 300
+  (204 and 3 before the outer bins, which add a little noise: a reference's own tail
+  is now an empty bin). The first draft used 100; running the numbers showed it
+  would false-warn nearly half the windows.
 - **Defaults are conventions, labelled as such.** PSI 0.10 / 0.25 is the standard
   credit-scoring convention. KL 0.05 / 0.125 is *derived* (half the PSI bands) and
   the missing-rate bands 0.05 / 0.20 are judgment; neither has an industry standard.
@@ -62,8 +100,8 @@ weeks after the forecast. A feature that has moved is visible today.
 
 ### Verification
 
-708 passed, 1 skipped; mypy `--strict` clean on 66 files; ruff check + format
-clean; 100% line and branch coverage on `drift.py` (88.41% overall).
+786 passed, 1 skipped; mypy `--strict` clean on 66 files; ruff check + format
+clean; 100% line and branch coverage on `drift.py` (88.61% overall, gate 70%).
 
 38 mutations tested one at a time (reference vs current bin edges, own-quantile
 binning, epsilon removed, smoothing not renormalised, KL direction swapped, lookahead
@@ -77,6 +115,17 @@ order equalled alphabetical order. Each now has a test that fails against the
 mutant. Separately, an incorrect claim in my own docstring (that taking edges
 from the current sample scores ~0 — it is the *own-quantile* binning that does)
 was caught by running the counterfactual and corrected.
+
+A second round for the review fixes above: 19 further mutations (each outer bin
+removed and both together, the tolerance removed or kept on one line only, the
+`[0, 1]` check, NaN and `inf` handling, the one-value-per-row check, overlap
+exclusion removed / uncounted / unserialised / not text-normalised / skipped on a
+missing `market_id`, and the unknown-family, window-order and empty-feature
+checks). Two survived the first pass: a quantile-edge filter that turned out to be
+an equivalent mutant (values above the maximum are forced into the upper bin, so the
+bin it guarded is always empty on both sides — the line was dead and was removed),
+and the store-side `astype(str)` in the overlap check (no test used integer market
+ids in the store). That one has a test now. All 18 live mutants are killed.
 
 ## [0.8.5] — 2026-09-30
 
