@@ -69,12 +69,15 @@ cron: `pmlab monitor ... || notify`.
 - **A sequential test** (one-sided CUSUM on each trade's standardized shortfall, in settlement
   order, `h = 30`, threshold calibrated by simulation) makes a PnL alert possible when the
   pooled mean dilutes a fade. It alerts while the statistic is above the threshold, so a healthy
-  book does not carry a stale alert. `PnLThresholds.sequential`, `cusum_*`, `mde_power`.
+  book does not carry a stale alert. No single trade may add more than `cusum_increment_cap`
+  (5) to the statistic, so one total loss in a near-certain cell (a spread of almost nothing)
+  cannot raise an alert by itself. `PnLThresholds.sequential`, `cusum_*`, `mde_power`.
 - **Every PnL result says what it could have detected**: the minimum detectable shortfall at 80%
   power, in `--verbose`, the JSON and the default output whenever a check is not ok.
 - **`pmlab resettle --trades PATH`** recomputes `realized_pnl` of settled trades that an older
   release booked wrongly (see Fixed), from the fields they recorded: no network, unsettled
-  trades untouched, a timestamped backup first, `--dry-run` for the diff, idempotent.
+  trades untouched, a timestamped backup first, `--dry-run` for the diff, idempotent. The
+  backup and the new log are synced to disk before the rename, and the directory after it.
 - `scripts/watchdog_power.py` regenerates every power and false-alarm table in
   `docs/watchdog.md`; `tests/monitoring/test_power.py` holds its fast copies to `health_report`.
 
@@ -90,7 +93,9 @@ cron: `pmlab monitor ... || notify`.
 - **A champion promoted on an aggregate gate now records every segment.** Such a gate
   allows `{"all"}`, and `PaperBroker` compared segment names with it literally, so
   `record-trades` recorded nothing; `"all"` now means every segment in `ChampionManifest`,
-  `PaperBroker` and the watchdog alike. An empty allowlist still means none.
+  `PaperBroker` and the watchdog alike. An empty allowlist still means none. `"all"` is the
+  wildcard only on its own: beside other names it is a segment called "all", so a per-segment
+  gate that graded such a segment does not widen to segments it never graded.
 - **`scripts/pmlab-workspace` and `pmlab -a artifacts -w <name>` now read and write the same
   trade log.** The wrapper's artifacts directory is already `artifacts/workspaces/<name>`, and
   the settings appended `workspaces/<name>` again (and looked up workspace `ops_daily`, because

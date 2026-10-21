@@ -237,8 +237,10 @@ this champion, as of `--as-of`**:
   `champion.json`), the same filter `PaperBroker` applies when recording. A champion
   promoted on an **aggregate gate** (`HoldoutGateResult.evaluate(trades)` without
   `required_segments`, which grades the whole log as one segment called `"all"`) allows
-  `{"all"}`, and `"all"` means *every segment*: it never made a per-segment claim. An
-  **empty** allowlist still means none;
+  `{"all"}`, and `"all"` on its own means *every segment*: it never made a per-segment claim. Beside
+  other names it is just a segment called "all", so a per-segment gate that graded such a segment does not
+  widen to the ones it never graded (and a per-segment gate whose only segment is called "all" cannot be
+  told from an aggregate one, so that name is reserved). An **empty** allowlist still means none;
 - **dated**: a trade with no usable `recorded_at` or `target_date` cannot be attributed, so
   it is not assumed to be current;
 - **recorded at or after the champion was published** (a re-promotion must not be
@@ -615,6 +617,14 @@ standing alert on any champion whose backtest flattered it) and `h = cusum_thres
   only if that rests on at least `cusum_min_backtest_trades` (100) backtest trades; otherwise the trade is
   skipped and the reason says how many. So a book that trades more NO, or more of a weaker segment, than
   the backtest did is not mistaken for a decline.
+- **No single trade may add more than `cusum_increment_cap` = 5.** A cell whose backtest almost never
+  lost has a tiny spread (+0.0279 +/- 0.002 over 100 trades), so one ordinary loss of the whole stake is some
+  500 of its standard deviations: uncapped, that one trade put the statistic at 508 and raised an alert at
+  trade 61 (found in review; `TestOneTradeCannotTripTheSequentialTest` pins it). The statistic alerts at
+  30, so a cap of 5 means no alert from fewer than six trades in a row, however small the spread. The cap
+  is on the increment (shortfall minus allowance), so a deterministic cell whose edge vanished still
+  reaches the threshold in six trades. It never binds in a cell with a realistic spread, where even a total
+  loss is a standard deviation or two, so the tables below are the same with or without it.
 - **It alerts while the statistic is at or above the threshold**, and clears when the bad run ends. It
   does not stay an alert for ever once it has crossed: the chance that a healthy book has crossed at least
   once grows with its length, so a remembered signal would turn every long-lived champion into a standing
@@ -708,6 +718,37 @@ live trades     as promised       halved     vanished     reversed   |  as promi
         400            2.5%        14.8%        41.5%        92.2%   |         2.8%        15.5%        44.5%        95.2%
         800            1.5%        17.0%        50.7%        96.5%   |         2.5%        22.5%        66.8%        98.8%
 ```
+
+### Near-certain cells
+
+The cap exists for cells like this one, and so does a limit of the sequential test. Tokens priced at 0.96-0.98
+that win all but a handful of times; a 100-trade backtest that promised a 0.5% chance of losing the stake, and
+that, in most simulated champions, saw no loss at all and so recorded a spread of almost nothing:
+
+```text
+Near-certain cells (5000 simulated champions per row)
+tokens priced 0.96-0.98, a 100-trade backtest that promised a 0.5% chance
+of losing the stake. Most backtests saw no loss at all, so their spread is tiny and
+one loss of the stake is hundreds of standard deviations. Share of champions whose
+alert is on at the run after N live trades (the sequential test with and without the
+cap on what one trade may add, the fixed test, and the check as shipped)
+
+live book                       N   fixed test   sequential, no cap   sequential, capped   fixed or capped
+healthy (loses 0.5%)           60         0.0%                15.2%                 0.0%              0.0%
+healthy (loses 0.5%)          400         1.1%                18.1%                 0.0%              1.1%
+edge gone (loses 3%)           60         7.0%                53.1%                 0.0%              7.0%
+edge gone (loses 3%)          400        66.4%                80.9%                 0.2%             66.5%
+collapsed (loses 10%)          60        74.4%                89.0%                 6.2%             74.4%
+collapsed (loses 10%)         400       100.0%               100.0%                37.9%            100.0%
+```
+
+Uncapped, a healthy near-certain cell false-alarms in 15% of champions at 60 trades and 18% at 400, because
+its first loss is hundreds of standard deviations; capped, in none. The price is that the sequential test has
+almost no power there, since a loss adds at most 5 and every win takes back more than that (a cell that loses
+3% instead of 0.5% is flagged by it in 0.2% of runs at 400 trades, one that loses 10% in 38%). Detection in such
+a cell is the fixed test's job, which is why "fixed or capped" is, to a tenth of a point, the fixed column. A floor on the spread used for standardization was
+considered and not added: it would let the sequential test see a collapse sooner, but the fixed test already
+sees the collapse (last rows), and a floor is one more number to tune.
 
 ### What a quiet run is worth
 
@@ -1106,6 +1147,7 @@ standards; tune them on your own history.
 | | `cusum_allowance` | 0.5 | `a`: the shortfall each trade may have, as a fraction of the promised edge, without counting |
 | | `cusum_backtest_se` | 0.5 | `b`: the standard errors of the promise added to that allowance |
 | | `cusum_min_backtest_trades` | 100 | fewest backtest trades a record needs to standardize live trades for the sequential test |
+| | `cusum_increment_cap` | 5 | `c`: the most one trade may add to the statistic (see [the sequential test](#the-sequential-test)) |
 | | `mde_power` | 0.8 | power the [minimum detectable shortfall](#what-a-quiet-run-is-worth) is quoted at |
 | drift | everything in `DriftConfig` | see [Drift monitoring](drift-monitoring.md) | PSI 0.10/0.25, KL 0.05/0.125, missing 0.05/0.20, `min_samples` 300 |
 | policy | `insufficient` | `separate` | `separate` (exit 30) or `warn` (exit 10) |
@@ -1157,9 +1199,9 @@ for bad in ({"pnl": {"min_trade": 50}}, {"calibration": {"z_warn": 4, "z_alert":
 ```
 
 ```text
-PnLThresholds(min_trades=50, shortfall_warn=0.5, shortfall_alert=1.0, z_warn=1.645, z_alert=3.0, sequential=True, cusum_allowance=0.5, cusum_backtest_se=0.5, cusum_threshold=30.0, cusum_min_backtest_trades=100, mde_power=0.8)
+PnLThresholds(min_trades=50, shortfall_warn=0.5, shortfall_alert=1.0, z_warn=1.645, z_alert=3.0, sequential=True, cusum_allowance=0.5, cusum_backtest_se=0.5, cusum_threshold=30.0, cusum_min_backtest_trades=100, cusum_increment_cap=5.0, mde_power=0.8)
 calibration untouched: True
-rejected: unknown pnl setting(s) ['min_trade']; valid settings: ['cusum_allowance', 'cusum_backtest_se', 'cusum_min_backtest_trades', 'cusum_threshold', 'mde_power', 'min_trades', 'sequential', 'shortfall_alert', 'shortfall_warn', 'z_alert', 'z_warn']
+rejected: unknown pnl setting(s) ['min_trade']; valid settings: ['cusum_allowance', 'cusum_backtest_se', 'cusum_increment_cap', 'cusum_min_backtest_trades', 'cusum_threshold', 'mde_power', 'min_trades', 'sequential', 'shortfall_alert', 'shortfall_warn', 'z_alert', 'z_warn']
 rejected: z_warn (4) must not exceed z_alert (3): warn is the lower bar and alert the higher
 ```
 
@@ -1238,8 +1280,8 @@ book does (calibration: `brier_live`, `brier_backtest`, `degradation_abs`, `degr
 `mean_live`, `std_live`, `mean_backtest`, `shortfall_rel`, `mde_shortfall`, `mde_shortfall_effective`; both:
 `z`, `p_value`, and `z_adjusted` / `p_adjusted` inside a family of more than one) plus its own `status`,
 `cause` (set when it could not be judged, e.g. `too_few_samples`) and `n_trades`. The PnL check also has
-`sequential` with `status`, `signalled`, `statistic`, `peak`, `crossed_at`, `threshold`, `allowance`, `n` and
-`n_skipped`. A scope that was not assessed has status `insufficient` there, and still does not change the
+`sequential` with `status`, `signalled`, `statistic`, `peak`, `crossed_at`, `threshold`, `allowance`,
+`increment_cap`, `n` and `n_skipped`. A scope that was not assessed has status `insufficient` there, and still does not change the
 check's own status unless nothing in the check could be measured.
 
 ```text
@@ -1537,6 +1579,8 @@ miscalibration, lower `brier_warn_abs` and read `reliability_live` in the JSON; 
 - **The cells are a scope, not a test.** A (segment, side) cell is the reference a trade is held to, not a
   separate hypothesis: judging every cell on its own would multiply the false alarms by the number of
   cells. The sides and the segments are judged, the cells they are made of are not.
+- **Near-certain cells.** Where the backtest almost never lost, the sequential test is blunt on purpose
+  (one trade cannot trip it, [above](#near-certain-cells)) and the fixed test carries the detection.
 - **The backtest mean is optimistic.** A champion is chosen *because* its backtest looked good (a winner's
   curse), so its live mean tends to fall below the promise even when nothing is wrong. The warn level of
   "half of what was promised" leaves room for that: at the sample sizes in the tables a shortfall of that
