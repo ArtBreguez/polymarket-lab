@@ -145,7 +145,7 @@ class DriftConfig:
     *unchanged* feature is not zero: its noise floor is roughly ``(n_bins - 1) / n``
     for ``n`` current values. The default of 300 keeps that near 0.03 at ten bins —
     in 500 simulated windows of an unchanged feature, 3 crossed the 0.10 warn line
-    at 300 values and 204 did at 100. Raise it if you raise `n_bins`.
+    at 300 values and 223 did at 100. Raise it if you raise `n_bins`.
     `epsilon` is the floor on a bin's proportion — see the module docstring.
 
     Numeric vs categorical is inferred from the *reference* column's contents
