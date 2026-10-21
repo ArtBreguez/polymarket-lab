@@ -35,6 +35,7 @@ test does and does not assume.
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 from collections import Counter
@@ -51,7 +52,14 @@ from pmlab.execution.settlement import MIN_TRUSTED_NO_SETTLEMENT_VERSION
 from pmlab.modeling.champion import ChampionManifest
 from pmlab.monitoring.calibration_tracker import CalibrationTracker
 from pmlab.monitoring.drift import DriftConfig, DriftReport, DriftStatus, FeatureDrift
-from pmlab.monitoring.stats import holm_adjust, mixture_reference, normal_isf
+from pmlab.monitoring.stats import (
+    cusum,
+    detectable_gap,
+    holm_adjust,
+    mixture_reference,
+    normal_isf,
+    normal_sf,
+)
 
 __all__ = [
     "CHECKS",
@@ -219,6 +227,17 @@ class PnLThresholds:
     at least `z_*`. The defaults of 2 and 3 are stricter than the textbook 1.64 and
     2.33 on purpose: the watchdog looks every run, and repeated looks at the same
     growing sample inflate the false-alarm rate far above the nominal one.
+
+    The **sequential test** (`sequential`) is a one-sided CUSUM on each trade's
+    standardized shortfall, in settlement order. It is the other way a PnL alert is
+    raised: it signals a run of shortfalls that the pooled mean dilutes with the healthy
+    trades before it. `cusum_allowance` is the part of the promised edge a trade may fall
+    short by without it counting (a fraction of the edge, in units of the trade's own
+    spread: 0.5 is tuned to an edge that has vanished) and `cusum_threshold` is the
+    height at which it signals. The defaults were calibrated by simulation, see
+    `docs/watchdog.md`.
+
+    `mde_power` is the power the *minimum detectable shortfall* is quoted at.
     """
 
     min_trades: int = 30
@@ -226,13 +245,27 @@ class PnLThresholds:
     shortfall_alert: float = 1.0
     z_warn: float = 2.0
     z_alert: float = 3.0
+    sequential: bool = True
+    cusum_allowance: float = 0.5
+    cusum_threshold: float = 40.0
+    mde_power: float = 0.8
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "min_trades", _check_int("min_trades", self.min_trades, 2))
-        for name in ("shortfall_warn", "shortfall_alert", "z_warn", "z_alert"):
+        for name in ("shortfall_warn", "shortfall_alert", "z_warn", "z_alert", "cusum_allowance"):
             object.__setattr__(self, name, _check_float(name, getattr(self, name)))
         _check_pair("shortfall_warn", self.shortfall_warn, "shortfall_alert", self.shortfall_alert)
         _check_pair("z_warn", self.z_warn, "z_alert", self.z_alert)
+        if not isinstance(self.sequential, bool):
+            raise WatchdogInputError(f"sequential must be true or false, got {self.sequential!r}")
+        threshold = _check_float("cusum_threshold", self.cusum_threshold)
+        if threshold <= 0:
+            raise WatchdogInputError(f"cusum_threshold must be > 0, got {self.cusum_threshold!r}")
+        object.__setattr__(self, "cusum_threshold", threshold)
+        power = _check_float("mde_power", self.mde_power)
+        if not 0.0 < power < 1.0:
+            raise WatchdogInputError(f"mde_power must be strictly between 0 and 1, got {power!r}")
+        object.__setattr__(self, "mde_power", power)
 
     def to_dict(self) -> dict[str, Any]:
         return {f.name: getattr(self, f.name) for f in fields(self)}
@@ -975,6 +1008,38 @@ class _Scope:
 
 
 @dataclass(frozen=True)
+class _Row:
+    """One scoreable settled trade's per-stake return, and where it sits in settlement order."""
+
+    side: str
+    segment: str
+    value: float
+    order: tuple[Any, ...]
+
+
+def _settlement_order(trade: Mapping[str, Any]) -> tuple[Any, ...]:
+    """A total order on trades: when the truth arrived, then which trade it was.
+
+    The time the truth arrived (`settled_at`; a trade from an older release has none and
+    is placed by its `target_date`), then the trade's identity: segment, target date,
+    horizon, recording time, label and side. `PaperBroker` records one trade per segment,
+    date and horizon, so in a real log identity decides every tie. Records that still tie
+    are indistinguishable in time and identity; the sequential test takes them as one
+    step rather than order them by anything that could follow their outcome.
+    """
+    settled = parse_timestamp(trade.get("settled_at")) or parse_timestamp(trade.get("target_date"))
+    return (
+        settled or datetime.min.replace(tzinfo=UTC),
+        _segment_of(trade),
+        str(trade.get("target_date", "")),
+        str(trade.get("horizon", "")),
+        str(trade.get("recorded_at", "")),
+        str(trade.get("outcome_label", "")),
+        _direction_of(trade),
+    )
+
+
+@dataclass(frozen=True)
 class _Welch:
     live: float
     live_var: float
@@ -1176,7 +1241,7 @@ def _segments_are_judged(expectation: BacktestExpectation, allowed: Sequence[str
     return not (len(allowed) == 1 and allowed[0] != "all")
 
 
-_KIND_RANK = {"segment": 0, "side": 1, "overall": 2}
+_KIND_RANK = {"segment": 0, "side": 1, "overall": 2, "sequential": 3}
 _NOT_ASSESSED_SHOWN = 5
 
 
@@ -1185,6 +1250,7 @@ def _assemble(
     overall: _Scope,
     families: Mapping[str, Sequence[_Scope]],
     metrics: dict[str, Any],
+    extras: Sequence[_Scope] = (),
 ) -> CheckResult:
     """The check's verdict: the worst of the conclusive scopes.
 
@@ -1195,13 +1261,15 @@ def _assemble(
     their trades.
 
     `families` maps the metrics key a family of sibling scopes is reported under
-    (``directions``, ``segments``) to its scopes.
+    (``directions``, ``segments``) to its scopes. `extras` are further scopes the caller
+    reports in its own place in the metrics (the sequential test).
     """
     scopes = [overall]
     for key, family in families.items():
         if family:
             metrics[key] = {sc.key: sc.entry() for sc in family}
             scopes.extend(family)
+    scopes.extend(extras)
     conclusive = [sc for sc in scopes if sc.status != "insufficient"]
     if not conclusive:
         return _insufficient(name, overall.cause or "too_few_samples", [overall.reason], metrics)
@@ -1215,11 +1283,13 @@ def _assemble(
     status = problems[0].status if problems else "ok"
     # With sibling scopes in the report the whole-book line says so, so that it is not
     # mistaken for the sentence about a side or a segment.
-    tag = "overall: " if len(scopes) > 1 else ""
+    tag = "overall: " if any(families.values()) else ""
     reasons = [(tag + sc.reason) if sc is overall else sc.reason for sc in problems]
     if overall not in problems:
         # The whole story when nothing is wrong, context for the lines above otherwise.
         reasons.append(tag + overall.reason)
+    # What the sequential test saw when it saw nothing wrong: shown with --verbose.
+    reasons.extend(sc.reason for sc in extras if sc.status == "ok")
     unmeasured = [sc for sc in scopes if sc.status == "insufficient"]
     if unmeasured:
         shown = [f"{sc.label or 'overall'} ({sc.reason})" for sc in unmeasured]
@@ -1556,6 +1626,25 @@ def _describe_promise(groups: Mapping[str, _Group]) -> str:
     )
 
 
+def _minimum_detectable_shortfall(
+    welch: _Welch, n: int, cfg: PnLThresholds, family: int
+) -> tuple[float, float]:
+    """The smallest shortfall this comparison could have shown, with `mde_power` power.
+
+    ``(z_alpha + z_power) * se / backtest_mean``, with the standard error the test itself
+    used. `z_alpha` is the z a warn must clear (`z_warn`); inside a family of `family`
+    sibling tests the level each must meet is divided by the family size, so a side or a
+    segment pays for being one of several. The second figure is what the check can
+    actually flag: never below `shortfall_warn`, because a smaller shortfall is not a
+    finding however clear it is.
+    """
+    z_alpha = cfg.z_warn if family <= 1 else normal_isf(normal_sf(cfg.z_warn) / family)
+    se = math.sqrt(welch.live_var / n + welch.ref_variance)
+    gap = detectable_gap(se, z_alpha, cfg.mde_power)
+    shortfall = gap / welch.ref_mean
+    return shortfall, max(shortfall, cfg.shortfall_warn)
+
+
 def _pnl_scope(
     key: str,
     label: str,
@@ -1576,6 +1665,7 @@ def _pnl_scope(
         )
     evidence = used or welch.evidence
     status, tail = _pnl_level(shortfall, evidence, cfg)
+    mde, mde_effective = _minimum_detectable_shortfall(welch, n, cfg, family)
     prefix = f"{label}: " if label else ""
     summary = (
         f"{prefix}mean PnL/stake {welch.live:+.3f} vs backtest {welch.ref_mean:+.3f} "
@@ -1588,7 +1678,10 @@ def _pnl_scope(
         "shortfall_rel": shortfall,
         "z": welch.evidence.z,
         "p_value": welch.evidence.p_value,
+        "mde_shortfall": mde,
+        "mde_shortfall_effective": mde_effective,
     }
+    tail += f" (could only detect a shortfall >= {mde_effective:.0%} of the backtest edge at n={n})"
     if used is not None:
         metrics["p_adjusted"] = used.p_value
         metrics["z_adjusted"] = used.z
@@ -1651,7 +1744,7 @@ def _pnl_family(
 
 
 def _pnl_segment_family(
-    rows: Sequence[tuple[str, str, float]], expectation: BacktestExpectation, cfg: PnLThresholds
+    rows: Sequence[_Row], expectation: BacktestExpectation, cfg: PnLThresholds
 ) -> list[_Scope]:
     """Each live segment's PnL against that segment's own backtest.
 
@@ -1662,8 +1755,8 @@ def _pnl_segment_family(
     """
     assert expectation.by_segment is not None
     by_segment: dict[str, list[tuple[str, float]]] = {}
-    for side, segment, value in rows:
-        by_segment.setdefault(segment, []).append((side, value))
+    for row in rows:
+        by_segment.setdefault(row.segment, []).append((row.side, row.value))
     measured: dict[str, _Welch] = {}
     sizes: dict[str, int] = {}
     scopes: dict[str, _Scope] = {}
@@ -1728,6 +1821,89 @@ def _pnl_segment_family(
     return [scopes[name] for name in sorted(scopes)]
 
 
+def _sequential_scope(
+    rows: Sequence[_Row], groups: Mapping[str, _Group], cfg: PnLThresholds
+) -> tuple[_Scope, dict[str, Any]]:
+    """The CUSUM over the trades in settlement order, and the metrics that describe it.
+
+    Each trade is standardized by its own side's promise: its shortfall is
+    ``(mean - return) / std`` of that side, and the allowance is `cusum_allowance` times
+    the side's ``mean / std``, so a book that trades more NO than the backtest did is not
+    mistaken for a decline. A side with no spread, or no positive promise, cannot be
+    standardized: its trades are skipped and counted. Trades that tie on settlement time
+    and identity are one step (their shortfalls and allowances add), which keeps the
+    result independent of the order the log happens to list them in.
+    """
+    steps: list[tuple[float, float, int]] = []  # (shortfall, allowance, trades) per step
+    for _, tied in itertools.groupby(sorted(rows, key=lambda r: r.order), key=lambda r: r.order):
+        shortfall = allowance = 0.0
+        count = 0
+        for row in tied:
+            mean, std, _ = groups[row.side]
+            if mean > 0 and std > 0:
+                shortfall += (mean - row.value) / std
+                allowance += cfg.cusum_allowance * mean / std
+                count += 1
+        if count:
+            steps.append((shortfall, allowance, count))
+    n = sum(count for _, _, count in steps)
+    skipped = len(rows) - n
+    common = {
+        "threshold": cfg.cusum_threshold,
+        "allowance_fraction": cfg.cusum_allowance,
+        "n_skipped": skipped,
+    }
+    if not steps:
+        reason = (
+            "no trade could be standardized: the backtest spread is zero or the promised mean "
+            "is not positive"
+        )
+        metrics = {
+            **common,
+            "status": "not_applicable",
+            "signalled": False,
+            "n": 0,
+            "reason": reason,
+        }
+        scope = _unmeasurable(
+            "sequential", "sequential test", 0, "not_applicable", reason, "sequential"
+        )
+        return scope, metrics
+    result = cusum([x for x, _, _ in steps], [k for _, k, _ in steps], cfg.cusum_threshold)
+    crossed_at = (
+        None
+        if result.crossed_at is None
+        else sum(count for _, _, count in steps[: result.crossed_at])
+    )
+    signalled = crossed_at is not None
+    if signalled:
+        status = "alert"
+        reason = (
+            f"sequential: CUSUM crossed {cfg.cusum_threshold:g} at trade {crossed_at} of "
+            f"{n} (now {result.statistic:.1f}, peak {result.peak:.1f}); alert whenever it "
+            f"crosses {cfg.cusum_threshold:g}"
+        )
+    else:
+        status = "ok"
+        reason = (
+            f"sequential: CUSUM {result.statistic:.1f} of {cfg.cusum_threshold:g} "
+            f"(peak {result.peak:.1f}, n={n}); within thresholds"
+        )
+    metrics = {
+        **common,
+        "status": status,
+        "signalled": signalled,
+        "statistic": result.statistic,
+        "peak": result.peak,
+        "crossed_at": crossed_at,
+        "allowance": sum(k for _, k, _ in steps) / n,
+        "n": n,
+        "reason": reason,
+    }
+    scope = _Scope("sequential", "sequential test", n, status, None, reason, {}, "sequential")
+    return scope, metrics
+
+
 def _pnl_check(
     selection: _Selection,
     expectation: BacktestExpectation | None,
@@ -1735,7 +1911,7 @@ def _pnl_check(
     cfg: PnLThresholds,
 ) -> CheckResult:
     groups = _pnl_groups(expectation) if expectation is not None else {"yes": (0.0, 0.0, 2)}
-    rows: list[tuple[str, str, float]] = []
+    rows: list[_Row] = []
     n_unscoreable = 0
     n_no_side = 0
     n_yes_side = 0
@@ -1772,11 +1948,18 @@ def _pnl_check(
                 continue
             if verdict == "unverified":
                 n_cost_unverified += 1
-        rows.append((side, _segment_of(trade), float(pnl) / float(stake)))
+        rows.append(
+            _Row(
+                side,
+                _segment_of(trade),
+                float(pnl) / float(stake),
+                _settlement_order(trade),
+            )
+        )
 
     by_side: dict[str, list[float]] = {}
-    for side, _, value in rows:
-        by_side.setdefault(side, []).append(value)
+    for row in rows:
+        by_side.setdefault(row.side, []).append(row.value)
     counts = {side: len(by_side[side]) for side in _SIDES if side in by_side}
     metrics: dict[str, Any] = {
         **selection.counts,
@@ -1843,7 +2026,7 @@ def _pnl_check(
     if len(rows) < cfg.min_trades:
         return _too_few_samples("pnl", len(rows), cfg.min_trades, metrics)
 
-    values = [value for _, _, value in rows]
+    values = [row.value for row in rows]
     welch = _welch(values, counts=counts, groups=groups, pooled=None, worse_when_higher=False)
     if welch.ref_mean <= 0:
         # Each side that traded has a promise, but this mix of them averages to nothing.
@@ -1865,7 +2048,11 @@ def _pnl_check(
     segments: list[_Scope] = []
     if _segments_are_judged(expectation, selection.allowed_segments):
         segments = _pnl_segment_family(rows, expectation, cfg)
-    return _assemble("pnl", overall, {"directions": sides, "segments": segments}, metrics)
+    extras: list[_Scope] = []
+    if cfg.sequential:
+        sequential, metrics["sequential"] = _sequential_scope(rows, groups, cfg)
+        extras.append(sequential)
+    return _assemble("pnl", overall, {"directions": sides, "segments": segments}, metrics, extras)
 
 
 # --------------------------------------------------------------------------
