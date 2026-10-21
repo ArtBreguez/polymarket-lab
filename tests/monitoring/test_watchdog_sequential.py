@@ -160,6 +160,7 @@ class TestTheSettings:
         assert cfg.cusum_backtest_se == 0.5
         assert cfg.cusum_threshold == 30.0
         assert cfg.cusum_min_backtest_trades == 100
+        assert cfg.cusum_increment_cap == 5.0
         assert cfg.mde_power == 0.8
 
     def test_they_round_trip_and_partial_configs_keep_the_rest(self) -> None:
@@ -184,6 +185,10 @@ class TestTheSettings:
             {"cusum_min_backtest_trades": 1},
             {"cusum_min_backtest_trades": 2.5},
             {"cusum_min_backtest_trades": True},
+            {"cusum_increment_cap": 0},
+            {"cusum_increment_cap": -1},
+            {"cusum_increment_cap": math.inf},
+            {"cusum_increment_cap": math.nan},
             {"mde_power": 0.0},
             {"mde_power": 1.0},
             {"mde_power": 1.5},
@@ -207,11 +212,13 @@ class TestTheSettings:
             "cusum_backtest_se",
             "cusum_threshold",
             "cusum_min_backtest_trades",
+            "cusum_increment_cap",
             "mde_power",
         ):
             del data["config"]["pnl"][key]
         again = HealthReport.from_dict(data)
         assert again.config.pnl.cusum_threshold == 30.0
+        assert again.config.pnl.cusum_increment_cap == 5.0
 
 
 # What each trade subtracts at the defaults, for a backtest of 400 trades at +0.2 +/- 0.6:
@@ -340,6 +347,76 @@ class TestTheSequentialTest:
         assert short.metrics["sequential"]["allowance"] == pytest.approx(1 / 6 + 0.5 / 10)
         assert long.metrics["sequential"]["allowance"] == pytest.approx(1 / 6 + 0.5 / 40)
         assert short.metrics["sequential"]["statistic"] < long.metrics["sequential"]["statistic"]
+
+
+class TestOneTradeCannotTripTheSequentialTest:
+    """A cell whose backtest (almost) never lost has a tiny spread: +0.0279 +/- 0.002 over 100
+    trades. One ordinary loss of the whole stake is then some 500 of its standard deviations,
+    and without a cap on what a single trade may add, one trade alone put the statistic at 508
+    and raised an alert. Each trade may add at most `cusum_increment_cap` (5), so the test
+    needs at least h / cap = 6 trades in a row, however small the spread."""
+
+    def _near_certain(self) -> BacktestExpectation:
+        return _expectation(n_trades=100, mean_pnl_per_stake=0.0279, std_pnl_per_stake=0.002)
+
+    def test_one_loss_among_sixty_normal_trades_does_not_alert(self) -> None:
+        trades = _in_order(_trades(60, pnl=0.0279, pnl_sd=0.002), _trades(1, pnl=-1.003, pnl_sd=0))
+        check = _pnl(_report(trades, self._near_certain()))
+        seq = check.metrics["sequential"]
+        assert seq["n"] == 61
+        assert seq["signalled"] is False
+        assert seq["crossed_at"] is None
+        assert seq["peak"] == pytest.approx(5.0)  # the cap, not 500
+        assert check.status == "ok"
+
+    def test_a_genuinely_vanished_edge_still_alerts_within_six_trades(self) -> None:
+        trades = _in_order(_trades(60, pnl=0.0, pnl_sd=0))
+        seq = _pnl(_report(trades, self._near_certain())).metrics["sequential"]
+        assert seq["signalled"] is True
+        assert seq["crossed_at"] == 6  # 6 trades at the cap of 5 reach the threshold of 30
+
+    def test_a_losing_streak_of_seven_trades_in_a_row_alerts(self) -> None:
+        # Seven consecutive total losses are 35 of increments at the cap: not one trade's doing.
+        normal = _trades(40, pnl=0.0279, pnl_sd=0.002)
+        trades = _in_order(normal, _trades(7, pnl=-1.003, pnl_sd=0))
+        seq = _pnl(_report(trades, self._near_certain())).metrics["sequential"]
+        assert seq["signalled"] is True
+        assert seq["crossed_at"] == 40 + 6
+
+    @pytest.mark.parametrize("std", [1e-6, 1e-3, 0.002, 0.05, 0.6])
+    @pytest.mark.parametrize("mean", [0.0279, 0.2])
+    def test_no_single_trade_adds_more_than_the_cap(self, mean: float, std: float) -> None:
+        expectation = _expectation(n_trades=100, mean_pnl_per_stake=mean, std_pnl_per_stake=std)
+        trades = _in_order(_trades(29, pnl=mean, pnl_sd=0), _trades(1, pnl=-1.003, pnl_sd=0))
+        seq = _pnl(_report(trades, expectation)).metrics["sequential"]
+        assert seq["peak"] <= 5.0 + 1e-9
+        assert seq["signalled"] is False
+
+    def test_the_cap_applies_to_each_of_several_tied_trades(self) -> None:
+        # Two losses indistinguishable in time and identity are one step, each capped.
+        tied = _trades(2, pnl=-1.003, pnl_sd=0)
+        for row in tied:
+            row["settled_at"] = "2026-03-09T00:00:00+00:00"
+            row["target_date"] = "2026-03-09"
+        trades = _in_order(_trades(40, pnl=0.0279, pnl_sd=0.002)) + tied
+        seq = _pnl(_report(trades, self._near_certain())).metrics["sequential"]
+        assert seq["peak"] == pytest.approx(10.0)
+
+    def test_the_cap_is_a_setting(self) -> None:
+        trades = _in_order(_trades(60, pnl=0.0279, pnl_sd=0.002), _trades(1, pnl=-1.003, pnl_sd=0))
+        config = WatchdogConfig(pnl=PnLThresholds(cusum_increment_cap=40.0))
+        seq = _pnl(_report(trades, self._near_certain(), config=config)).metrics["sequential"]
+        assert seq["signalled"] is True  # a cap of 40 lets the one loss through
+
+    def test_a_cap_that_never_binds_changes_nothing(self) -> None:
+        # At +0.2 +/- 0.6 even a total loss is one standard deviation: the cap is not reached.
+        trades = _in_order(_trades(60, pnl=-0.4, pnl_sd=0.0))
+        capped = _pnl(_report(trades)).metrics["sequential"]
+        loose = _pnl(
+            _report(trades, config=WatchdogConfig(pnl=PnLThresholds(cusum_increment_cap=1e9)))
+        ).metrics["sequential"]
+        assert capped["statistic"] == pytest.approx(loose["statistic"])
+        assert capped["crossed_at"] == loose["crossed_at"]
 
 
 class TestTheOrderTheTradesSettledIn:

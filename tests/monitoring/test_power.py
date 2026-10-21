@@ -91,6 +91,47 @@ class TestTheFastCopiesAgreeWithTheRealCheck:
             assert seq["signalled"] == (expected.statistic >= defaults.cusum_threshold)
 
 
+class TestTheFastCopyCapsWhatOneTradeMayAddLikeTheRealCheck:
+    """A near-certain cell: a 100-trade backtest at +0.0279 +/- 0.002, then 60 normal trades
+    and one loss of the whole stake. The real check caps the loss at 5; so must the copy."""
+
+    def _paths(self) -> tuple[Any, Any, float, float, float]:
+        ret = np.array([0.0259, 0.0299] * 50)
+        backtest = wp.Path_(np.full(100, 0.97), np.full(100, 0.97), ret > 0, ret)
+        live_ret = np.array([0.0279] * 60 + [-1.003])
+        live = wp.Path_(np.full(61, 0.97), np.full(61, 0.97), live_ret > 0, live_ret)
+        mu, sd = float(ret.mean()), float(ret.std(ddof=1))
+        k = 0.5 * mu / sd + 0.5 / np.sqrt(100)
+        return backtest, live, mu, sd, k
+
+    def test_the_capped_copy_is_the_production_statistic(self) -> None:
+        backtest, live, mu, sd, k = self._paths()
+        seq = (
+            wp.report(wp.champion({"s": backtest}), wp.trade_rows(live))
+            .checks[0]
+            .metrics["sequential"]
+        )
+        _, at = wp.cusum_scan(
+            live.ret[None, :], np.array([mu]), np.array([sd]), np.array([k]), 30.0, (61,)
+        )
+        assert seq["statistic"] == pytest.approx(5.0)
+        assert at[61][0] == pytest.approx(seq["statistic"])
+        assert seq["signalled"] is False
+
+    def test_without_the_cap_the_copy_shows_what_one_trade_used_to_do(self) -> None:
+        _, live, mu, sd, k = self._paths()
+        _, at = wp.cusum_scan(
+            live.ret[None, :],
+            np.array([mu]),
+            np.array([sd]),
+            np.array([k]),
+            30.0,
+            (61,),
+            cap=np.inf,
+        )
+        assert at[61][0] > 500.0
+
+
 def _simulate(reps: int = 4000, shift: float = 0.0, **kwargs: Any) -> tuple[Any, Any]:
     defaults = PnLThresholds()
     settings: dict[str, Any] = {
@@ -211,7 +252,16 @@ class TestMoreSegmentsDoNotMeanMoreFalseAlarms:
 class TestTheScriptRuns:
     @pytest.mark.parametrize(
         "table",
-        ["firing", "cusum", "backtest-size", "continuous", "calibration", "segments", "whole"],
+        [
+            "firing",
+            "cusum",
+            "backtest-size",
+            "near-certain",
+            "continuous",
+            "calibration",
+            "segments",
+            "whole",
+        ],
     )
     def test_every_table_prints(self, table: str, capsys: pytest.CaptureFixture[str]) -> None:
         wp.main([table, "--sims", "3", "--reps", "60"])

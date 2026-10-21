@@ -244,6 +244,12 @@ class PnLThresholds:
     the fewest backtest trades a cell may have been promised on for its trades to feed the
     sequential test.
 
+    No single trade may move the statistic by more than `cusum_increment_cap`: a cell whose
+    backtest (almost) never lost has a tiny spread, and one ordinary total loss is then
+    hundreds of its standard deviations. Capped at 5, a statistic that alerts at 30 needs at
+    least six trades in a row, however small the spread; a spread that large is not reached by
+    any trade in a realistic cell, so the cap leaves the test's power as it was.
+
     `mde_power` is the power the *minimum detectable shortfall* is quoted at.
     """
 
@@ -257,6 +263,7 @@ class PnLThresholds:
     cusum_backtest_se: float = 0.5
     cusum_threshold: float = 30.0
     cusum_min_backtest_trades: int = 100
+    cusum_increment_cap: float = 5.0
     mde_power: float = 0.8
 
     def __post_init__(self) -> None:
@@ -283,6 +290,12 @@ class PnLThresholds:
             "cusum_min_backtest_trades",
             _check_int("cusum_min_backtest_trades", self.cusum_min_backtest_trades, 2),
         )
+        cap = _check_float("cusum_increment_cap", self.cusum_increment_cap)
+        if cap <= 0:
+            raise WatchdogInputError(
+                f"cusum_increment_cap must be > 0, got {self.cusum_increment_cap!r}"
+            )
+        object.__setattr__(self, "cusum_increment_cap", cap)
         power = _check_float("mde_power", self.mde_power)
         if not 0.0 < power < 1.0:
             raise WatchdogInputError(f"mde_power must be strictly between 0 and 1, got {power!r}")
@@ -1986,7 +1999,8 @@ def _sequential_scope(rows: Sequence[_Row], cfg: PnLThresholds) -> tuple[_Scope,
     the backtest trades behind it), so a book that trades more NO, or more of a weaker segment,
     than the backtest did is not mistaken for a decline, nor a champion whose backtest merely
     flattered it. A trade with no record that is large enough, no spread or no positive promise
-    cannot be standardized: it is skipped and counted. Trades that tie on
+    cannot be standardized: it is skipped and counted. No trade adds more than
+    `cusum_increment_cap` to the statistic. Trades that tie on
     settlement time and identity are one step (their shortfalls and allowances add), which
     keeps the result independent of the order the log happens to list them in.
 
@@ -2005,10 +2019,14 @@ def _sequential_scope(rows: Sequence[_Row], cfg: PnLThresholds) -> tuple[_Scope,
                 continue
             mean, std, n_backtest = row.standardizer
             if mean > 0 and std > 0:
-                shortfall += (mean - row.value) / std
-                allowance += cfg.cusum_allowance * mean / std + cfg.cusum_backtest_se / math.sqrt(
-                    n_backtest
+                trade_allowance = (
+                    cfg.cusum_allowance * mean / std + cfg.cusum_backtest_se / math.sqrt(n_backtest)
                 )
+                # What this trade adds is (shortfall - allowance), at most the cap.
+                shortfall += min(
+                    (mean - row.value) / std, trade_allowance + cfg.cusum_increment_cap
+                )
+                allowance += trade_allowance
                 count += 1
         if count:
             steps.append((shortfall, allowance, count))
@@ -2018,6 +2036,7 @@ def _sequential_scope(rows: Sequence[_Row], cfg: PnLThresholds) -> tuple[_Scope,
         "threshold": cfg.cusum_threshold,
         "allowance_fraction": cfg.cusum_allowance,
         "backtest_se": cfg.cusum_backtest_se,
+        "increment_cap": cfg.cusum_increment_cap,
         "n_skipped": skipped,
     }
     if not steps:

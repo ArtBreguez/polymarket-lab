@@ -211,19 +211,21 @@ def cusum_scan(
     allowance: np.ndarray,
     h: float,
     checkpoints: tuple[int, ...] = LONG_BOOKS,
+    cap: float = PnLThresholds().cusum_increment_cap,
 ) -> tuple[np.ndarray, dict[int, np.ndarray]]:
     """A vectorised copy of `cusum` over many paths: (first crossing, statistic at checkpoints).
 
     `live` is (champions, trades) of returns per stake; `mu`/`sd` are each champion's backtest
-    mean and spread, `allowance` its per-trade allowance. Checked against the production
-    `cusum` in tests/monitoring/test_power.py.
+    mean and spread, `allowance` its per-trade allowance, `cap` the most one trade may add
+    (`np.inf` switches the cap off). Checked against the production `cusum` in
+    tests/monitoring/test_power.py.
     """
     reps, n = live.shape
     statistic = np.zeros(reps)
     first = np.full(reps, np.inf)
     at: dict[int, np.ndarray] = {}
     for i in range(n):
-        statistic = np.maximum(0.0, statistic + (mu - live[:, i]) / sd - allowance)
+        statistic = np.maximum(0.0, statistic + np.minimum((mu - live[:, i]) / sd - allowance, cap))
         first[(statistic >= h) & np.isinf(first)] = i + 1
         if i + 1 in checkpoints:
             at[i + 1] = statistic.copy()
@@ -361,6 +363,52 @@ def fixed_test_fires(
     fire = (z >= z_min - 1e-9) & (missing >= shortfall - 1e-9)
     fire[:, : min_trades - 1] = False
     return fire
+
+
+def table_nearcertain(reps: int, allowance: float, backtest_se: float, h: float) -> None:
+    """Cells whose backtest (almost) never lost: a tiny spread, and what the cap does there."""
+    n_bt, p_promised = 100, 0.995
+    print(f"Near-certain cells ({reps} simulated champions per row)")
+    print(
+        f"tokens priced 0.96-0.98, a {n_bt}-trade backtest that promised a {1 - p_promised:.1%} chance"
+    )
+    print("of losing the stake. Most backtests saw no loss at all, so their spread is tiny and")
+    print("one loss of the stake is hundreds of standard deviations. Share of champions whose")
+    print("alert is on at the run after N live trades (the sequential test with and without the")
+    print("cap on what one trade may add, the fixed test, and the check as shipped)")
+    print()
+    print(
+        f"{'live book':<28}{'N':>5}{'fixed test':>13}{'sequential, no cap':>21}"
+        f"{'sequential, capped':>21}{'fixed or capped':>18}"
+    )
+    worlds = {
+        "healthy (loses 0.5%)": p_promised,
+        "edge gone (loses 3%)": 0.97,
+        "collapsed (loses 10%)": 0.90,
+    }
+    for label, p_live in worlds.items():
+        rng = np.random.default_rng(900 + int(p_live * 1000))
+        q = rng.uniform(0.96, 0.98, (reps, n_bt))
+        backtest = np.where(rng.random((reps, n_bt)) < p_promised, 1.0 / q - 1.0, -1.0) - COST
+        mu, sd = backtest.mean(1), backtest.std(1, ddof=1)
+        judged = mu > 0
+        mu, sd = mu[judged], sd[judged]
+        k = allowance * mu / sd + backtest_se / np.sqrt(n_bt)
+        n_live = 400
+        q = rng.uniform(0.96, 0.98, (len(mu), n_live))
+        live = np.where(rng.random((len(mu), n_live)) < p_live, 1.0 / q - 1.0, -1.0) - COST
+        points = (60, 400)
+        _, capped = cusum_scan(live, mu, sd, k, h, points)
+        _, loose = cusum_scan(live, mu, sd, k, h, points, cap=np.inf)
+        fixed = fixed_test_fires(live, mu, sd, n_bt)
+        for n in points:
+            fixed_n = fixed[:, n - 1]
+            capped_n = capped[n] >= h
+            print(
+                f"{label:<28}{n:>5}{_pct(fixed_n.mean()):>13}{_pct((loose[n] >= h).mean()):>21}"
+                f"{_pct(capped_n.mean()):>21}{_pct((fixed_n | capped_n).mean()):>18}"
+            )
+    print()
 
 
 def table_continuous(reps: int, allowance: float, backtest_se: float, h: float) -> None:
@@ -531,6 +579,9 @@ TABLES: dict[str, Callable[[argparse.Namespace], None]] = {
     "backtest-size": lambda a: table_backtest_size(
         a.reps // 2, a.allowance, a.backtest_se, a.threshold
     ),
+    "near-certain": lambda a: table_nearcertain(
+        a.reps // 2, a.allowance, a.backtest_se, a.threshold
+    ),
     "continuous": lambda a: table_continuous(
         a.reps_continuous, a.allowance, a.backtest_se, a.threshold
     ),
@@ -565,7 +616,8 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"settings: cusum_allowance={args.allowance:g}, cusum_backtest_se={args.backtest_se:g}, "
         f"cusum_threshold={args.threshold:g}, z_warn={defaults.z_warn:g}, "
-        f"shortfall_warn={defaults.shortfall_warn:g}, min_trades={defaults.min_trades}"
+        f"shortfall_warn={defaults.shortfall_warn:g}, min_trades={defaults.min_trades}, "
+        f"cusum_increment_cap={defaults.cusum_increment_cap:g}"
     )
     print()
     for name in args.tables or list(TABLES):
