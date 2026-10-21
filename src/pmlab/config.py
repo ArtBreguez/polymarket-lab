@@ -15,10 +15,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-__all__ = ["PmlabSettings", "get_settings"]
+__all__ = ["PmlabSettings", "get_settings", "resolve_workspace_dir"]
+
+
+def resolve_workspace_dir(artifacts_dir: Path, workspace: str) -> Path:
+    """The directory that holds a workspace's signals and paper trades.
+
+    ``<artifacts_dir>/workspaces/<workspace>``, unless `artifacts_dir` already is that
+    directory. ``scripts/pmlab-workspace`` points PMLAB_ARTIFACTS_DIR at the workspace's own
+    artifacts (``artifacts/workspaces/<workspace>``); appending ``workspaces/<workspace>``
+    again would look for the trade log in a directory nobody wrote, so ``pmlab -a artifacts
+    -w ws`` and ``scripts/pmlab-workspace ws pmlab`` name the same files.
+    """
+    if artifacts_dir.name == workspace and artifacts_dir.parent.name == "workspaces":
+        return artifacts_dir
+    return artifacts_dir / "workspaces" / workspace
 
 
 class PmlabSettings(BaseSettings):
@@ -36,11 +50,18 @@ class PmlabSettings(BaseSettings):
         env_file_encoding="utf-8",
         env_prefix="PMLAB_",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # Workspace / paths
     artifacts_dir: Path = Field(default=Path("artifacts"), description="Root artifacts directory")
-    workspace: str = Field(default="ops_daily", description="Active workspace name")
+    # PMLAB_WORKSPACE_NAME is what scripts/pmlab-workspace exports (and WorkspaceContext reads);
+    # PMLAB_WORKSPACE, the documented one, wins when both are set.
+    workspace: str = Field(
+        default="ops_daily",
+        description="Active workspace name",
+        validation_alias=AliasChoices("PMLAB_WORKSPACE", "PMLAB_WORKSPACE_NAME", "workspace"),
+    )
     cache_dir: Path = Field(default=Path(".pmlab_cache"), description="Disk cache directory")
     cache_ttl: int = Field(default=3600, description="Cache TTL in seconds")
 
@@ -65,7 +86,7 @@ class PmlabSettings(BaseSettings):
     @property
     def workspace_dir(self) -> Path:
         """Resolve the active workspace directory."""
-        return self.artifacts_dir / "workspaces" / self.workspace
+        return resolve_workspace_dir(self.artifacts_dir, self.workspace)
 
     @property
     def champion_json_path(self) -> Path:

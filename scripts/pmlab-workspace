@@ -9,6 +9,7 @@ WORKSPACE="$1"; shift
 DATA_ROOT="${REPO_ROOT}/data/workspaces/${WORKSPACE}"
 ARTIFACTS_ROOT="${REPO_ROOT}/artifacts/workspaces/${WORKSPACE}"
 export PMLAB_WORKSPACE_NAME="${WORKSPACE}"
+export PMLAB_WORKSPACE="${WORKSPACE}"
 export PMLAB_DATA_DIR="${DATA_ROOT}"
 export PMLAB_PARQUET_DIR="${DATA_ROOT}/parquet"
 export PMLAB_DUCKDB_PATH="${DATA_ROOT}/duckdb/warehouse.duckdb"
