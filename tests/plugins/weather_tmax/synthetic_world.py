@@ -46,6 +46,11 @@ class SyntheticMarket:
     forecast_max: float
 
     @property
+    def target_date_iso(self) -> str:
+        """The day the temperature is read, as an ISO date (the question prints it as text)."""
+        return (date.fromisoformat(self.decision_date) + timedelta(days=1)).isoformat()
+
+    @property
     def winning_label(self) -> str:
         return LABELS[self.winner]
 
@@ -58,7 +63,7 @@ class SyntheticMarket:
         return {
             "id": self.market_id,
             "question": f"Highest temperature in {self.city} on {self.target_date}?",
-            "endDate": f"{self.target_date}T23:59:00Z",
+            "endDate": f"{self.target_date_iso}T23:59:00Z",
             "description": "Resolves to the highest temperature recorded by Wunderground.",
             "outcomes": json.dumps(list(LABELS)),
             "outcomePrices": json.dumps([f"{p:.4f}" for p in self.prices]),

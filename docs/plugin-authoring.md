@@ -127,6 +127,14 @@ Rules for the rows of one market:
    `build_panel` then refuses a panel in which a price is at or after its decision
    (`LeakageError`, see `check_price_timing`). A panel without these columns is not
    checked, so a plugin that omits them is trusted, not verified.
+
+   **And the decision was taken before the market ended.** A price observed before a
+   decision is still not a decision-time price when the decision came after the market had
+   resolved: the outcome was known, and so was the price that reflects it. Give each row
+   `market_close_ts` (ISO-8601, when the market closed or its outcome became known) and
+   `check_price_timing` refuses a row whose `decision_ts` is at or after it. A row with
+   no readable `market_close_ts` is counted (`close_unknown` in the report) but not
+   refused; a plugin that cannot show the market was open should not emit the row.
 4. **A bin with no usable price gets no row.** Never fill one in (0.5 included): the
    backtest would trade against a quote nobody made. Count what you drop, and say why.
 5. The model sees only `feature_*` columns. Features that are the same for every bin of a
@@ -178,16 +186,30 @@ print(exclusions)   # e.g. Counter({'price_missing': 3, 'price_after_cutoff': 12
 A bin is left out, and counted under its reason, when its price is `price_missing`,
 `price_invalid` (not a number in [0, 1]), `price_degenerate` (exactly 0 or 1, which is what
 a settled market shows), `price_untimed` (no readable observation time) or
-`price_after_cutoff`. A market is left out entirely when it is `market_unresolved`, its
-truth is in no bin (`market_truth_unbinned`), or no bin is usable
-(`market_no_usable_price`). Without an `exclusions` mapping the counts are logged at WARNING
+`price_after_cutoff`. A market is left out entirely when the decision came at or after it
+ended (`decision_after_close`, below) or its end cannot be read (`market_close_unknown`),
+when it is `market_unresolved`, its truth is in no bin (`market_truth_unbinned`), or no bin is
+usable (`market_no_usable_price`). Without an `exclusions` mapping the counts are logged at WARNING
 per market, never lost. A market with a bin left out still has rows for the others, so the backtest
 chooses among the bins that were priced.
 
-`discover_markets` stamps *its own* time on the prices, so a market discovered **after** it
-resolved (or after the decision) has prices that are not decision-time prices, and every
-bin of it is excluded as `price_after_cutoff`. Capture the specs at the decision, store
-them, and build the rows when the market resolves.
+`discover_markets` stamps *its own* time on the prices, so a market discovered **after** the
+decision has prices that are not decision-time prices, and every bin of it is excluded as
+`price_after_cutoff`. Capture the specs at the decision, store them, and build the rows when
+the market resolves.
+
+A market ends at its `close_time` (Gamma's `endDate`) or at the end of its `target_date` when
+that is an ISO date, whichever is first; a date-only `close_time` ends with its day. A
+`decision_time` at or after that gives **no rows** for the market, counted once as
+`decision_after_close`, even when every price predates the decision: a market discovered
+after it resolved carries only post-resolution prices, and any later decision is "after" them.
+A decision on the target day itself, before the close, is fine (the `morning_of` horizon). The
+target day's end bounds a close that comes later because the day's temperature is known when
+the day ends, while a market can stay open for days to settle. A `target_date` that is free
+text ("June 5", which is what discovery parses from the question) carries no year and is not
+read, so the `close_time` alone decides. A market with neither readable is excluded as
+`market_close_unknown`: it cannot be shown to have been open. Each row records the end it was
+checked against in `market_close_ts`.
 
 The deprecated `build_training_row` is the single winning-bin row, kept so existing callers
 do not break; it emits a `DeprecationWarning`, and a panel made of it is biased the way

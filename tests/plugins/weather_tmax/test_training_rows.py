@@ -26,13 +26,15 @@ def _spec(
     observed: str | None = BEFORE,
     source: str | None = "discovery",
     schema_extra: dict[int, dict[str, Any]] | None = None,
+    close_time: str = "2026-05-11T20:00:00Z",
+    target_date: str = "2026-05-11",
 ) -> MarketSpec:
     schema = [{"label": lbl, "price": p} for lbl, p in zip(LABELS, prices, strict=True)]
     for i, extra in (schema_extra or {}).items():
         schema[i].update(extra)
     metadata: dict[str, Any] = {
         "city": "NYC",
-        "target_date": "2026-05-11",
+        "target_date": target_date,
         "outcome_schema": schema,
     }
     if observed is not None:
@@ -48,7 +50,7 @@ def _spec(
             OutcomeBin(label="warm", lower=20.0, upper=30.0, upper_inclusive=False),
             OutcomeBin(label="hot", lower=30.0),
         ],
-        close_time="2026-05-11T20:00:00Z",
+        close_time=close_time,
         market_family="range",
         metadata=metadata,
     )
@@ -406,3 +408,93 @@ class TestSpecNeverFabricatesAPrice:
             TestDiscoveryStampsThePriceTime._raw(outcomePrices="not json")
         )
         assert spec.metadata["market_price"] is None
+
+
+class TestDecisionAfterClose:
+    """A price observed before the decision is still no decision-time price when the decision
+    was taken after the market had resolved: the weather was known, and so was the winner."""
+
+    # A market resolving 2026-05-01, discovered 2026-05-03: every price is "before" a decision
+    # on 2026-05-04, and every one is a post-resolution price.
+    CLOSED = {"close_time": "2026-05-01T20:00:00Z", "target_date": "2026-05-01"}
+    DISCOVERED = "2026-05-03T07:30:00+00:00"
+
+    def _closed(self, **over: Any) -> MarketSpec:
+        return _spec(observed=self.DISCOVERED, **{**self.CLOSED, **over})
+
+    def test_a_decision_after_the_market_resolved_yields_no_rows(self) -> None:
+        counts: Counter[str] = Counter()
+        rows = _rows(self._closed(), decision_time="2026-05-04T00:00:00Z", exclusions=counts)
+        assert rows == []
+        assert counts == {"decision_after_close": 1}  # one market, however many bins
+
+    def test_the_same_market_is_fine_for_a_decision_before_it_closed(self) -> None:
+        spec = _spec(observed="2026-04-30T07:30:00+00:00", **self.CLOSED)
+        assert len(_rows(spec, decision_time="2026-05-01T08:00:00Z")) == 3
+
+    def test_a_decision_at_the_closing_instant_is_excluded(self) -> None:
+        counts: Counter[str] = Counter()
+        spec = _spec(observed=BEFORE, close_time="2026-05-10T08:00:00Z", target_date="2026-05-10")
+        assert _rows(spec, exclusions=counts) == []  # DECISION is 2026-05-10T08:00:00Z
+        assert counts == {"decision_after_close": 1}
+
+    def test_a_decision_one_microsecond_before_the_close_is_kept(self) -> None:
+        spec = _spec(observed=BEFORE, close_time="2026-05-10T08:00:00Z", target_date="2026-05-10")
+        assert len(_rows(spec, decision_time="2026-05-10T07:59:59.999999Z")) == 3
+
+    def test_a_morning_of_decision_on_the_target_day_is_kept(self) -> None:
+        # `morning_of` is a documented horizon: the target day itself is not "after" it.
+        spec = _spec(observed=BEFORE, close_time="2026-05-10T20:00:00Z", target_date="2026-05-10")
+        assert len(_rows(spec, decision_time="2026-05-10T08:00:00Z")) == 3
+
+    def test_the_target_days_end_bounds_a_close_that_comes_later(self) -> None:
+        # Closes (disputes, settlement) can be days after the day whose temperature it asks.
+        late = {"close_time": "2026-05-14T12:00:00Z", "target_date": "2026-05-10"}
+        spec = _spec(observed="2026-05-09T07:30:00+00:00", **late)
+        assert len(_rows(spec, decision_time="2026-05-10T23:59:59Z")) == 3
+        counts: Counter[str] = Counter()
+        assert _rows(spec, decision_time="2026-05-11T00:00:00Z", exclusions=counts) == []
+        assert counts == {"decision_after_close": 1}
+
+    def test_a_close_earlier_than_the_target_days_end_wins(self) -> None:
+        spec = _spec(observed=BEFORE, close_time="2026-05-10T12:00:00Z", target_date="2026-05-10")
+        counts: Counter[str] = Counter()
+        assert _rows(spec, decision_time="2026-05-10T12:00:00Z", exclusions=counts) == []
+        assert counts == {"decision_after_close": 1}
+
+    def test_a_date_only_close_means_the_end_of_that_day(self) -> None:
+        spec = _spec(observed=BEFORE, close_time="2026-05-10", target_date="June 5")
+        assert len(_rows(spec, decision_time="2026-05-10T08:00:00Z")) == 3
+        assert _rows(spec, decision_time="2026-05-11T00:00:00Z") == []
+
+    def test_a_free_form_target_date_is_ignored_when_the_close_is_known(self) -> None:
+        spec = _spec(observed=BEFORE, target_date="June 5")  # what discovery parses from a question
+        assert len(_rows(spec)) == 3
+
+    def test_a_market_with_no_readable_end_cannot_be_shown_to_be_open(self) -> None:
+        counts: Counter[str] = Counter()
+        spec = _spec(observed=BEFORE, close_time="", target_date="June 5")
+        assert _rows(spec, exclusions=counts) == []
+        assert counts == {"market_close_unknown": 1}
+
+    def test_the_check_comes_before_any_forecast_or_truth_lookup(self) -> None:
+        plugin = _plugin()
+        _rows(self._closed(), plugin=plugin, decision_time="2026-05-04T00:00:00Z")
+        plugin._truth.get_daily_max.assert_not_called()
+        plugin._forecast.get_features.assert_not_called()
+
+    def test_rows_record_the_end_they_were_checked_against(self) -> None:
+        spec = _spec(observed=BEFORE, close_time="2026-05-11T20:00:00Z", target_date="2026-05-11")
+        assert {r["market_close_ts"] for r in _rows(spec)} == {"2026-05-11T20:00:00+00:00"}
+
+    def test_the_deprecated_singular_row_is_held_to_it_when_given_a_decision(self) -> None:
+        with pytest.warns(DeprecationWarning):
+            row = _plugin().build_training_row(
+                self._closed(), "morning_of", decision_time="2026-05-04T00:00:00Z"
+            )
+        assert row is None
+
+    def test_the_deprecated_singular_row_without_a_decision_has_nothing_to_check(self) -> None:
+        with pytest.warns(DeprecationWarning):
+            row = _plugin().build_training_row(self._closed(), "morning_of")
+        assert row is not None

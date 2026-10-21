@@ -21,7 +21,7 @@ import re
 import warnings
 from collections import Counter
 from collections.abc import Callable, MutableMapping
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
@@ -36,6 +36,8 @@ PRICE_INVALID = "price_invalid"  # not a number, not finite, or outside [0, 1]
 PRICE_DEGENERATE = "price_degenerate"  # exactly 0 or 1: a settlement, not a quote to trade at
 PRICE_UNTIMED = "price_untimed"  # no readable observation time: cannot be shown to be in time
 PRICE_AFTER_CUTOFF = "price_after_cutoff"  # observed at or after the decision
+DECISION_AFTER_CLOSE = "decision_after_close"  # decided at or after the market ended
+MARKET_CLOSE_UNKNOWN = "market_close_unknown"  # no readable end: cannot show the market was open
 MARKET_UNRESOLVED = "market_unresolved"  # no truth yet
 MARKET_TRUTH_UNBINNED = "market_truth_unbinned"  # the truth falls in none of the bins
 MARKET_NO_USABLE_PRICE = "market_no_usable_price"  # resolved, but every bin was excluded
@@ -45,6 +47,8 @@ EXCLUSION_REASONS = (
     PRICE_DEGENERATE,
     PRICE_UNTIMED,
     PRICE_AFTER_CUTOFF,
+    DECISION_AFTER_CLOSE,
+    MARKET_CLOSE_UNKNOWN,
     MARKET_UNRESOLVED,
     MARKET_TRUTH_UNBINNED,
     MARKET_NO_USABLE_PRICE,
@@ -215,6 +219,17 @@ class WeatherTmaxPlugin(MarketPlugin):
         no usable bin gives no rows (``market_unresolved``, ``market_truth_unbinned``,
         ``market_no_usable_price``).
 
+        A price observed before the decision is still no decision-time price if the
+        decision came after the market ended: the weather was known, and so was the winner
+        (a market discovered after it resolved has only such prices). The market ends at
+        its ``close_time`` or at the end of its ``target_date`` when that is an ISO date,
+        whichever is first (a date-only ``close_time`` ends with its day). A decision at or
+        after that gives no rows, counted once per market as ``decision_after_close``; a
+        market with neither readable gives none as ``market_close_unknown``. A decision on
+        the target day itself, before the close, is fine (``morning_of``). Every row records
+        the end it was checked against in ``market_close_ts``, which ``build_panel`` checks
+        again (see ``pmlab.data.check_price_timing``).
+
         Args:
             spec: The market.
             horizon: Decision point identifier.
@@ -286,6 +301,18 @@ class WeatherTmaxPlugin(MarketPlugin):
     def _collect_bin_rows(
         self, spec: MarketSpec, horizon: str, decision: datetime | None, counts: Counter[str]
     ) -> list[dict[str, Any]]:
+        # Before any lookup: a decision taken once the market had ended is no decision at all,
+        # whatever prices happen to predate it (a market discovered after it resolved has
+        # only post-resolution prices, and they all predate a still later decision).
+        close = _market_end(spec)
+        if decision is not None:
+            if close is None:
+                counts[MARKET_CLOSE_UNKNOWN] += 1
+                return []
+            if decision >= close:
+                counts[DECISION_AFTER_CLOSE] += 1
+                return []
+
         truth = self.fetch_truth(spec)
         if truth is None:
             counts[MARKET_UNRESOLVED] += 1
@@ -327,6 +354,7 @@ class WeatherTmaxPlugin(MarketPlugin):
                 "market_price": price,
                 "price_source": str(entry.get("source") or default_source or "unknown"),
                 "price_ts": None if observed is None else observed.isoformat(),
+                "market_close_ts": None if close is None else close.isoformat(),
             }
             if decision is not None:
                 row["decision_date"] = decision.date().isoformat()
@@ -546,6 +574,35 @@ def _as_utc(value: Any) -> datetime | None:
     else:
         return None
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+def _end_instant(value: Any) -> datetime | None:
+    """When something dated *value* ends, in UTC, or None if *value* is not a date or time.
+
+    A timestamp ends when it says. A bare ISO date ("2026-05-10") names a whole day and
+    ends with it, at the next midnight UTC; free text ("June 5") names a day without a
+    year and is not read.
+    """
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
+        try:
+            day = date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+        return datetime(day.year, day.month, day.day, tzinfo=UTC) + timedelta(days=1)
+    return _as_utc(value)
+
+
+def _market_end(spec: MarketSpec) -> datetime | None:
+    """The earliest instant the market can no longer be decided on: its close, or the end of
+    the day whose temperature it asks, whichever is first. None when neither is readable.
+
+    A market can stay open for days after its target day (disputes, settlement), but the
+    day's weather is known when the day ends, so a later decision is a post-outcome one.
+    The target day's *start* is not the bound: ``morning_of`` is a documented horizon.
+    """
+    ends = (_end_instant(spec.close_time), _end_instant(spec.metadata.get("target_date")))
+    known = [e for e in ends if e is not None]
+    return min(known) if known else None
 
 
 def _iso_utc(value: datetime) -> str:

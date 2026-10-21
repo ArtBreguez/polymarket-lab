@@ -190,3 +190,20 @@ class TestBuildPanelPerBinRows:
 
     def test_a_panel_without_timing_columns_is_unchanged(self):
         assert len(build_panel([_bin_rows("m1")])) == 3
+
+
+class TestBuildPanelMarketClose:
+    def _timed_rows(self, close: str) -> list[dict]:
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+            r["market_close_ts"] = close
+        return rows
+
+    def test_a_decision_after_the_market_closed_is_rejected(self):
+        with pytest.raises(LeakageError, match="close"):
+            build_panel([self._timed_rows("2025-01-05T07:30:00+00:00")])
+
+    def test_a_decision_before_the_close_builds(self):
+        assert len(build_panel([self._timed_rows("2025-01-05T20:00:00+00:00")])) == 3

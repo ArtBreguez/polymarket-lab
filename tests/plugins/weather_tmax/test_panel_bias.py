@@ -12,6 +12,9 @@ mean-zero trades is within 4 standard deviations of zero except with probability
 
 from __future__ import annotations
 
+from collections import Counter
+from datetime import date, timedelta
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -127,3 +130,35 @@ class TestLegacyWinnerOnlyPanelIsBiased:
         _, _, z = sw.pnl_z_score(trades)
         assert len(trades) >= MIN_TRADES
         assert abs(z) > 2 * Z_BAND
+
+
+class TestADecisionAfterTheMarketClosedIsNotATrainingRow:
+    """The review's case on the 5-bin world: prices seen the day the market resolved (it was
+    discovered then), a decision made at or after its close."""
+
+    def test_no_row_is_built_and_each_market_is_counted_once(self) -> None:
+        world = sw.make_world(n_days=2, seed=7)
+        day = world.decision_dates[0]
+        plugin = sw._plugin_for_day(world, day)  # discovered 07:30Z on `day`
+        market = world.by_day[day][0]
+        spec = next(s for s in plugin.discover_markets() if s.market_id == market.market_id)
+        closing = f"{market.target_date_iso}T23:59:00Z"  # its endDate
+        next_day = (date.fromisoformat(market.target_date_iso) + timedelta(days=1)).isoformat()
+        counts: Counter[str] = Counter()
+        for decision in (closing, f"{next_day}T00:00:00Z"):
+            rows = plugin.build_training_rows(
+                spec, "morning_of", decision_time=decision, exclusions=counts
+            )
+            assert rows == []
+        assert counts == {"decision_after_close": 2}
+
+    def test_the_target_day_itself_still_builds_all_five_bins(self) -> None:
+        world = sw.make_world(n_days=2, seed=7)
+        day = world.decision_dates[0]
+        plugin = sw._plugin_for_day(world, day)
+        market = world.by_day[day][0]
+        spec = next(s for s in plugin.discover_markets() if s.market_id == market.market_id)
+        morning_of = f"{market.target_date_iso}T08:00:00Z"
+        # discovered 07:30Z on `day`, decided on the morning of the target day: in time, open
+        rows = plugin.build_training_rows(spec, "morning_of", decision_time=morning_of)
+        assert len(rows) == len(sw.LABELS)

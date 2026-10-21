@@ -184,3 +184,77 @@ class TestCheckPriceTiming:
 
     def test_an_empty_frame_has_nothing_to_check(self):
         assert check_price_timing(_timed(0)).n_rows == 0
+
+
+# ---------------------------------------------------------------------------
+# check_price_timing, market end: a decision after the market closed (review of #28, M1)
+# ---------------------------------------------------------------------------
+
+_CLOSE = "2025-01-05T20:00:00+00:00"  # the _timed() decisions are at 08:00 the same day
+
+
+class TestCheckPriceTimingMarketClose:
+    def test_a_decision_before_the_close_passes(self):
+        report = check_price_timing(_timed(market_close_ts=_CLOSE))
+        assert (report.after_close, report.close_unknown, report.n_checked) == (0, 0, 6)
+
+    def test_a_decision_after_the_close_raises(self):
+        df = _timed(market_close_ts=_CLOSE)
+        df.loc[2, "decision_ts"] = "2025-01-06T00:00:00+00:00"
+        df.loc[2, "price_ts"] = "2025-01-05T23:00:00+00:00"  # before the decision, and after close
+        with pytest.raises(LeakageError, match=r"1 row.*at or after.*close.*m2"):
+            check_price_timing(df)
+
+    def test_a_decision_at_the_closing_instant_is_too_late(self):
+        df = _timed(market_close_ts="2025-01-05T08:00:00+00:00")
+        with pytest.raises(LeakageError, match="close"):
+            check_price_timing(df)
+
+    def test_a_decision_one_microsecond_before_the_close_is_fine(self):
+        df = _timed(market_close_ts="2025-01-05T08:00:00.000001+00:00")
+        assert check_price_timing(df).after_close == 0
+
+    def test_offsets_are_compared_in_utc(self):
+        # Closes at 09:00-05:00 = 14:00Z; the 08:00Z decision is well before it.
+        assert (
+            check_price_timing(_timed(market_close_ts="2025-01-05T09:00:00-05:00")).after_close == 0
+        )
+        # 02:00+02:00 = 00:00Z, before the 08:00Z decision.
+        with pytest.raises(LeakageError):
+            check_price_timing(_timed(market_close_ts="2025-01-05T02:00:00+02:00"))
+
+    def test_the_report_names_the_rows_when_raising_is_off(self):
+        df = _timed(market_close_ts=_CLOSE)
+        df.loc[[1, 4], "market_close_ts"] = "2025-01-05T07:45:00+00:00"
+        report = check_price_timing(df, raise_on_leak=False)
+        assert (report.after_close, report.late, report.untimed) == (2, 0, 0)
+        assert report.after_close_index == [1, 4]
+
+    def test_a_row_with_an_unknown_close_is_counted_but_not_refused(self):
+        df = _timed(market_close_ts=_CLOSE)
+        df.loc[3, "market_close_ts"] = None
+        df.loc[5, "market_close_ts"] = "someday"
+        report = check_price_timing(df)
+        assert (report.close_unknown, report.after_close) == (2, 0)
+
+    def test_a_late_price_and_a_late_decision_are_both_reported(self):
+        df = _timed(market_close_ts=_CLOSE)
+        df.loc[0, "price_ts"] = "2025-01-05T09:00:00+00:00"
+        df.loc[1, "market_close_ts"] = "2025-01-05T07:00:00+00:00"
+        with pytest.raises(LeakageError) as exc:
+            check_price_timing(df)
+        assert "after the decision" in str(exc.value) and "close" in str(exc.value)
+
+    def test_a_panel_without_the_column_is_unchanged(self):
+        assert check_price_timing(_timed()).close_unknown == 0
+
+    def test_the_close_column_alone_is_not_a_timing_panel(self):
+        df = _timed(market_close_ts=_CLOSE).drop(columns=["price_ts", "decision_ts"])
+        assert check_price_timing(df).n_checked == 0
+
+    def test_the_column_name_is_configurable(self):
+        df = _timed().rename(columns={"price_ts": "price_ts"})
+        df["ends"] = "2025-01-05T07:00:00+00:00"
+        with pytest.raises(LeakageError):
+            check_price_timing(df, close_col="ends")
+        assert check_price_timing(df).after_close == 0  # the default name is not "ends"

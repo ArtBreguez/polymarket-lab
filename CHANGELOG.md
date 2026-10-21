@@ -60,6 +60,17 @@ stays inside 4 standard deviations of zero on all three seeds.
 - **`check_price_timing(df)` / `PriceTimingReport`** in `pmlab.data`: raises `LeakageError` if a
   row's `price_ts` is at or after its `decision_ts`, or has none. `build_panel` runs it always
   (not only with `check_leakage=True`); a panel without the two columns is not checked.
+- **A decision after the market ended is no training row** (found in review). A price observed
+  before the decision was accepted even when the decision came after the market had resolved:
+  a market resolving 2026-05-01, discovered 2026-05-03, decided on 2026-05-04T00:00Z gave 5
+  accepted rows, every one a post-resolution price. `build_training_rows` now gives no rows for
+  a `decision_time` at or after the market's end (its `close_time`, or the end of its
+  `target_date` when that is an ISO date, whichever is first), counted once per market as
+  `decision_after_close`, and none for a market whose end cannot be read (`market_close_unknown`).
+  A decision on the target day itself, before the close, is unaffected (`morning_of`). Rows carry
+  `market_close_ts`, and `check_price_timing(close_col="market_close_ts")` refuses a row whose
+  `decision_ts` is at or after it (rows with an unreadable close are counted in `close_unknown`,
+  not refused), so the same rule holds for any plugin's panel through `build_panel`.
 - **`build_panel` takes lists of rows** (the output of `build_training_rows`, per market) as
   well as single rows and `None`.
 - **`rolling_origin_eval` ignores the panel's index.** `top_prob` read the chosen rows back by
