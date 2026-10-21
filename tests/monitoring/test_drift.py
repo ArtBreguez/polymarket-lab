@@ -1544,15 +1544,23 @@ class TestFromStore:
         report = drift_report_from_store(store, _FAMILY, _reference_panel(), **_WINDOW)
         assert report.n_current == 300 and report.n_current_excluded_overlap == 0
 
-    def test_market_ids_are_compared_as_text(self, store):
+    @pytest.mark.parametrize(
+        ("store_ids", "panel_ids"),
+        [
+            pytest.param(lambda i: str(i), lambda i: i, id="store-text-panel-int"),
+            pytest.param(lambda i: i, lambda i: str(i), id="store-int-panel-text"),
+            pytest.param(lambda i: i, lambda i: i, id="both-int"),
+        ],
+    )
+    def test_market_ids_are_compared_as_text(self, store, store_ids, panel_ids):
         store.append(
             _FAMILY,
             [
-                _snap(str(i), "2025-03-05T12:00:00Z", feature_a=0.0, feature_b=10.0)
+                _snap(store_ids(i), "2025-03-05T12:00:00Z", feature_a=0.0, feature_b=10.0)
                 for i in range(50)
             ],
         )
-        panel = _reference_panel().assign(market_id=list(range(400)))  # ints, store has "0".."49"
+        panel = _reference_panel().assign(market_id=[panel_ids(i) for i in range(400)])
         report = drift_report_from_store(store, _FAMILY, panel, **_WINDOW)
         assert report.n_current_excluded_overlap == 50 and report.n_current == 0
 
