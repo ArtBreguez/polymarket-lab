@@ -163,7 +163,11 @@ def _as_float(name: str, value: Any) -> float:
 
 
 def _as_int(name: str, value: Any) -> int:
+    """A whole number from JSON: an int, a whole float (50.0) or a numeric string."""
     try:
-        return int(value)
+        number = int(value)
+        if isinstance(value, float) and number != value:
+            raise ValueError(value)  # int(2.7) would silently give 2
     except (TypeError, ValueError, OverflowError):
         raise ValueError(f"{name} must be an integer, got {value!r}") from None
+    return number

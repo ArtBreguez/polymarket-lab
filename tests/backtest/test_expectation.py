@@ -252,6 +252,32 @@ class TestAnExpectationMustBeUsable:
         with pytest.raises(ValueError, match="brier_score"):
             BacktestExpectation.from_dict({**_GOOD, "brier_score": score})
 
+    @pytest.mark.parametrize("value", ["abc", None, [1], {"a": 1}])
+    @pytest.mark.parametrize("field", ["flat_stake", "mean_pnl_per_stake", "std_pnl_per_stake"])
+    def test_a_value_that_is_not_a_number_is_rejected_by_name(self, field: str, value) -> None:
+        with pytest.raises(ValueError, match=field):
+            BacktestExpectation.from_dict({**_GOOD, field: value})
+
+    @pytest.mark.parametrize("field", ["brier_score", "brier_std"])
+    def test_a_brier_value_that_is_not_a_number_is_rejected_by_name(self, field: str) -> None:
+        with pytest.raises(ValueError, match=field):
+            BacktestExpectation.from_dict({**_GOOD, field: "abc"})
+
+    @pytest.mark.parametrize("value", ["abc", None, 2.7, math.nan, math.inf, [50], True])
+    def test_n_trades_must_be_a_whole_number(self, value) -> None:
+        """int(2.7) is 2: a fractional count must not be silently truncated into validity."""
+        with pytest.raises(ValueError, match="n_trades"):
+            BacktestExpectation.from_dict({**_GOOD, "n_trades": value})
+
+    def test_n_trades_may_be_a_whole_float_or_a_numeric_string(self) -> None:
+        """What a hand-edited or round-tripped champion.json can hold."""
+        assert BacktestExpectation.from_dict({**_GOOD, "n_trades": 50.0}).n_trades == 50
+        assert BacktestExpectation.from_dict({**_GOOD, "n_trades": "50"}).n_trades == 50
+
+    def test_a_boolean_is_not_a_count(self) -> None:
+        with pytest.raises(ValueError, match="n_trades"):
+            BacktestExpectation(**{**_GOOD, "n_trades": True})
+
     def test_the_constructor_enforces_the_same_rules(self) -> None:
         with pytest.raises(ValueError, match="std_pnl_per_stake"):
             BacktestExpectation(**{**_GOOD, "std_pnl_per_stake": math.nan})
