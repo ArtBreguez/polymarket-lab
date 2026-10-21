@@ -103,3 +103,14 @@ def test_trade_dict_has_required_fields(tmp_path):
     assert "fee_paid" in trade
     assert "edge_after_fee" in trade
     assert trade["flat_stake"] == 2.0
+
+
+def test_an_empty_allowlist_records_nothing_while_none_records_everything(tmp_path):
+    """The semantics `pmlab monitor` relies on: a set is a whitelist, even an empty one."""
+    signals = [make_signal()]
+    nothing = PaperBroker(trades_path=tmp_path / "a.json", allowed_segments=set())
+    everything = PaperBroker(trades_path=tmp_path / "b.json", allowed_segments=None)
+    now = datetime(2020, 1, 1, tzinfo=UTC)
+
+    assert nothing.record(signals, now_utc=now) == []
+    assert len(everything.record(signals, now_utc=now)) == 1

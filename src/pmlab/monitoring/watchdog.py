@@ -534,6 +534,7 @@ class _Selection:
     trades: tuple[Mapping[str, Any], ...]
     counts: dict[str, int]
     by_segment: dict[str, int]
+    allowed_segments: tuple[str, ...]
 
 
 def _select_trades(
@@ -603,7 +604,9 @@ def _select_trades(
     # file: float sums differ in the last bit when tied rows are visited in a
     # different order, and a byte-identical report is part of the contract.
     kept.sort(key=lambda t: json.dumps(t, sort_keys=True, default=str))
-    return _Selection(tuple(kept), counts, dict(sorted(by_segment.items())))
+    return _Selection(
+        tuple(kept), counts, dict(sorted(by_segment.items())), tuple(sorted(allowed_segments))
+    )
 
 
 _EXCLUSION_LABELS = (
@@ -750,6 +753,26 @@ def _invalid_statistic(
     )
 
 
+def _too_few_samples(name: str, n: int, min_trades: int, metrics: dict[str, Any]) -> CheckResult:
+    """`insufficient` for want of evidence, saying so plainly when none is in segment."""
+    settled = metrics["n_total"] - metrics["n_open"]
+    if settled and metrics["n_out_of_segment"] == settled:
+        # The usual cause of an empty check on a live book: the trades are all in
+        # segments the gate did not pass. Say that, not just a tally of exclusions.
+        head = (
+            f"0 of {settled} settled trades are in the champion's allowed segments "
+            f"{list(metrics['allowed_segments'])}"
+        )
+    else:
+        head = f"{n} scoreable settled trades"
+    return _insufficient(
+        name,
+        "too_few_samples",
+        [f"{head}, need >= {min_trades} ({_excluded_summary(metrics)})"],
+        metrics,
+    )
+
+
 def _with_settled_at_note(result: CheckResult, counts: Mapping[str, int]) -> CheckResult:
     """Say, on the result, that some evidence could only be dated by its target_date."""
     missing = counts["n_no_settled_at"]
@@ -847,6 +870,7 @@ def _calibration_check(
     tracker = CalibrationTracker([dict(t) for t in selection.trades], n_bins=cfg.n_bins)
     metrics: dict[str, Any] = {
         **selection.counts,
+        "allowed_segments": list(selection.allowed_segments),
         "n_by_segment": selection.by_segment,
         "n_trades": tracker.n_realized,
         "n_skipped_no_forecast": tracker.n_skipped,
@@ -867,15 +891,7 @@ def _calibration_check(
     if problems:
         return _invalid_expectation("calibration", problems, metrics)
     if tracker.n_realized < cfg.min_trades:
-        return _insufficient(
-            "calibration",
-            "too_few_samples",
-            [
-                f"{tracker.n_realized} scoreable settled trades, need >= {cfg.min_trades} "
-                f"({_excluded_summary(metrics)})"
-            ],
-            metrics,
-        )
+        return _too_few_samples("calibration", tracker.n_realized, cfg.min_trades, metrics)
 
     terms = np.array(tracker.squared_errors(), dtype=float)
     overall = tracker.overall()
@@ -1016,6 +1032,7 @@ def _pnl_check(
 
     metrics: dict[str, Any] = {
         **selection.counts,
+        "allowed_segments": list(selection.allowed_segments),
         "n_by_segment": selection.by_segment,
         "n_trades": len(returns),
         "n_unscoreable": n_unscoreable,
@@ -1054,15 +1071,7 @@ def _pnl_check(
             metrics,
         )
     if len(returns) < cfg.min_trades:
-        return _insufficient(
-            "pnl",
-            "too_few_samples",
-            [
-                f"{len(returns)} scoreable settled trades, need >= {cfg.min_trades} "
-                f"({_excluded_summary(metrics)})"
-            ],
-            metrics,
-        )
+        return _too_few_samples("pnl", len(returns), cfg.min_trades, metrics)
 
     arr = np.array(returns, dtype=float)
     reference = expectation.mean_pnl_per_stake
@@ -1143,7 +1152,8 @@ def health_report(
 
     Raises:
         WatchdogInputError: An unparseable or offset-less `as_of`, an unparseable
-            publish time, an unknown or empty `checks`, or a malformed trade row.
+            publish time, a champion that allows no segment, an unknown or empty
+            `checks`, or a malformed trade row.
     """
     config = config or WatchdogConfig()
 
@@ -1163,6 +1173,14 @@ def health_report(
         )
 
     allowed = champion.get_allowed_segments()
+    if not allowed:
+        # An empty allowlist means "none", as in PaperBroker, so this champion could
+        # never have recorded a trade. publish() cannot produce it (a GO gate has a
+        # passing segment): the file was edited or is not a real champion.
+        raise WatchdogInputError(
+            "champion.json allows no segment (no segment in its gate passes), so it "
+            "could never have traded; a GO champion always has at least one"
+        )
     selection = _select_trades(
         trades, allowed_segments=allowed, published_at=published_ts, as_of=as_of_ts
     )

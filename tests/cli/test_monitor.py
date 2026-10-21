@@ -496,6 +496,18 @@ class TestChampionIsAuthoritative:
 # --------------------------------------------------------------------------
 
 
+class TestTradesOutsideTheChampionsSegments:
+    def test_the_cause_is_in_the_human_output_and_the_exit_code_is_30(
+        self, tmp_path: Path, forecaster: LGBMForecaster
+    ) -> None:
+        world = _make_world(tmp_path, forecaster, trades=_trades(60, segment="C"))
+        result = runner.invoke(app, world.args("--no-prediction"))
+        assert result.exit_code == EXIT_INSUFFICIENT
+        assert "0 of 60 settled trades are in the champion's allowed segments ['A', 'B']" in (
+            result.stdout
+        )
+
+
 class TestInsufficient:
     def test_too_few_trades_has_its_own_exit_code(self, world: World) -> None:
         world.write_trades(_trades(10))
@@ -695,6 +707,15 @@ class TestUsageErrors:
         )
         assert result.exit_code == EXIT_USAGE
         assert "--window-start" in result.stderr and "UTC offset" in result.stderr
+
+    def test_a_champion_that_allows_no_segment_is_malformed(self, world: World) -> None:
+        gate = json.loads(world.champion.read_text())["publish_gate"]
+        gate["segment_results"] = []
+        world.patch_champion(publish_gate=gate)
+        result = runner.invoke(app, world.args("--no-prediction"))
+        assert result.exit_code == EXIT_USAGE
+        assert "allows no segment" in result.stderr
+        assert result.stdout == ""
 
     def test_a_missing_reference_panel(self, world: World) -> None:
         world.reference.unlink()

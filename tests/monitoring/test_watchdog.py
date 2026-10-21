@@ -1576,3 +1576,77 @@ class TestParseAsOf:
     def test_the_name_appears_in_the_message(self) -> None:
         with pytest.raises(WatchdogInputError, match="--window-start"):
             parse_as_of("2026-03-01", name="--window-start")
+
+
+# --------------------------------------------------------------------------
+# No trade in the champion's segments
+# --------------------------------------------------------------------------
+
+
+class TestWhenNoTradeIsInTheChampionsSegments:
+    """Exit 30 either way, but the report must say *why*, not bury it in a tally."""
+
+    def test_the_reason_leads_with_the_segment_mismatch(self) -> None:
+        stray = _trades(60, segment="C")
+        for name in ("calibration", "pnl"):
+            check = _check(_report(trades=stray), name)
+            assert check.status == "insufficient"
+            assert check.cause == "too_few_samples"
+            assert check.reasons[0].startswith(
+                "0 of 60 settled trades are in the champion's allowed segments ['A', 'B']"
+            ), check.reasons[0]
+
+    def test_the_exit_code_is_still_insufficient(self) -> None:
+        report = _report(trades=_trades(60, segment="C"), drift=None, checks=("calibration", "pnl"))
+        assert report.exit_code == EXIT_INSUFFICIENT
+
+    def test_the_rendered_line_says_it(self) -> None:
+        text = _report(trades=_trades(60, segment="C")).render()
+        assert "0 of 60 settled trades are in the champion's allowed segments ['A', 'B']" in text
+
+    def test_open_trades_are_not_counted_in_the_denominator(self) -> None:
+        trades = _trades(60, segment="C") + _trades(10, open_=True)
+        assert _check(_report(trades=trades), "pnl").reasons[0].startswith("0 of 60 settled")
+
+    def test_the_allowed_segments_are_in_the_metrics(self) -> None:
+        check = _check(_report(trades=_trades(60, segment="C")), "pnl")
+        assert check.metrics["allowed_segments"] == ["A", "B"]
+
+    def test_some_matching_trades_keep_the_ordinary_message(self) -> None:
+        trades = _trades(5, segment="A") + _trades(60, segment="C")
+        reason = _check(_report(trades=trades), "pnl").reasons[0]
+        assert reason.startswith("5 scoreable settled trades, need >= 30")
+        assert "60 outside the champion's allowed segments" in reason
+
+    def test_no_settled_trades_at_all_is_not_a_segment_mismatch(self) -> None:
+        reason = _check(_report(trades=_trades(10, open_=True)), "pnl").reasons[0]
+        assert reason.startswith("0 scoreable settled trades")
+
+    def test_matching_trades_that_are_merely_too_few_keep_the_ordinary_message(self) -> None:
+        reason = _check(_report(trades=_trades(5)), "pnl").reasons[0]
+        assert reason.startswith("5 scoreable settled trades, need >= 30")
+
+
+class TestAChampionThatAllowsNoSegment:
+    """An empty allowlist means *none*, as in `PaperBroker`: it could never trade.
+
+    `publish()` cannot produce one (a GO gate has a passing segment), so a
+    champion.json that does is malformed, not merely quiet.
+    """
+
+    def test_it_is_an_input_error(self) -> None:
+        champ = _champion(passing=(), failing=("A", "B"))
+        with pytest.raises(WatchdogInputError, match="allows no segment"):
+            health_report(champion=champ, trades=_trades(), drift=None, as_of=_AS_OF)
+
+    def test_even_when_only_drift_is_run(self) -> None:
+        champ = _champion(passing=(), failing=("A",))
+        with pytest.raises(WatchdogInputError, match="allows no segment"):
+            health_report(
+                champion=champ, trades=[], drift=_drift(), as_of=_AS_OF, checks=("drift",)
+            )
+
+    def test_a_gate_with_no_segment_results_at_all_is_the_same(self) -> None:
+        champ = _champion(passing=(), failing=())
+        with pytest.raises(WatchdogInputError, match="allows no segment"):
+            health_report(champion=champ, trades=_trades(), drift=None, as_of=_AS_OF)

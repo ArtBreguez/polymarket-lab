@@ -100,6 +100,11 @@ cron: `pmlab monitor ... || notify`.
   calibration and PnL report `insufficient` ("no backtest expectation recorded"); a
   present but unusable record (non-finite number, negative spread, fewer than two
   trades) is an error (exit 64), not a silent `None` and never a silent pass.
+- **A book with no trade in the champion's segments says so.** The checks stay
+  `insufficient` (exit 30), but the reason now leads with `0 of N settled trades are in
+  the champion's allowed segments [...]` instead of burying it in an exclusion tally,
+  and `allowed_segments` is in the metrics. A champion whose gate allows no segment at
+  all (an empty allowlist means *none*, as in `PaperBroker`) is malformed and exits 64.
 - **A cutoff needs a UTC offset.** `--as-of` (and `--window-start`, and the `as_of`
   argument of `health_report`) refuse a naive timestamp such as `2026-03-01` with exit
   64 and a message asking for `Z` or an explicit offset, instead of reading it as UTC:

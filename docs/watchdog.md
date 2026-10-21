@@ -228,6 +228,13 @@ this champion, as of `--as-of`**:
 Each excluded trade is counted under the first rule above that excludes it, so the counts
 add up to `n_total`, and they are in the report: nothing disappears silently.
 
+**When no trade is in the champion's segments** (a book recorded under another champion, or a
+segment name that does not match) the checks are `insufficient` (exit 30) and the reason leads with the
+cause: `0 of N settled trades are in the champion's allowed segments ['A', 'B']`, and the report's
+metrics list `allowed_segments`. A champion that allows **no** segment at all is a different thing: an
+empty allowlist means *none*, exactly as in `PaperBroker`, so it could never have recorded a trade.
+`publish()` cannot produce it, so such a `champion.json` is malformed and exits 64.
+
 ```python
 from pathlib import Path
 
