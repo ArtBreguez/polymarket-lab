@@ -332,6 +332,18 @@ class TestNoLookahead:
 
 
 class TestTheEdgeColumnsAreFinite:
+    def test_the_historical_policy_does_not_raise_on_a_forecast_that_is_not_finite(self) -> None:
+        # The historical rule never validated the forecast, and reproducing an old backtest
+        # means it still must not raise: the trade is made and its informational edges are NaN
+        # (the live policy refuses such a forecast, see the test above).
+        rows = [_row("m1", "2024-01-01", "a", "a", 0.5, math.inf)]
+        trades = _run(rows, None)
+        assert len(trades) == 1
+        assert trades.iloc[0]["direction"] == "yes"
+        assert np.isnan(
+            trades.iloc[0][["yes_edge", "no_edge", "best_edge"]].to_numpy(dtype=float)
+        ).all()
+
     def test_an_unbuyable_side_reads_as_losing_the_stake_not_minus_infinity(self) -> None:
         # YES at 0.70 plus 0.5 of slippage fills at 1.0: it cannot be bought. NO can.
         costs = CostModel(taker_bps=0.0, slippage_fixed=0.5)

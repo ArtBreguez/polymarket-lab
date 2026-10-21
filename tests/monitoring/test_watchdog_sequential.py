@@ -380,6 +380,46 @@ class TestTheOrderTheTradesSettledIn:
         ]
         assert one == two
 
+    def test_trades_that_tie_in_time_and_identity_are_one_step_whichever_way_the_log_lists_them(
+        self,
+    ) -> None:
+        # 40 trades that lost and 40 that won, indistinguishable in settled_at and identity:
+        # no order is more right than another, so they are one step in which they cancel.
+        # Taken one at a time, losses first would climb to 40 * (1 - k) and cross the threshold.
+        rows = _trades(40, pnl=-0.4, pnl_sd=0.0) + _trades(40, pnl=0.8, pnl_sd=0.0)
+        for row in rows:
+            row["settled_at"] = "2026-03-01T00:00:00+00:00"
+            row["target_date"] = "2026-03-01"
+        for listed in (rows, rows[::-1]):
+            seq = _pnl(_report(listed)).metrics["sequential"]
+            assert seq["n"] == 80
+            assert seq["statistic"] == 0.0
+            assert seq["peak"] == 0.0
+            assert seq["crossed_at"] is None
+            assert seq["signalled"] is False
+
+    def test_the_crossing_is_a_trade_count_even_when_trades_were_tied_before_it(self) -> None:
+        tied = _trades(5, pnl=-0.4, pnl_sd=0.0)
+        for row in tied:
+            row["settled_at"] = "2026-03-01T00:00:00+00:00"
+            row["target_date"] = "2026-03-01"
+        seq = _pnl(_report(tied + _trades(60, pnl=-0.4, pnl_sd=0.0, day0=1))).metrics["sequential"]
+        # The 5 tied trades are one step; the threshold is crossed on the 38th trade, which is
+        # the 34th step. The report says trade 38.
+        assert seq["crossed_at"] == math.ceil(30 / (1 - _K)) == 38
+        assert seq["n"] == 65
+
+    def test_a_trade_from_an_older_release_is_placed_among_the_others_by_its_target_date(
+        self,
+    ) -> None:
+        wins = _in_order(_trades(40, pnl=0.8, pnl_sd=0.0))  # settled on 1-2 March
+        old = _trades(40, pnl=-0.4, pnl_sd=0.0, settled=False)
+        for i, row in enumerate(old):
+            row["target_date"] = f"2026-05-{1 + i % 28:02d}"  # no settled_at: placed in May
+        seq = _pnl(_report(wins + old)).metrics["sequential"]
+        assert seq["statistic"] == pytest.approx(40 * (1 - _K))  # the losses came last
+        assert seq["signalled"] is True
+
     def test_a_trade_from_an_older_release_is_ordered_by_its_target_date(self) -> None:
         old = _in_order(_trades(40, pnl=-0.4, pnl_sd=0.0))
         for row in old:

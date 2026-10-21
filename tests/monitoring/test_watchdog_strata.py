@@ -130,6 +130,20 @@ class TestAGateRejectedSegmentDoesNotDiluteThePromise:
         assert seq["n"] == 300
 
 
+class TestTheBooksRecordIsNotMistakenForASegmentOfTheSameName:
+    def test_a_segment_with_an_empty_name_keeps_its_own_cell(self) -> None:
+        # The book-level record is keyed by a sentinel no segment name can equal. A segment
+        # whose name is the empty string (a trade log that never named one) is a segment like
+        # any other: its trades are held to its own record, B's to the book's.
+        expectation = BacktestExpectation(
+            400, 1.0, 0.20, 0.6, 0.2, 0.1,
+            by_segment={"": _seg(200, 0.50), "B": None},
+        )  # fmt: skip
+        trades = _trades("", 100, pnl=0.50) + _trades("B", 100, pnl=0.20, day0=100)
+        pnl = _check(_report(expectation, trades, ("", "B")), "pnl")
+        assert pnl.metrics["mean_backtest"] == pytest.approx(0.35)
+
+
 class TestTheSegmentMixOfTheBookIsNotAShortfall:
     """A (+0.35) and B (+0.05) have the same number of backtest trades, so the pooled mean is
     +0.20. Live trades mostly in B, each segment exactly as promised, average +0.08."""

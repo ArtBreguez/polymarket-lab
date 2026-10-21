@@ -213,6 +213,8 @@ class TestWhatCannotBeRecomputedIsLeftAsItWas:
             {"gamma_price": None},
             {"gamma_price": float("nan")},
             {"gamma_price": 1.5},
+            {"gamma_price": 1.5, "fill_price": 0.4},
+            {"gamma_price": -0.1, "fill_price": 0.4},
             {"outcome_label": None},
             {"flat_stake": 0.0},
             {"flat_stake": -1.0},

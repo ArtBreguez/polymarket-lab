@@ -303,6 +303,37 @@ class TestHolmKeepsMoreSegmentsFromMeaningMoreFalseAlarms:
 
 
 class TestASegmentThatCannotBeAssessed:
+    @pytest.mark.parametrize("check", ["calibration", "pnl"])
+    def test_exactly_min_trades_is_enough_and_one_fewer_is_not(self, check: str) -> None:
+        enough = _report(
+            _trades("A", 400) + _trades("B", 30),
+            _expectation({"A": _seg(), "B": _seg()}),
+            ("A", "B"),
+        )
+        short = _report(
+            _trades("A", 400) + _trades("B", 29),
+            _expectation({"A": _seg(), "B": _seg()}),
+            ("A", "B"),
+        )
+        assert _check(enough, check).metrics["segments"]["B"]["status"] == "ok"
+        assert _check(short, check).metrics["segments"]["B"]["status"] == "insufficient"
+
+    def test_a_promise_of_nothing_in_the_book_does_not_silence_the_segments_that_made_one(
+        self,
+    ) -> None:
+        # The book as a whole earned -0.01 in the backtest, but segment A earned +0.20: the
+        # check can run on A, and it must (a segment B that promised nothing is not assessed).
+        expectation = BacktestExpectation(
+            800, 1.0, -0.01, 0.6, 0.2, 0.1,
+            by_segment={"A": _seg(), "B": _seg(mean=-0.05)},
+        )  # fmt: skip
+        trades = _trades("A", 60) + _trades("B", 60, pnl=-0.05)
+        pnl = _check(_report(trades, expectation, ("A", "B")), "pnl")
+        assert pnl.cause != "invalid_expectation"
+        assert pnl.status == "ok"
+        assert pnl.metrics["segments"]["A"]["status"] == "ok"
+        assert pnl.metrics["segments"]["B"]["status"] == "insufficient"
+
     def test_too_few_live_trades_is_listed_not_judged(self) -> None:
         trades = _trades("A", 400) + _trades("B", 10, pnl=-1.0)
         report = _report(trades, _expectation({"A": _seg(), "B": _seg()}), ("A", "B"))
