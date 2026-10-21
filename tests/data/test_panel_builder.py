@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pmlab.data import PanelSchemaError, build_panel
+from pmlab.data import LeakageError, PanelSchemaError, build_panel
 
 
 def _rows(n: int = 60, seed: int = 0) -> list[dict]:
@@ -126,3 +126,63 @@ class TestBuildPanelLeakageIntegration:
             r["feature_leak"] = 1.0 if r["winning_label"] == "Yes" else 0.0
         panel = build_panel(rows)  # default: no leakage check, must not raise
         assert "feature_leak" in panel.columns
+
+
+# ---------------------------------------------------------------------------
+# Per-bin rows (issue #28): build_training_rows returns a list per market
+# ---------------------------------------------------------------------------
+
+
+def _bin_rows(market: str, date: str = "2025-01-05", winner: str = "b") -> list[dict]:
+    prices = {"a": 0.2, "b": 0.5, "c": 0.3}
+    return [
+        {
+            "market_id": market,
+            "decision_date": date,
+            "outcome_label": label,
+            "winning_label": winner,
+            "market_price": price,
+            "feature_x": 1.0,
+        }
+        for label, price in prices.items()
+    ]
+
+
+class TestBuildPanelPerBinRows:
+    def test_lists_of_rows_are_flattened_in_order(self):
+        panel = build_panel([_bin_rows("m1"), _bin_rows("m2")])
+        assert panel["market_id"].tolist() == ["m1"] * 3 + ["m2"] * 3
+        assert panel["outcome_label"].tolist() == ["a", "b", "c"] * 2
+        assert panel.index.tolist() == list(range(6))
+
+    def test_dicts_lists_and_nones_can_be_mixed(self):
+        single = _bin_rows("m3")[0]
+        panel = build_panel([None, _bin_rows("m1"), [], single, None])
+        assert len(panel) == 4
+
+    def test_a_generator_of_lists_is_accepted(self):
+        panel = build_panel(_bin_rows(f"m{i}") for i in range(4))
+        assert len(panel) == 12
+
+    def test_only_empty_lists_is_an_empty_panel_error(self):
+        with pytest.raises(PanelSchemaError, match="No rows"):
+            build_panel([[], []])
+
+    def test_a_price_after_the_decision_is_rejected_even_without_check_leakage(self):
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+        rows[1]["price_ts"] = "2025-01-05T08:00:01+00:00"
+        with pytest.raises(LeakageError, match="after the decision"):
+            build_panel([rows])
+
+    def test_timed_in_time_prices_build(self):
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+        assert len(build_panel([rows])) == 3
+
+    def test_a_panel_without_timing_columns_is_unchanged(self):
+        assert len(build_panel([_bin_rows("m1")])) == 3

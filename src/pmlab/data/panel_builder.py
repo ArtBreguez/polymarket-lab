@@ -6,6 +6,12 @@ YYYY-MM-DD, ``outcome_label``, ``winning_label``, ``market_price`` and at least
 one ``feature_*`` column) and coercing feature columns to float. Turns the
 KeyError-deep-in-the-backtest failure mode into a clear error at build time, and
 can optionally run the leakage guard before returning.
+
+A market is described by one row **per outcome bin** (the same ``market_id`` and
+``decision_date``, a different ``outcome_label`` and ``market_price``): the backtest
+chooses between a market's bins, and a panel that shows it only the bin that won cannot
+tell a good decision from a lucky one. ``MarketPlugin.build_training_rows`` returns
+exactly those rows, and :func:`build_panel` takes them as they come.
 """
 
 from __future__ import annotations
@@ -16,7 +22,7 @@ from typing import Any
 
 import pandas as pd
 
-from pmlab.data.leakage import check_no_leakage
+from pmlab.data.leakage import check_no_leakage, check_price_timing
 
 __all__ = ["PanelSchemaError", "build_panel"]
 
@@ -28,16 +34,31 @@ class PanelSchemaError(Exception):
     """Raised when plugin rows do not form a valid training panel."""
 
 
+def _flatten(rows: Iterable[dict[str, Any] | list[dict[str, Any]] | None]) -> list[dict[str, Any]]:
+    """Rows in order: a dict is one row, a list is a market's rows, ``None`` is nothing."""
+    flat: list[dict[str, Any]] = []
+    for r in rows:
+        if r is None:
+            continue
+        if isinstance(r, dict):
+            flat.append(r)
+        else:
+            flat.extend(x for x in r if x is not None)
+    return flat
+
+
 def build_panel(
-    rows: Iterable[dict[str, Any] | None],
+    rows: Iterable[dict[str, Any] | list[dict[str, Any]] | None],
     check_leakage: bool = False,
     max_auc: float = 0.97,
 ) -> pd.DataFrame:
     """Build a validated training panel from plugin rows.
 
     Args:
-        rows: Iterable of row dicts (as returned by ``MarketPlugin.build_training_row``).
-            ``None`` entries are dropped, so callers can pass unfiltered output.
+        rows: Iterable of row dicts, or of lists of row dicts, so the output of either
+            ``MarketPlugin.build_training_row`` (one row or ``None``) or
+            ``MarketPlugin.build_training_rows`` (a market's rows) can be passed per market
+            unchanged. ``None`` entries and empty lists are dropped.
         check_leakage: If True, run :func:`check_no_leakage` on the assembled
             panel and raise ``LeakageError`` if any feature leaks the label.
         max_auc: Threshold forwarded to the leakage check.
@@ -49,9 +70,11 @@ def build_panel(
         PanelSchemaError: on empty input, missing required columns, no
             ``feature_*`` column, malformed ``decision_date``, or a feature that
             cannot be coerced to numeric.
-        LeakageError: if ``check_leakage`` is True and leakage is detected.
+        LeakageError: if ``check_leakage`` is True and leakage is detected, or, always, if
+            the rows carry ``price_ts`` and ``decision_ts`` and a price was observed at or
+            after its decision (see :func:`check_price_timing`).
     """
-    materialized = [r for r in rows if r is not None]
+    materialized = _flatten(rows)
     if not materialized:
         raise PanelSchemaError("No rows to build a panel from (empty after dropping None).")
 
@@ -99,6 +122,10 @@ def build_panel(
             "a panel cannot be backtested without it."
         )
     df["market_price"] = price.astype(float)
+
+    # Not behind `check_leakage`: it costs nothing, fires only on plugins that stamp their
+    # prices, and a post-decision price is a defect rather than a judgement call.
+    check_price_timing(df)
 
     if check_leakage:
         check_no_leakage(df, max_auc=max_auc, raise_on_leak=True)
