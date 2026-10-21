@@ -367,6 +367,69 @@ class TestMoreCornersOfTheLibrary:
         assert len(backups) == 1 and backups[0].read_bytes() == original
 
 
+class TestTheNewLogIsOnDiskBeforeItReplacesTheOldOne:
+    """A crash between the rename and the disk writing the data would otherwise leave an empty
+    or half-written log where the trade log was. Order: backup on disk, new content on disk,
+    rename, then the directory entry on disk."""
+
+    def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_on_dirs: bool = False):
+        import json
+        import os
+        import stat
+
+        from pmlab.execution.resettle import resettle_file
+
+        log = tmp_path / "trades.json"
+        log.write_text(json.dumps({"trades": [_legacy()]}))
+        events: list[tuple[str, int, bool]] = []
+        real_fsync, real_replace = os.fsync, os.replace
+
+        def fsync(fd: int) -> None:
+            info = os.fstat(fd)
+            is_dir = stat.S_ISDIR(info.st_mode)
+            events.append(("fsync", info.st_ino, is_dir))
+            if is_dir and fail_on_dirs:
+                raise OSError(22, "a directory cannot be synced here")
+            real_fsync(fd)
+
+        def replace(src: str, dst: str) -> None:
+            events.append(("replace", os.stat(src).st_ino, False))
+            real_replace(src, dst)
+
+        monkeypatch.setattr(os, "fsync", fsync)
+        monkeypatch.setattr(os, "replace", replace)
+        _, backup = resettle_file(log, dry_run=False, now_utc=_NOW)
+        assert backup is not None
+        return log, backup, events
+
+    def test_the_new_content_and_the_backup_are_synced_before_the_rename(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, backup, events = self._run(tmp_path, monkeypatch)
+        at = next(i for i, e in enumerate(events) if e[0] == "replace")
+        temp_inode = events[at][1]
+        before = events[:at]
+        assert ("fsync", temp_inode, False) in before
+        assert ("fsync", backup.stat().st_ino, False) in before
+        assert any(e[0] == "fsync" and e[2] for e in before)  # the backup's directory entry
+
+    def test_the_directory_is_synced_after_the_rename(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, _, events = self._run(tmp_path, monkeypatch)
+        at = next(i for i, e in enumerate(events) if e[0] == "replace")
+        assert any(e[0] == "fsync" and e[2] for e in events[at + 1 :])
+
+    def test_a_filesystem_that_cannot_sync_a_directory_does_not_fail_the_resettle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        log, backup, _ = self._run(tmp_path, monkeypatch, fail_on_dirs=True)
+        assert json.loads(log.read_text())["trades"][0]["settlement_version"] == 1
+        assert backup.exists()
+
+
 class TestASymlinkedLog:
     def test_the_real_file_is_fixed_and_the_link_stays_a_link(self, tmp_path: Path) -> None:
         import json

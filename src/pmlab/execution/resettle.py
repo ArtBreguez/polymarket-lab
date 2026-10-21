@@ -167,6 +167,33 @@ def resettle_trades(trades: Sequence[Mapping[str, Any]], *, now_utc: datetime) -
     )
 
 
+def _sync_file(path: Path) -> None:
+    """Flush a finished file's data to disk."""
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _sync_directory(directory: Path) -> None:
+    """Flush a directory's entries (a new name, a rename) to disk, where the platform allows.
+
+    Not every platform or filesystem can sync a directory; the file data is already safe
+    by then, so a refusal is not an error.
+    """
+    try:
+        fd = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
 def _backup_path(path: Path, now_utc: datetime) -> Path:
     stem = f"{path.name}.bak-{now_utc.astimezone(UTC):%Y%m%dT%H%M%SZ}"
     candidate = path.with_name(stem)
@@ -185,7 +212,9 @@ def resettle_file(
     A dry run reads and reports. Otherwise, if anything needs re-settling, the original is
     copied to ``<name>.bak-<UTC timestamp>`` next to it first, and the log is replaced
     atomically; if nothing does, no backup is made and the file is not rewritten. A symlink is
-    followed: the file it points to is the one fixed and backed up.
+    followed: the file it points to is the one fixed and backed up. The backup and the new
+    content are on disk before the rename, and the rename itself is synced after it, so a crash
+    leaves either the old log or the new one, never an empty or half-written file.
 
     Nothing locks the log. Run it when nothing else is writing to it: a `record-trades` or a
     settlement that appends between the read and the replace would be lost, exactly as two
@@ -216,14 +245,19 @@ def resettle_file(
         return result, None
     backup = _backup_path(path, now_utc)
     shutil.copy2(path, backup)
+    _sync_file(backup)
+    _sync_directory(path.parent)
     payload = json.dumps({**data, "trades": result.trades}, indent=2)
     handle, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(handle, "w") as stream:
             stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
         shutil.copymode(path, temp_name)
         os.replace(temp_name, path)
     except BaseException:
         Path(temp_name).unlink(missing_ok=True)
         raise
+    _sync_directory(path.parent)
     return result, backup
