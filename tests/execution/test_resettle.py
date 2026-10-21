@@ -381,19 +381,19 @@ class TestTheNewLogIsOnDiskBeforeItReplacesTheOldOne:
 
         log = tmp_path / "trades.json"
         log.write_text(json.dumps({"trades": [_legacy()]}))
-        events: list[tuple[str, int, bool]] = []
+        events: list[tuple[str, int, bool, int]] = []  # kind, inode, is a directory, size
         real_fsync, real_replace = os.fsync, os.replace
 
         def fsync(fd: int) -> None:
             info = os.fstat(fd)
             is_dir = stat.S_ISDIR(info.st_mode)
-            events.append(("fsync", info.st_ino, is_dir))
+            events.append(("fsync", info.st_ino, is_dir, info.st_size))
             if is_dir and fail_on_dirs:
                 raise OSError(22, "a directory cannot be synced here")
             real_fsync(fd)
 
         def replace(src: str, dst: str) -> None:
-            events.append(("replace", os.stat(src).st_ino, False))
+            events.append(("replace", os.stat(src).st_ino, False, os.stat(src).st_size))
             real_replace(src, dst)
 
         monkeypatch.setattr(os, "fsync", fsync)
@@ -407,10 +407,12 @@ class TestTheNewLogIsOnDiskBeforeItReplacesTheOldOne:
     ) -> None:
         _, backup, events = self._run(tmp_path, monkeypatch)
         at = next(i for i, e in enumerate(events) if e[0] == "replace")
-        temp_inode = events[at][1]
+        _, temp_inode, _, final_size = events[at]
         before = events[:at]
-        assert ("fsync", temp_inode, False) in before
-        assert ("fsync", backup.stat().st_ino, False) in before
+        # The temp file is synced after everything was written to it (not before, not unflushed).
+        assert ("fsync", temp_inode, False, final_size) in before
+        assert final_size > 0
+        assert ("fsync", backup.stat().st_ino, False, backup.stat().st_size) in before
         assert any(e[0] == "fsync" and e[2] for e in before)  # the backup's directory entry
 
     def test_the_directory_is_synced_after_the_rename(

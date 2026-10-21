@@ -367,6 +367,7 @@ class TestOneTradeCannotTripTheSequentialTest:
         assert seq["signalled"] is False
         assert seq["crossed_at"] is None
         assert seq["peak"] == pytest.approx(5.0)  # the cap, not 500
+        assert seq["increment_cap"] == 5.0
         assert check.status == "ok"
 
     def test_a_genuinely_vanished_edge_still_alerts_within_six_trades(self) -> None:
