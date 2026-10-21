@@ -11,6 +11,11 @@ from pmlab.core.market_spec import MarketSpec
 from pmlab.core.pnl import Position, settle_position
 from pmlab.plugins.base import MarketPlugin
 
+# Stamped on every trade this engine settles. Logs settled by 0.9.0 or earlier have
+# no such key, and a NO trade among them carries the old, wrong realized_pnl: settling
+# is idempotent, so it is never recomputed. 1 = NO settled as a buy of the NO token.
+SETTLEMENT_VERSION = 1
+
 
 class SettlementEngine:
     """Settles open paper trades using plugin truth resolution."""
@@ -106,6 +111,8 @@ class SettlementEngine:
         gamma_price = float(trade["gamma_price"])
         flat_stake = float(trade.get("flat_stake", 1.0))
         fee_paid = float(trade.get("fee_paid", 0.003))
+        # The price of the token this trade buys: the label's YES price, or for a NO
+        # trade the NO token's price. `gamma_price` is always the YES price.
         quote = gamma_price if direction == "yes" else (1.0 - gamma_price)
         # Enter at what the broker actually paid. `fill_price` carries the cost
         # model's slippage and depth; falling back to the quote only for logs
@@ -114,10 +121,21 @@ class SettlementEngine:
         fill_price = trade.get("fill_price")
         entry_price = float(fill_price) if fill_price is not None else quote
         size = flat_stake / max(entry_price, 1e-9)
-        side = "buy" if direction == "yes" else "sell"
+        # Both directions are a BUY of a token at `entry_price`, exactly as the
+        # backtest prices a trade. A NO trade used to be settled as a short YES at
+        # the NO price, which is the wrong price for that formula: it booked a lost
+        # NO bet as a fraction of its stake and a won one as a full stake.
+        side = "buy" if direction == "yes" else "buy_no"
         pos = Position(
             outcome_label=trade["outcome_label"], price=entry_price, size=size, side=side
         )
         pnl = settle_position(pos, winning_label=winning_label, fee_paid=fee_paid)
+        # About the label, not the money: a NO trade on a label that occurred is
+        # "won" while its PnL is negative. Calibration reads it that way.
         outcome = "won" if trade["outcome_label"] == winning_label else "lost"
-        return {**trade, "outcome": outcome, "realized_pnl": round(pnl, 6)}
+        return {
+            **trade,
+            "outcome": outcome,
+            "realized_pnl": round(pnl, 6),
+            "settlement_version": SETTLEMENT_VERSION,
+        }

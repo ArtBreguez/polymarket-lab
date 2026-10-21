@@ -35,6 +35,21 @@ cron: `pmlab monitor ... || notify`.
 
 ### Fixed
 
+- **NO-side realized PnL was wrong, in both directions.** `SettlementEngine` settled a
+  `direction="no"` trade as a short YES but handed the formula the *NO* price, which is
+  the wrong price for it. At a YES quote of 0.30 and a stake of 1 a NO bet whose label
+  occurred (it lost everything) booked -0.4286 instead of -1.0000, and one that won
+  booked +1.0000 instead of +0.4286: biased toward profit exactly when the NO side won.
+  A NO trade now settles as a buy of the NO token at its own price (`fill_price` when
+  recorded, else `1 - gamma_price`), the same per-stake arithmetic the backtest applies
+  to a buy, and `Position` gains `side="buy_no"` (an unknown `side` now raises instead
+  of falling through to the short-YES formula). `outcome` is unchanged: it still says
+  whether the *label* occurred, which is what calibration reads.
+  **Trades already settled keep their old number**, because settlement is idempotent
+  and never recomputes a settled trade. Every trade settled from now on carries
+  `"settlement_version": 1`; a NO trade settled by 0.9.0 or earlier has no such key.
+  To list the affected ones:
+  `jq '[.trades[] | select(.direction == "no" and .outcome != null and .settlement_version == null)]' forward_paper_trades.json`
 - **Settlement ignored `fill_price`.** `PaperBroker` fills at the costed price and
   records it, but `SettlementEngine` recomputed the entry from `gamma_price`, so with
   any slippage in the cost model live `realized_pnl` read better than the backtest's
