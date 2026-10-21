@@ -13,6 +13,7 @@ from rich.table import Table
 
 if TYPE_CHECKING:
     from pmlab.core.costs import CostModel
+    from pmlab.core.policy import TradePolicy
 
 app = typer.Typer(
     name="pmlab",
@@ -57,6 +58,14 @@ def _load_costs(path: str | None) -> CostModel | None:
         rprint(f"[red]Not a valid cost model ({path}): costs file is unreadable: {e}[/red]")
         raise typer.Exit(1) from e
     return _costs_from(raw, path)
+
+
+def _describe_policy(policy: TradePolicy) -> str:
+    """One line for the console: what the backtest traded."""
+    if policy.selection == "top_prob":
+        return "top-bin-yes (YES on the most probable bin, every market, no threshold)"
+    sides = "+".join(d.upper() for d in policy.directions)
+    return f"live (best edge >= {policy.min_edge:g}, {sides})"
 
 
 @app.command("version")
@@ -199,7 +208,14 @@ def record_trades_cmd(
     artifacts_dir: str = typer.Option(
         "artifacts", "--artifacts-dir", "-a", envvar="PMLAB_ARTIFACTS_DIR"
     ),
-    min_edge: float = typer.Option(0.20, "--min-edge"),
+    min_edge: float | None = typer.Option(
+        None,
+        "--min-edge",
+        help=(
+            "Smallest after-fee edge worth a trade. Default: the threshold the champion's "
+            "backtest ran with (recorded in champion.json), else 0.20."
+        ),
+    ),
     flat_stake: float = typer.Option(1.0, "--flat-stake"),
     costs_path: str | None = typer.Option(
         None,
@@ -212,6 +228,7 @@ def record_trades_cmd(
 ) -> None:
     """Record paper trades from latest scan-edge signals."""
     from pmlab.config import PmlabSettings
+    from pmlab.core.edge import DEFAULT_MIN_EDGE, edge_clears
     from pmlab.execution.paper_broker import PaperBroker
     from pmlab.modeling.champion import ChampionManifest
 
@@ -242,6 +259,19 @@ def record_trades_cmd(
         rprint(f"  --costs:       {costs.to_dict()}")
         raise typer.Exit(1)
 
+    # Trade the threshold the champion was backtested with. A different one is allowed (it
+    # is the operator's call) but called out: the backtest says nothing about that strategy.
+    recorded_policy = manifest.expectation.policy if manifest.expectation is not None else None
+    recorded_edge = recorded_policy.min_edge if recorded_policy is not None else None
+    if min_edge is None:
+        min_edge = recorded_edge if recorded_edge is not None else DEFAULT_MIN_EDGE
+    elif recorded_edge is not None and abs(min_edge - recorded_edge) > 1e-9:
+        rprint(
+            f"[yellow]--min-edge {min_edge:g} differs from the champion's policy "
+            f"({recorded_edge:g}): the backtest it was promoted on did not simulate this "
+            "threshold.[/yellow]"
+        )
+
     # Look for signals file in workspace
     signals_path = (
         Path(artifacts_dir) / "workspaces" / workspace / "signals" / "v2" / "scan_edge_signals.json"
@@ -256,7 +286,9 @@ def record_trades_cmd(
 
     from pmlab.execution.edge_signal import EdgeSignal
 
-    signals = [EdgeSignal(**s) for s in all_signals if float(s.get("best_edge", 0)) >= min_edge]
+    signals = [
+        EdgeSignal(**s) for s in all_signals if edge_clears(float(s.get("best_edge", 0)), min_edge)
+    ]
     rprint(f"Found [cyan]{len(signals)}[/cyan] signals with edge >= {min_edge}")
 
     trades_path = (
@@ -311,6 +343,25 @@ def backtest_cmd(
         "--costs",
         help=_COSTS_HELP + "Default: 30bps taker fee, fill at the quote.",
     ),
+    policy_name: str = typer.Option(
+        "live",
+        "--policy",
+        help=(
+            "Which trades the backtest takes. 'live' (default) is what record-trades trades: "
+            "per market the best-edge bin and side, YES or NO, at or above --min-edge. "
+            "'top-bin-yes' is the historical backtest: YES on the most probable bin of every "
+            "market, no threshold."
+        ),
+    ),
+    min_edge: float | None = typer.Option(
+        None,
+        "--min-edge",
+        help=(
+            "Smallest after-fee edge worth a trade under --policy live (default 0.20, the "
+            "same default as record-trades). Recorded in champion.json, which record-trades "
+            "then uses as its own default."
+        ),
+    ),
     output: str | None = typer.Option(None, "--output", "-o", help="Save metrics JSON to path"),
 ) -> None:
     """Run walk-forward backtest on a historical panel."""
@@ -318,6 +369,29 @@ def backtest_cmd(
         rprint(f"[red]stride={stride} is too low — minimum 10.[/red]")
         raise typer.Exit(1)
     costs = _load_costs(costs_path)
+
+    from pmlab.core.edge import DEFAULT_MIN_EDGE
+    from pmlab.core.policy import TradePolicy
+
+    if policy_name == "live":
+        try:
+            trade_policy = TradePolicy.live(
+                min_edge=DEFAULT_MIN_EDGE if min_edge is None else min_edge
+            )
+        except ValueError as e:
+            rprint(f"[red]Not a valid --min-edge: {e}[/red]")
+            raise typer.Exit(1) from e
+    elif policy_name == "top-bin-yes":
+        if min_edge is not None:
+            rprint(
+                "[red]--min-edge has no meaning under --policy top-bin-yes, which trades every "
+                "market with no threshold; use --policy live to set one.[/red]"
+            )
+            raise typer.Exit(1)
+        trade_policy = TradePolicy.top_bin_yes()
+    else:
+        rprint(f"[red]Unknown --policy {policy_name!r}: choose 'live' or 'top-bin-yes'.[/red]")
+        raise typer.Exit(1)
 
     import pandas as pd
 
@@ -345,6 +419,8 @@ def backtest_cmd(
         f"Panel: {len(panel)} rows, {panel['decision_date'].nunique()} dates, {panel['market_id'].nunique()} markets"
     )
 
+    rprint(f"Policy: {_describe_policy(trade_policy)}")
+
     forecaster = LGBMForecaster()
     with console.status("Running walk-forward backtest..."):
         result = rolling_origin_eval(
@@ -354,11 +430,13 @@ def backtest_cmd(
             stride=stride,
             flat_stake=flat_stake,
             costs=costs,
+            policy=trade_policy,
         )
 
     trades = result.trades
     if trades.empty:
-        rprint("[yellow]No trades produced. Try reducing stride or min_train_rows.[/yellow]")
+        hint = " or lowering --min-edge" if trade_policy.selection == "best_edge" else ""
+        rprint(f"[yellow]No trades produced. Try reducing stride or min_train_rows{hint}.[/yellow]")
         raise typer.Exit(0)
 
     total_pnl = trades["realized_pnl"].sum()
@@ -370,6 +448,8 @@ def backtest_cmd(
     table.add_column("Metric")
     table.add_column("Value")
     table.add_row("Total trades", str(len(trades)))
+    sides = trades["direction"].value_counts()
+    table.add_row("YES / NO trades", f"{int(sides.get('yes', 0))} / {int(sides.get('no', 0))}")
     table.add_row("Steps evaluated", str(len(result.steps)))
     table.add_row("Total PnL", f"[{pnl_color}]${total_pnl:+.2f}[/{pnl_color}]")
     table.add_row("Hit rate", f"{hit_rate:.1%}")
@@ -386,6 +466,8 @@ def backtest_cmd(
             # The friction these numbers are net of, so `promote-champion` can record
             # the same model rather than trust the operator to retype it.
             "costs": (costs or CostModel()).to_dict(),
+            # The decision rule these numbers were produced under.
+            "policy": trade_policy.to_dict(),
         }
         if len(trades) >= 2:
             # What `promote-champion --expectation` records in champion.json, so the
@@ -393,7 +475,7 @@ def backtest_cmd(
             from pmlab.backtest.expectation import BacktestExpectation
 
             metrics["expectation"] = BacktestExpectation.from_trades(
-                trades, flat_stake=flat_stake
+                trades, flat_stake=flat_stake, policy=trade_policy
             ).to_dict()
         Path(output).write_text(json.dumps(metrics, indent=2))
         rprint(f"[dim]Metrics saved to {output}[/dim]")
@@ -505,6 +587,8 @@ def promote_champion_cmd(
         rprint(f"  Manifest: {output_dir}/champion.json")
         rprint(f"  Allowed segments: {manifest.get_allowed_segments()}")
         rprint(f"  Costs: {costs.to_dict() if costs is not None else 'not recorded'}")
+        policy = expectation.policy if expectation is not None else None
+        rprint(f"  Policy: {_describe_policy(policy) if policy is not None else 'not recorded'}")
     except ValueError as e:
         rprint(f"[red]{e}[/red]")
         raise typer.Exit(1) from e

@@ -1106,6 +1106,8 @@ def test_backtest_output_includes_an_expectation_ready_for_promotion(tmp_path: P
             "10",
             "--flat-stake",
             "2.0",
+            "--policy",
+            "top-bin-yes",  # this panel's forecasts carry no edge; trade every market
             "--output",
             str(out),
         ],

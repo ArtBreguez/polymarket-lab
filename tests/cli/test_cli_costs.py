@@ -119,6 +119,10 @@ def _backtest(
             "10",
             "--output",
             str(out),
+            # These tests are about the cost plumbing, on a panel whose forecasts carry no
+            # edge: the historical policy trades every market, so there are trades to cost.
+            "--policy",
+            "top-bin-yes",
             *extra,
         ],  # fmt: skip
     )
