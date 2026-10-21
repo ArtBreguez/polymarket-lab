@@ -157,3 +157,41 @@ class TestFromTheBacktest:
         assert exp.brier_score is not None
         # Constant 0.7 forecast against a ~50% base rate: bounded and sensible.
         assert 0.0 < exp.brier_score < 1.0
+
+
+class _Always:
+    def __init__(self, p: float) -> None:
+        self._p = p
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:  # noqa: N803
+        return None
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:  # noqa: N803
+        n = len(X)
+        return np.column_stack([np.full(n, 1 - self._p), np.full(n, self._p)])
+
+
+def test_label_occurred_is_the_label_and_not_whether_the_trade_made_money() -> None:
+    """A win at 0.999 pays 0.001 a share and costs 0.003 in fees: the label occurred,
+    the trade lost money. `outcome` says "lost"; calibration must still see a hit."""
+    rows = []
+    for d in range(30):
+        for label in ("YES", "NO"):
+            rows.append(
+                {
+                    "market_id": f"m{d}",
+                    "decision_date": f"2026-01-{d + 1:02d}",
+                    "outcome_label": label,
+                    "winning_label": "YES",
+                    "market_price": 0.999,
+                    "feature_x": 1.0 if label == "YES" else 0.0,
+                    "segment": "A",
+                }
+            )
+    result = rolling_origin_eval(pd.DataFrame(rows), _Always(0.9), min_train_rows=4, stride=2)
+
+    trades = result.trades
+    assert len(trades) > 0
+    assert trades["label_occurred"].all()
+    assert (trades["realized_pnl"] < 0).all()
+    assert (trades["outcome"] == "lost").all()

@@ -1048,3 +1048,128 @@ class TestRender:
     def test_the_insufficient_policy_is_visible_in_the_headline(self) -> None:
         cfg = WatchdogConfig(insufficient="warn")
         assert _report(trades=_trades(5), config=cfg).render().startswith("pmlab monitor: WARN")
+
+
+class TestEffectSizeAndNoiseAreBothRequired:
+    """Material AND distinguishable from noise: each guard catches what the other misses."""
+
+    def test_a_certain_but_immaterial_pnl_shortfall_is_ok(self) -> None:
+        """With enough trades and no spread, 10% short is certain; it is still not a page."""
+        champ = _champion(_expectation(std_pnl_per_stake=0.001))
+        check = _check(_report(trades=_trades(400, pnl=0.09, pnl_sd=0.001), champion=champ), "pnl")
+        assert check.metrics["z"] > 10
+        assert check.metrics["shortfall_rel"] == pytest.approx(0.10)
+        assert check.status == "ok"
+
+    def test_a_certain_but_immaterial_brier_gap_is_ok(self) -> None:
+        champ = _champion(_expectation(brier_std=0.001))
+        trades = _trades(400, brier=0.205, brier_sd=0.001)
+        check = _check(_report(trades=trades, champion=champ), "calibration")
+        assert check.metrics["z"] > 10
+        assert check.status == "ok"
+
+    def test_a_large_relative_change_on_a_tiny_brier_is_not_material(self) -> None:
+        """+0.01 on a 0.05 Brier is +20%: large relatively, small absolutely."""
+        champ = _champion(_expectation(brier_score=0.05, brier_std=0.001))
+        trades = _trades(100, brier=0.06, brier_sd=0.001)
+        check = _check(_report(trades=trades, champion=champ), "calibration")
+        assert check.metrics["degradation_rel"] == pytest.approx(0.20)
+        assert check.status == "ok"
+
+    def test_a_certain_but_partial_pnl_shortfall_is_a_warn_not_an_alert(self) -> None:
+        check = _check(_report(trades=_trades(400, pnl=0.03)), "pnl")
+        assert check.metrics["z"] > 3.0, "certain enough for an alert on noise alone"
+        assert check.metrics["shortfall_rel"] == pytest.approx(0.7)
+        assert check.status == "warn", "but it is not a loss of the whole edge"
+
+    def test_a_certain_but_moderate_brier_gap_is_a_warn_not_an_alert(self) -> None:
+        check = _check(_report(trades=_trades(400, brier=0.23)), "calibration")
+        assert check.metrics["z"] > 3.0
+        assert check.metrics["degradation_abs"] == pytest.approx(0.03)
+        assert check.status == "warn"
+
+    def test_a_large_absolute_but_small_relative_gap_is_not_an_alert(self) -> None:
+        """+0.06 on a 0.60 Brier clears the absolute alert bar but is only +10% relative."""
+        champ = _champion(_expectation(brier_score=0.60, brier_std=0.001))
+        trades = _trades(400, brier=0.66, brier_sd=0.001)
+        check = _check(_report(trades=trades, champion=champ), "calibration")
+        assert check.metrics["degradation_abs"] == pytest.approx(0.06)
+        assert check.status == "warn"
+
+
+class TestThresholdsAreInclusive:
+    def test_float_round_off_at_a_threshold_does_not_flip_the_verdict(self) -> None:
+        """0.25 - 0.20 is 0.04999999999999999 in floats: on the line, not under it.
+
+        Read the measured gap back, then put the threshold a hair above it (inside
+        the 1e-9 slack: still a hit) and a clear step above it (outside: a miss).
+        """
+        champ = _champion(_expectation(brier_std=0.001))
+        trades = _trades(100, brier=0.23, brier_sd=0.001)
+        gap = _check(_report(trades=trades, champion=champ), "calibration").metrics[
+            "degradation_abs"
+        ]
+
+        def verdict(threshold: float) -> str:
+            cfg = WatchdogConfig(
+                calibration=CalibrationThresholds(
+                    brier_warn_abs=threshold,
+                    brier_alert_abs=1.0,
+                    brier_warn_rel=0.0,
+                    brier_alert_rel=1.0,
+                )
+            )
+            return _check(_report(trades=trades, champion=champ, config=cfg), "calibration").status
+
+        assert verdict(gap + 5e-10) == "warn"
+        assert verdict(gap + 5e-8) == "ok"
+
+    def test_a_brier_on_the_warn_line_with_no_noise_is_a_warn(self) -> None:
+        champ = _champion(_expectation(brier_std=0.001))
+        check = _check(
+            _report(trades=_trades(100, brier=0.22, brier_sd=0.001), champion=champ), "calibration"
+        )
+        assert check.metrics["degradation_abs"] == pytest.approx(0.02)
+        assert check.status == "warn"
+
+    def test_a_shortfall_exactly_equal_to_the_warn_threshold_is_a_warn(self) -> None:
+        """Inclusive: 'at or above' the line is in the band, not 'strictly above'."""
+        trades = _trades(pnl=0.05)
+        free = WatchdogConfig(pnl=PnLThresholds(z_warn=0.0, z_alert=0.0))
+        measured = _check(_report(trades=trades, config=free), "pnl").metrics["shortfall_rel"]
+
+        def verdict(threshold: float) -> str:
+            cfg = WatchdogConfig(
+                pnl=PnLThresholds(
+                    shortfall_warn=threshold, shortfall_alert=2.0, z_warn=0.0, z_alert=0.0
+                )
+            )
+            return _check(_report(trades=trades, config=cfg), "pnl").status
+
+        assert verdict(measured) == "warn"
+        assert verdict(measured + 1e-6) == "ok"
+
+    def test_a_brier_gap_equal_to_the_warn_threshold_is_a_warn(self) -> None:
+        champ = _champion(_expectation(brier_std=0.001))
+        trades = _trades(100, brier=0.23, brier_sd=0.001)
+        gap = _check(_report(trades=trades, champion=champ), "calibration").metrics[
+            "degradation_abs"
+        ]
+        cfg = WatchdogConfig(
+            calibration=CalibrationThresholds(
+                brier_warn_abs=gap, brier_alert_abs=1.0, brier_warn_rel=0.0, brier_alert_rel=1.0
+            )
+        )
+        assert _check(_report(trades=trades, champion=champ, config=cfg), "calibration").status == (
+            "warn"
+        )
+
+    def test_a_large_relative_but_small_absolute_gap_is_a_warn_not_an_alert(self) -> None:
+        """+0.03 on a 0.10 Brier is +30%: past the relative alert bar, short of the absolute one."""
+        champ = _champion(_expectation(brier_score=0.10, brier_std=0.001))
+        check = _check(
+            _report(trades=_trades(100, brier=0.13, brier_sd=0.001), champion=champ), "calibration"
+        )
+        assert check.metrics["degradation_rel"] == pytest.approx(0.30)
+        assert check.metrics["z"] > 3.0
+        assert check.status == "warn"

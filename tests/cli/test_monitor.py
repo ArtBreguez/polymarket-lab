@@ -584,7 +584,7 @@ class TestUsageErrors:
         world.champion.unlink()
         result = runner.invoke(app, world.args())
         assert result.exit_code == EXIT_USAGE
-        assert "champion" in result.stderr and str(world.champion) in result.stderr
+        assert "champion not found" in result.stderr and str(world.champion) in result.stderr
         assert result.stdout == ""
 
     def test_a_corrupt_champion(self, world: World) -> None:
