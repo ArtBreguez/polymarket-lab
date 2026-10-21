@@ -158,6 +158,7 @@ class TestTheSettings:
         assert cfg.sequential is True
         assert cfg.cusum_allowance == 0.5
         assert cfg.cusum_threshold == 40.0
+        assert cfg.cusum_min_backtest_trades == 100
         assert cfg.mde_power == 0.8
 
     def test_they_round_trip_and_partial_configs_keep_the_rest(self) -> None:
@@ -176,6 +177,9 @@ class TestTheSettings:
             {"cusum_threshold": math.nan},
             {"cusum_allowance": -0.1},
             {"cusum_allowance": math.nan},
+            {"cusum_min_backtest_trades": 1},
+            {"cusum_min_backtest_trades": 2.5},
+            {"cusum_min_backtest_trades": True},
             {"mde_power": 0.0},
             {"mde_power": 1.0},
             {"mde_power": 1.5},
@@ -370,6 +374,53 @@ class TestEachSideIsStandardizedByItsOwnPromise:
         cfg = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=1e9))
         seq = _pnl(_report(trades, self._two_sided(), config=cfg)).metrics["sequential"]
         assert seq["statistic"] < 5.0
+
+
+class TestAPromiseMadeOnFewTradesCannotAnchorTheSequentialTest:
+    """The backtest mean is an estimate. The fixed test counts its uncertainty in the
+    standard error; the CUSUM cannot, and a mean estimated from 30 trades is wrong by
+    far more than the allowance, so it would drift to a false alarm. Simulated: about 1.4%
+    of champions signal falsely within 400 trades when the backtest had 400 trades, 3.8%
+    at 100, and 10% at 30. Below the floor the test does not run."""
+
+    def test_a_short_backtest_switches_the_test_off_and_says_why(self) -> None:
+        expectation = _expectation(n_trades=60)
+        seq = _pnl(_report(_in_order(_trades(100)), expectation)).metrics["sequential"]
+        assert seq["status"] == "not_applicable"
+        assert seq["signalled"] is False
+        assert "fewer than 100" in seq["reason"]
+        assert seq["n_skipped"] == 100
+
+    def test_a_losing_streak_on_a_short_backtest_is_left_to_the_fixed_test(self) -> None:
+        expectation = _expectation(n_trades=60)
+        check = _pnl(_report(_in_order(_trades(40, pnl=-0.4, pnl_sd=0.0)), expectation))
+        assert check.metrics["sequential"]["signalled"] is False
+        assert check.status == "alert"  # the fixed test still sees it
+        assert not check.reasons[0].startswith("sequential")
+
+    def test_exactly_the_floor_is_enough(self) -> None:
+        seq = _pnl(_report(_in_order(_trades(60)), _expectation(n_trades=100))).metrics[
+            "sequential"
+        ]
+        assert seq["status"] == "ok"
+
+    def test_the_floor_is_configurable(self) -> None:
+        config = WatchdogConfig(pnl=PnLThresholds(cusum_min_backtest_trades=50))
+        seq = _pnl(_report(_in_order(_trades(60)), _expectation(n_trades=60), config=config))
+        assert seq.metrics["sequential"]["status"] == "ok"
+
+    def test_each_side_is_held_to_the_floor_on_its_own(self) -> None:
+        expectation = _expectation(
+            n_trades=400,
+            by_direction={
+                "yes": GroupExpectation(300, 0.20, 0.60, 0.20, 0.10),
+                "no": GroupExpectation(40, 0.10, 0.40, 0.15, 0.08),
+            },
+        )
+        trades = _in_order(_trades(60) + _trades(60, pnl=0.10, pnl_sd=0.40, side="no"))
+        seq = _pnl(_report(trades, expectation)).metrics["sequential"]
+        assert seq["n"] == 60
+        assert seq["n_skipped"] == 60
 
 
 class TestWhenTheSequentialTestCannotRun:

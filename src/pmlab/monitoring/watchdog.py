@@ -237,6 +237,10 @@ class PnLThresholds:
     height at which it signals. The defaults were calibrated by simulation, see
     `docs/watchdog.md`.
 
+    A promise made on few trades is a noisy one, and unlike the fixed test the CUSUM
+    cannot count that noise: `cusum_min_backtest_trades` is the fewest backtest trades a
+    side may have been promised on for its trades to feed the sequential test.
+
     `mde_power` is the power the *minimum detectable shortfall* is quoted at.
     """
 
@@ -248,6 +252,7 @@ class PnLThresholds:
     sequential: bool = True
     cusum_allowance: float = 0.5
     cusum_threshold: float = 40.0
+    cusum_min_backtest_trades: int = 100
     mde_power: float = 0.8
 
     def __post_init__(self) -> None:
@@ -262,6 +267,11 @@ class PnLThresholds:
         if threshold <= 0:
             raise WatchdogInputError(f"cusum_threshold must be > 0, got {self.cusum_threshold!r}")
         object.__setattr__(self, "cusum_threshold", threshold)
+        object.__setattr__(
+            self,
+            "cusum_min_backtest_trades",
+            _check_int("cusum_min_backtest_trades", self.cusum_min_backtest_trades, 2),
+        )
         power = _check_float("mde_power", self.mde_power)
         if not 0.0 < power < 1.0:
             raise WatchdogInputError(f"mde_power must be strictly between 0 and 1, got {power!r}")
@@ -1829,8 +1839,9 @@ def _sequential_scope(
     Each trade is standardized by its own side's promise: its shortfall is
     ``(mean - return) / std`` of that side, and the allowance is `cusum_allowance` times
     the side's ``mean / std``, so a book that trades more NO than the backtest did is not
-    mistaken for a decline. A side with no spread, or no positive promise, cannot be
-    standardized: its trades are skipped and counted. Trades that tie on settlement time
+    mistaken for a decline. A side with no spread, no positive promise, or a promise made on
+    fewer than `cusum_min_backtest_trades` trades cannot be standardized: its trades are
+    skipped and counted. Trades that tie on settlement time
     and identity are one step (their shortfalls and allowances add), which keeps the
     result independent of the order the log happens to list them in.
     """
@@ -1839,8 +1850,8 @@ def _sequential_scope(
         shortfall = allowance = 0.0
         count = 0
         for row in tied:
-            mean, std, _ = groups[row.side]
-            if mean > 0 and std > 0:
+            mean, std, n_backtest = groups[row.side]
+            if mean > 0 and std > 0 and n_backtest >= cfg.cusum_min_backtest_trades:
                 shortfall += (mean - row.value) / std
                 allowance += cfg.cusum_allowance * mean / std
                 count += 1
@@ -1855,8 +1866,8 @@ def _sequential_scope(
     }
     if not steps:
         reason = (
-            "no trade could be standardized: the backtest spread is zero or the promised mean "
-            "is not positive"
+            "no trade could be standardized: the backtest spread is zero, the promised mean is "
+            f"not positive, or it was made on fewer than {cfg.cusum_min_backtest_trades} trades"
         )
         metrics = {
             **common,
