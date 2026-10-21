@@ -304,7 +304,23 @@ def record_trades_cmd(
     signals = [
         EdgeSignal(**s) for s in all_signals if edge_clears(float(s.get("best_edge", 0)), min_edge)
     ]
+    # The backtest takes, per market, the (bin, side) with the best edge. The broker records
+    # the first signal it is given for a (segment, date, horizon), so the best has to come
+    # first; the sort is stable, so equal edges keep the order of the file.
+    signals.sort(key=lambda signal: -signal.best_edge)
+    # And only the sides the backtest traded: a champion promoted on a YES-only policy has no
+    # promise to hold a NO trade to.
+    n_other_side = 0
+    if recorded_policy is not None and recorded_policy.selection == "best_edge":
+        traded = [s for s in signals if s.direction in recorded_policy.directions]
+        n_other_side = len(signals) - len(traded)
+        signals = traded
     rprint(f"Found [cyan]{len(signals)}[/cyan] signals with edge >= {min_edge}")
+    if n_other_side:
+        rprint(
+            f"[yellow]Skipped {_plural(n_other_side, 'signal')} on a side the champion's policy "
+            "does not trade.[/yellow]"
+        )
 
     broker = PaperBroker(
         trades_path=settings.trades_path,

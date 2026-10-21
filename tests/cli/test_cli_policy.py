@@ -314,3 +314,94 @@ def test_a_nan_threshold_is_refused_not_traded(tmp_path: Path) -> None:
     result, _ = _backtest(tmp_path, "--min-edge", "nan")
     assert result.exit_code == 1
     assert "Not a valid --min-edge" in result.output
+
+
+def _market_signals(artifacts: Path, signals: list[dict[str, Any]]) -> None:
+    _write(
+        artifacts / "workspaces" / "ws" / "signals" / "v2" / "scan_edge_signals.json",
+        {"signals": signals},
+    )
+
+
+def _signal(label: str, edge: float, *, direction: str = "yes", day: int = 1) -> dict[str, Any]:
+    return {
+        "market_id": f"m-{label}",
+        "city_or_segment": "A",
+        "target_date": f"2099-01-{day:02d}",
+        "horizon": "morning_of",
+        "outcome_label": label,
+        "direction": direction,
+        "gamma_price": 0.40,
+        "model_prob": 0.70,
+        "best_edge": edge,
+        "yes_edge": edge if direction == "yes" else -edge,
+        "no_edge": edge if direction == "no" else -edge,
+        "question": "q",
+    }
+
+
+class TestOneTradePerMarketIsTheBestOne:
+    """The backtest takes, per market, the (bin, side) with the best edge. The broker records
+    the first signal it is given for a (segment, date, horizon), so the best has to come first."""
+
+    def test_the_best_signal_wins_whatever_order_the_file_lists_them_in(
+        self, tmp_path: Path
+    ) -> None:
+        artifacts = _champion_with_policy(tmp_path, 0.1)
+        _market_signals(artifacts, [_signal("weak", 0.217), _signal("strong", 0.397)])
+        assert _record(artifacts, "ws").exit_code == 0
+        trades = json.loads(_trades_file(artifacts, "ws").read_text())["trades"]
+        assert [t["outcome_label"] for t in trades] == ["strong"]
+
+    def test_equal_edges_keep_the_files_order(self, tmp_path: Path) -> None:
+        artifacts = _champion_with_policy(tmp_path, 0.1)
+        _market_signals(artifacts, [_signal("first", 0.3), _signal("second", 0.3)])
+        _record(artifacts, "ws")
+        trades = json.loads(_trades_file(artifacts, "ws").read_text())["trades"]
+        assert [t["outcome_label"] for t in trades] == ["first"]
+
+    def test_separate_markets_are_all_recorded(self, tmp_path: Path) -> None:
+        artifacts = _champion_with_policy(tmp_path, 0.1)
+        _market_signals(artifacts, [_signal("a", 0.2, day=1), _signal("b", 0.3, day=2)])
+        _record(artifacts, "ws")
+        assert _recorded(artifacts) == 2
+
+
+class TestOnlyTheSidesThePolicyTrades:
+    def _yes_only(self, tmp_path: Path) -> Path:
+        artifacts = _champion_with_policy(tmp_path, 0.1)
+        path = artifacts / "public_models" / "champion.json"
+        data = json.loads(path.read_text())
+        data["backtest_expectation"]["policy"]["directions"] = ["yes"]
+        path.write_text(json.dumps(data))
+        return artifacts
+
+    def test_a_no_signal_is_skipped_for_a_yes_only_policy_and_counted(self, tmp_path: Path) -> None:
+        artifacts = self._yes_only(tmp_path)
+        _market_signals(
+            artifacts,
+            [_signal("a", 0.3, direction="no", day=1), _signal("b", 0.3, direction="yes", day=2)],
+        )
+        result = _record(artifacts, "ws")
+        trades = json.loads(_trades_file(artifacts, "ws").read_text())["trades"]
+        assert [t["direction"] for t in trades] == ["yes"]
+        assert "1 signal on a side the champion's policy does not trade" in result.output.replace(
+            "\n", " "
+        )
+
+    def test_both_sides_are_recorded_for_the_default_live_policy(self, tmp_path: Path) -> None:
+        artifacts = _champion_with_policy(tmp_path, 0.1)
+        _market_signals(
+            artifacts,
+            [_signal("a", 0.3, direction="no", day=1), _signal("b", 0.3, direction="yes", day=2)],
+        )
+        _record(artifacts, "ws")
+        assert _recorded(artifacts) == 2
+
+    def test_a_champion_with_no_recorded_policy_trades_what_it_is_given(
+        self, tmp_path: Path
+    ) -> None:
+        artifacts = _champion_with_policy(tmp_path, None)
+        _market_signals(artifacts, [_signal("a", 0.3, direction="no")])
+        _record(artifacts, "ws")
+        assert _recorded(artifacts) == 1
