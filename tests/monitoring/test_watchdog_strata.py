@@ -291,3 +291,82 @@ class TestASegmentNamedLikeASide:
         trades = _trades("yes", 50, pnl=0.50) + _trades("", 50, pnl=0.10, day0=100)
         pnl = _check(_report(expectation, trades, ("yes", "")), "pnl")
         assert pnl.metrics["mean_backtest"] == pytest.approx(0.30)
+
+
+class TestTheSequentialTestUsesTheFinestRecordThatIsLargeEnough:
+    """A (segment, side) cell is often promised on fewer than 100 trades. Below the floor the
+    sequential test falls back to the book's record for that side, and skips the trade only if
+    that is below the floor too; otherwise it would never run for a champion with many segments."""
+
+    def _expectation(self) -> BacktestExpectation:
+        return BacktestExpectation(
+            400, 1.0, 0.20, 0.6, 0.2, 0.1,
+            by_direction={"yes": GroupExpectation(400, 0.20, 0.6, 0.2, 0.1)},
+            by_segment={
+                "A": _seg(60, 0.50, sides={"yes": GroupExpectation(60, 0.50, 0.6, 0.2, 0.1)}),
+                "B": _seg(300, 0.10, sides={"yes": GroupExpectation(300, 0.10, 0.6, 0.2, 0.1)}),
+            },
+        )  # fmt: skip
+
+    def _book(self) -> list[dict[str, Any]]:
+        return _trades("A", 50, pnl=0.50) + _trades("B", 50, pnl=0.10, day0=100)
+
+    def test_a_thin_cell_falls_back_to_the_books_record(self) -> None:
+        seq = _check(_report(self._expectation(), self._book(), ("A", "B")), "pnl").metrics[
+            "sequential"
+        ]
+        assert seq["n"] == 100
+        assert seq["n_skipped"] == 0
+        # A (cell n=60, below the floor) is standardized by the book's +0.20 / 0.6 over 400
+        # trades, B by its own cell (n=300): the mean allowance is the average of the two.
+        k_book = 0.5 * 0.20 / 0.6 + 0.5 / math.sqrt(400)
+        k_b = 0.5 * 0.10 / 0.6 + 0.5 / math.sqrt(300)
+        assert seq["allowance"] == pytest.approx((50 * k_book + 50 * k_b) / 100)
+
+    def test_a_cell_at_the_floor_is_used_as_it_is(self) -> None:
+        expectation = BacktestExpectation(
+            400, 1.0, 0.20, 0.6, 0.2, 0.1,
+            by_direction={"yes": GroupExpectation(400, 0.20, 0.6, 0.2, 0.1)},
+            by_segment={"A": _seg(100, 0.50, sides={"yes": GroupExpectation(100, 0.50, 0.6, 0.2, 0.1)})},
+        )  # fmt: skip
+        seq = _check(_report(expectation, _trades("A", 50, pnl=0.50), ("A", "B")), "pnl").metrics[
+            "sequential"
+        ]
+        assert seq["allowance"] == pytest.approx(0.5 * 0.50 / 0.6 + 0.5 / 10)
+
+    def _thin_no(self) -> BacktestExpectation:
+        return BacktestExpectation(
+            480, 1.0, 0.20, 0.6, 0.2, 0.1,
+            by_direction={
+                "yes": GroupExpectation(400, 0.20, 0.6, 0.2, 0.1),
+                "no": GroupExpectation(80, 0.20, 0.6, 0.2, 0.1),
+            },
+            by_segment={
+                "A": _seg(
+                    140, 0.20,
+                    sides={
+                        "yes": GroupExpectation(80, 0.20, 0.6, 0.2, 0.1),
+                        "no": GroupExpectation(60, 0.20, 0.6, 0.2, 0.1),
+                    },
+                )
+            },
+        )  # fmt: skip
+
+    def test_a_trade_with_nothing_large_enough_is_skipped_and_counted(self) -> None:
+        trades = _trades("A", 50, pnl=0.20, side="yes") + _trades(
+            "A", 50, pnl=0.20, side="no", day0=100
+        )
+        seq = _check(_report(self._thin_no(), trades, ("A", "B")), "pnl").metrics["sequential"]
+        # YES: its cell (80) is below the floor, the book's YES (400) is not. NO: its cell (60)
+        # and the book's NO (80) are both below it.
+        assert seq["n"] == 50
+        assert seq["n_skipped"] == 50
+        assert "50 trades left out" in seq["reason"]
+
+    def test_the_fixed_test_is_not_held_to_the_floor(self) -> None:
+        trades = _trades("A", 50, pnl=0.20, side="yes") + _trades(
+            "A", 50, pnl=0.20, side="no", day0=100
+        )
+        pnl = _check(_report(self._thin_no(), trades, ("A", "B")), "pnl")
+        assert pnl.metrics["n_trades"] == 100
+        assert pnl.metrics["mean_backtest"] == pytest.approx(0.20)

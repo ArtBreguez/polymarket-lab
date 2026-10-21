@@ -555,16 +555,3 @@ class TestWhatASegmentDoesNotCover:
             assert segments["A"]["n_trades"] == 60
             assert segments["A"]["n_not_referenced"] == 40
             assert segments["B"]["n_not_referenced"] == 0
-
-
-class TestWhatTheSequentialTestSkips:
-    def test_the_reason_says_how_many_trades_it_left_out(self) -> None:
-        # Segment A's cell has a promise made on 60 trades, below the floor of 100.
-        expectation = _expectation(
-            {"A": SegmentExpectation(60, 0.20, 0.60, 0.20, 0.10), "B": _seg()}
-        )
-        trades = _trades("A", 40) + _trades("B", 60, day0=100)
-        pnl = _check(_report(trades, expectation, ("A", "B")), "pnl")
-        seq = pnl.metrics["sequential"]
-        assert seq["n_skipped"] == 40
-        assert "40 trades left out" in seq["reason"]

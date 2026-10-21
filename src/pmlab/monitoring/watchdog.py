@@ -1041,9 +1041,11 @@ class _Row:
     segment: str
     value: float
     order: tuple[Any, ...]
-    stratum: tuple[
-        str, str
-    ]  # the (segment, side) cell whose backtest numbers this trade is held to
+    # The (segment, side) cell whose backtest numbers this trade is held to ...
+    stratum: tuple[str, str]
+    # ... and what the sequential test standardizes it by: the finest record with at least
+    # `cusum_min_backtest_trades` backtest trades behind it, or None.
+    standardizer: _Group | None = None
 
 
 def _settlement_order(trade: Mapping[str, Any]) -> tuple[Any, ...]:
@@ -1214,16 +1216,23 @@ class _References:
                 self._cells[segment] = _pnl_groups(node)
         return self._cells[segment]
 
-    def resolve(self, segment: str, side: str) -> tuple[tuple[str, str], _Group] | None:
+    def resolve(
+        self, segment: str, side: str, min_n: int = 0
+    ) -> tuple[tuple[str, str], _Group] | None:
+        """The finest record for this trade that rests on at least `min_n` backtest trades."""
         cell = self._cell_groups(segment)
         if cell is not None:
             group = cell.get(side) or cell.get(_POOLED)
-            if group is not None:
+            if group is not None and group[2] >= min_n:
                 return (segment, side if side in cell else _POOLED), group
         if self._split is not None:
             group = self._split.get(side)
-            return None if group is None else ((_BOOK, side), group)
-        return None if self._pooled is None else ((_BOOK, _POOLED), self._pooled)
+            if group is None or group[2] < min_n:
+                return None
+            return (_BOOK, side), group
+        if self._pooled is None or self._pooled[2] < min_n:
+            return None
+        return (_BOOK, _POOLED), self._pooled
 
 
 def _holm_evidence(evidences: Mapping[str, _Evidence]) -> dict[str, _Evidence]:
@@ -1966,19 +1975,18 @@ def _pnl_segment_family(
     return [scopes[name] for name in sorted(scopes)]
 
 
-def _sequential_scope(
-    rows: Sequence[_Row], strata: Mapping[tuple[str, str], _Group], cfg: PnLThresholds
-) -> tuple[_Scope, dict[str, Any]]:
+def _sequential_scope(rows: Sequence[_Row], cfg: PnLThresholds) -> tuple[_Scope, dict[str, Any]]:
     """The CUSUM over the trades in settlement order, and the metrics that describe it.
 
     Each trade is standardized by its own cell's promise (its segment and side, else the
-    book's record for its side): its shortfall is ``(mean - return) / std`` of that cell, and
-    its allowance is `cusum_allowance` times the cell's ``mean / std`` plus `cusum_backtest_se`
-    standard errors of the promise (``1 / sqrt(n)`` of the backtest trades behind it), so a
-    book that trades more NO, or more of a weaker segment, than the backtest did is not
-    mistaken for a decline, nor a champion whose backtest merely flattered it. A cell with no
-    spread, no positive promise, or a promise made on fewer than `cusum_min_backtest_trades`
-    trades cannot be standardized: its trades are skipped and counted. Trades that tie on
+    book's record for its side) when that rests on at least `cusum_min_backtest_trades`
+    backtest trades, else the book's record for its side if that does: its shortfall is
+    ``(mean - return) / std`` of that record, and its allowance is `cusum_allowance` times
+    ``mean / std`` plus `cusum_backtest_se` standard errors of the promise (``1 / sqrt(n)`` of
+    the backtest trades behind it), so a book that trades more NO, or more of a weaker segment,
+    than the backtest did is not mistaken for a decline, nor a champion whose backtest merely
+    flattered it. A trade with no record that is large enough, no spread or no positive promise
+    cannot be standardized: it is skipped and counted. Trades that tie on
     settlement time and identity are one step (their shortfalls and allowances add), which
     keeps the result independent of the order the log happens to list them in.
 
@@ -1993,8 +2001,10 @@ def _sequential_scope(
         shortfall = allowance = 0.0
         count = 0
         for row in tied:
-            mean, std, n_backtest = strata[row.stratum]
-            if mean > 0 and std > 0 and n_backtest >= cfg.cusum_min_backtest_trades:
+            if row.standardizer is None:
+                continue
+            mean, std, n_backtest = row.standardizer
+            if mean > 0 and std > 0:
                 shortfall += (mean - row.value) / std
                 allowance += cfg.cusum_allowance * mean / std + cfg.cusum_backtest_se / math.sqrt(
                     n_backtest
@@ -2123,6 +2133,13 @@ def _pnl_check(
                 n_cost_unverified += 1
         stratum, group = resolved
         strata[stratum] = group
+        # The sequential test standardizes by a record it can trust: the cell if it rests on
+        # enough backtest trades, else the book's record for the side, else nothing.
+        standard = (
+            references.resolve(segment, side, cfg.cusum_min_backtest_trades)
+            if references is not None and cfg.sequential
+            else None
+        )
         rows.append(
             _Row(
                 side,
@@ -2130,6 +2147,7 @@ def _pnl_check(
                 float(pnl) / float(stake),
                 _settlement_order(trade),
                 stratum,
+                None if standard is None else standard[1],
             )
         )
 
@@ -2229,7 +2247,7 @@ def _pnl_check(
         segments = _pnl_segment_family(rows, expectation, cfg)
     extras: list[_Scope] = []
     if cfg.sequential:
-        sequential, metrics["sequential"] = _sequential_scope(rows, strata, cfg)
+        sequential, metrics["sequential"] = _sequential_scope(rows, cfg)
         extras.append(sequential)
     return _assemble("pnl", overall, {"directions": sides, "segments": segments}, metrics, extras)
 
