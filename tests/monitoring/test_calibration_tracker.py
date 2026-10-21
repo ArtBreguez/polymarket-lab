@@ -148,7 +148,7 @@ class TestOutcomeIsAboutTheLabelNotTheProfit:
     def test_a_won_label_on_a_losing_no_trade_counts_as_occurred(self) -> None:
         """direction=no, label occurred: outcome="won", pnl<0, y_true must be 1."""
         losing_but_occurred = {
-            **_trade(0.40, True, pnl=-6.70),
+            **_trade(0.40, True, pnl=-10.03),
             "direction": "no",
         }
         tracker = CalibrationTracker([losing_but_occurred])

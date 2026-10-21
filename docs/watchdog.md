@@ -35,13 +35,14 @@ $ pmlab monitor -a artifacts -w paper_healthy --reference data/panel.parquet --a
 [exit code: 0] [bytes printed: 0]
 ```
 
-Problems come out as a few lines. A feature moved (only that feature is named; the one
-that did not move is not):
+Problems come out as a few lines. A feature moved (only that feature is named, and the
+model's own prediction, which depends on it; the one that did not move is not):
 
 ```text
 $ pmlab monitor -a artifacts -w paper_drifted --reference data/panel.parquet --as-of 2026-12-31T00:00:00Z --snapshots data/snaps/paper_drifted
 pmlab monitor: ALERT  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
-  drift       alert         feature_spread: alert (psi 6.472 >= 0.25, kl 2.943 >= 0.125)
+  drift       alert         feature_spread: alert (psi 5.121 >= 0.25, kl 3.440 >= 0.125)
+                            prediction: alert (psi 0.316 >= 0.25)
 [exit code: 20]
 ```
 
@@ -51,7 +52,7 @@ fine, PnL is not:
 ```text
 $ pmlab monitor -a artifacts -w paper_degraded --reference data/panel.parquet --as-of 2026-12-31T00:00:00Z --snapshots data/snaps/paper_degraded
 pmlab monitor: ALERT  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
-  pnl         alert         mean PnL/stake -0.222 vs backtest +0.158 (shortfall 240%, z=4.3, n=114); alert needs shortfall >= 100%, z >= 3
+  pnl         alert         mean PnL/stake -0.266 vs backtest +0.351 (shortfall 176%, z=3.7, n=160); alert needs shortfall >= 100%, z >= 3
 [exit code: 20]
 ```
 
@@ -112,6 +113,7 @@ def paper_trades(live):
     """The trade log rows `PaperBroker` + `SettlementEngine` leave behind."""
     return [{
         "recorded_at": "2026-02-01T09:00:00+00:00", "target_date": "2026-02-02",
+        "settled_at": "2026-02-02T12:00:00+00:00",
         "city_or_segment": "politics", "flat_stake": 1.0, "outcome": "won" if won else "lost",
         "model_prob": float(p), "realized_pnl": float(pnl),
     } for p, won, pnl in live[["predicted_prob", "label_occurred", "realized_pnl"]].itertuples(index=False)]
@@ -230,10 +232,34 @@ add up to `n_total`, and they are in the report: nothing disappears silently.
 
 **When no trade is in the champion's segments** (a book recorded under another champion, or a
 segment name that does not match) the checks are `insufficient` (exit 30) and the reason leads with the
-cause: `0 of N settled trades are in the champion's allowed segments ['A', 'B']`, and the report's
-metrics list `allowed_segments`. A champion that allows **no** segment at all is a different thing: an
-empty allowlist means *none*, exactly as in `PaperBroker`, so it could never have recorded a trade.
-`publish()` cannot produce it, so such a `champion.json` is malformed and exits 64.
+cause. Here every settled trade of a workspace was tagged with a segment the gate did not pass:
+
+```text
+$ pmlab monitor -a artifacts -w paper_stray --skip drift --as-of 2026-12-31T00:00:00Z
+pmlab monitor: INSUFFICIENT  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
+  calibration insufficient  0 of 160 settled trades are in the champion's allowed segments ['A', 'B', 'C', 'D'], need >= 30 (excluded: 160 outside the champion's allowed segments)
+  pnl         insufficient  0 of 160 settled trades are in the champion's allowed segments ['A', 'B', 'C', 'D'], need >= 30 (excluded: 160 outside the champion's allowed segments)
+  skipped: drift
+[exit code: 30]
+```
+
+The report's metrics list `allowed_segments`. A champion that allows **no** segment at all is a different
+thing: an empty allowlist means *none*, exactly as in `PaperBroker`, so it could never have recorded a
+trade. `publish()` cannot produce it, so such a `champion.json` is malformed and exits 64.
+
+**A log settled by an older release.** The `paper_degraded` workspace from the quick version, with the
+`settled_at`, `settled_basis` and `settlement_version` keys removed, which is what a 0.9.0 log looks like.
+Those trades were settled at the quote although they paid a slipped fill, so the PnL check leaves them out
+and says so; calibration does not care how the PnL was settled and is unaffected:
+
+```text
+$ pmlab monitor -a artifacts -w paper_legacy --skip drift --as-of 2026-12-31T00:00:00Z
+pmlab monitor: INSUFFICIENT  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
+  pnl         insufficient  0 scoreable settled trades, need >= 30 (excluded: 160 settled at the quote by an older release although they paid a different fill)
+                            note: 160 of 160 in-scope trades have no settled_at (settled by an older release), so they are judged by target_date and may include truth that arrived after as_of
+  skipped: drift
+[exit code: 30]
+```
 
 ```python
 from pathlib import Path
@@ -324,7 +350,7 @@ ones the report was built with. The reasons name each offending feature, worst f
 the signal that fired and the line it crossed:
 
 ```text
-feature_spread: alert (psi 6.472 >= 0.25, kl 2.943 >= 0.125)
+feature_spread: alert (psi 5.121 >= 0.25, kl 3.440 >= 0.125)
 ```
 
 - **The live window** is `[--window-start, --as-of)`; `--window-start` defaults to
@@ -400,7 +426,7 @@ read as a ten-fold shortfall. The shortfall is `(backtest - live) / backtest`: 0
 what was promised, 1.0 is earning nothing.
 
 ```text
-mean PnL/stake -0.222 vs backtest +0.158 (shortfall 240%, z=4.3, n=114); alert needs shortfall >= 100%, z >= 3
+mean PnL/stake -0.266 vs backtest +0.351 (shortfall 176%, z=3.7, n=160); alert needs shortfall >= 100%, z >= 3
 ```
 
 The test is **one-sided**: only a shortfall can warn. Beating the backtest is never a problem, and a
@@ -503,6 +529,53 @@ z test, it would switch the check off and let a badly degraded champion exit 0. 
 defence `health_report` reports a check whose expectation (cause `invalid_expectation`) or live
 statistic (cause `invalid_statistic`, for example a variance that overflowed) is not finite as
 `insufficient` with the offending number named, never as `ok`.
+
+---
+
+## Costs and NO trades, from the CLI
+
+The whole chain through the installed `pmlab`: a backtest under a cost model, a champion promoted on it,
+paper trades recorded under the champion's costs (a third of them NO-side), settled, then watched. The
+champion carries the costs without `promote-champion` being told them again (it reads them from
+`metrics.json`), and the paper trades carry the slippage and fee the backtest charged:
+
+```text
+$ pmlab promote-champion model.pkl --gate-path gate.json --plugin e2e_family --output-dir artifacts/public_models --name e2e-lgbm --expectation metrics.json
+Gate decision: GO
+Aggregate PnL: $+100.07 over 285 trades
+Champion published!
+  Model: artifacts/public_models/champion.pkl
+  Manifest: artifacts/public_models/champion.json
+  Allowed segments: {'A', 'C', 'D', 'B'}
+  Costs: {'taker_bps': 30.0, 'slippage_bps': 50.0, 'slippage_fixed': 0.0, 
+'depth_bps_per_unit': 0.0, 'depth_reference_stake': 1.0}
+```
+
+One YES trade and two NO trades from that log. The YES quote 0.328 became a fill of 0.33003 (+50 bps); a NO
+trade buys the NO token at `1 - gamma_price` plus the same friction. `outcome` says whether the *label*
+occurred, so a NO trade on a label that occurred is `"won"` while its PnL is the whole stake and the fee
+lost; the other NO trade's token paid 1 per share, `1 / 0.60666 - 1 - 0.003`:
+
+```text
+{"direction":"yes","gamma_price":0.32839121062291904,"fill_price":0.33003317,"fee_paid":0.003,"outcome":"lost","realized_pnl":-1.003,"settled_basis":"fill_price","settlement_version":1,"settled_at":"2026-12-30T12:00:00+00:00"}
+{"direction":"no","gamma_price":0.6105203467794211,"fill_price":0.39142705,"fee_paid":0.003,"outcome":"won","realized_pnl":-1.003,"settled_basis":"fill_price","settlement_version":1,"settled_at":"2026-12-30T12:00:00+00:00"}
+{"direction":"no","gamma_price":0.3963629312295738,"fill_price":0.60665525,"fee_paid":0.003,"outcome":"lost","realized_pnl":0.645383,"settled_basis":"fill_price","settlement_version":1,"settled_at":"2026-12-30T12:00:00+00:00"}
+```
+
+Recomputing every settled trade in that log from its own recorded fields (shares bought at `fill_price`,
+paying 1 if the token wins, minus the stake and the fee) agrees with `realized_pnl` to 5e-7, and each of the
+37 NO trades whose label occurred lost exactly stake plus fee.
+
+The PnL check uses the costs: the cost basis is known and matches, nothing was unverified, and the 60 NO
+trades are counted out of the comparison rather than judged against a strategy the backtest never ran:
+
+```text
+$ pmlab monitor -a artifacts -w paper_with_no ... --json - | jq '.checks[] | select(.name == "pnl") | .metrics | {cost_basis, n_in_scope, n_trades, n_excluded_no_side, n_excluded_cost_basis, n_cost_unverified}'
+{"cost_basis":"match","n_in_scope":180,"n_trades":120,"n_excluded_no_side":60,"n_excluded_cost_basis":0,"n_cost_unverified":0}
+```
+
+Without costs anywhere (a champion promoted with no `--costs` and no costs in its expectation file) the
+same check reports `"cost_basis": "unknown"` and compares nothing.
 
 ---
 
@@ -614,9 +687,9 @@ report even then:
 ```text
 $ pmlab monitor -a artifacts -w paper_healthy --reference data/panel.parquet --as-of 2026-12-31T00:00:00Z --snapshots data/snaps/paper_healthy --verbose
 pmlab monitor: OK  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
-  drift       ok            2 feature(s) and the prediction within thresholds (max psi 0.016, 420 live rows)
-  calibration ok            Brier 0.241 vs backtest 0.226 (+0.015 abs, +6.4% rel, z=0.6, n=114); within thresholds
-  pnl         ok            mean PnL/stake +0.010 vs backtest +0.158 (shortfall 93%, z=1.5, n=114); within thresholds
+  drift       ok            2 feature(s) and the prediction within thresholds (max psi 0.020, 600 live rows)
+  calibration ok            Brier 0.187 vs backtest 0.205 (-0.019 abs, -9.0% rel, z=-0.9, n=160); within thresholds
+  pnl         ok            mean PnL/stake +0.601 vs backtest +0.351 (shortfall -71%, z=-0.8, n=160); within thresholds
 [exit code: 0]
 ```
 
@@ -667,7 +740,7 @@ print("exit code:", data["exit_code"])
 ```text
 ['status', 'exit_code', 'as_of', 'champion', 'skipped', 'checks', 'config']
 {'drift': ('insufficient', 'not_evaluated'), 'calibration': ('insufficient', 'too_few_samples'), 'pnl': ('insufficient', 'too_few_samples')}
-{"n_total": 0, "n_open": 0, "n_out_of_segment": 0, "n_unattributed": 0, "n_before_champion": 0, "n_after_as_of": 0, "n_in_scope": 0, "n_by_segment": {}, "n_trades": 0, "n_skipped_no_forecast": 0, "min_trades": 30}
+{"n_total": 0, "n_open": 0, "n_out_of_segment": 0, "n_unattributed": 0, "n_before_champion": 0, "n_after_as_of": 0, "n_no_settled_at": 0, "n_in_scope": 0, "n_invalid_forecast": 0, "allowed_segments": ["politics"], "n_by_segment": {}, "n_trades": 0, "n_skipped_no_forecast": 0, "min_trades": 30}
 round trip: True
 exit code: 30
 ```
@@ -864,8 +937,8 @@ miscalibration, lower `brier_warn_abs` and read `reliability_live` in the JSON; 
   how thin a segment is; `CalibrationTracker.by_segment()` gives the per-segment numbers.
 - **The backtest mean is optimistic.** A champion is chosen *because* its backtest looked good (a winner's
   curse), so its live mean tends to fall below the promise even when nothing is wrong. The warn level of
-  "half of what was promised" leaves room for that; the healthy world in the [Output](#output) section sits at a 93%
-  shortfall and is correctly not flagged, because 114 trades cannot tell that apart from noise.
+  "half of what was promised" leaves room for that: at the sample sizes in the simulation above a
+  shortfall of that size cannot be told apart from noise, and is correctly not flagged.
 - **Trades are treated as independent.** They are not quite: markets that resolve together, or a regime,
   correlate them, which makes the true noise larger than the test assumes.
 - **Skew needs volume.** A payoff that wins small often and loses big rarely (or the reverse) has a
@@ -899,13 +972,13 @@ miscalibration, lower `brier_warn_abs` and read `reliability_live` in the JSON; 
 
 ```text
 $ scripts/pmlab-workspace paper_healthy pmlab monitor --skip drift --as-of 2026-12-31T00:00:00Z
-pmlab monitor: error: trade log not found: /tmp/pmlab-wd-e2e/fake_repo/artifacts/workspaces/paper_healthy/workspaces/ops_daily/signals/v2/forward_paper_trades.json
+pmlab monitor: error: trade log not found: /tmp/pmlab-e2e-drift/fake_repo/artifacts/workspaces/paper_healthy/workspaces/ops_daily/signals/v2/forward_paper_trades.json
 [exit code: 64]
 
 $ scripts/pmlab-workspace paper_healthy pmlab monitor --skip drift --as-of 2026-12-31T00:00:00Z --trades artifacts/workspaces/paper_healthy/signals/v2/forward_paper_trades.json -v
 pmlab monitor: OK  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
-  calibration ok            Brier 0.241 vs backtest 0.226 (+0.015 abs, +6.4% rel, z=0.6, n=114); within thresholds
-  pnl         ok            mean PnL/stake +0.010 vs backtest +0.158 (shortfall 93%, z=1.5, n=114); within thresholds
+  calibration ok            Brier 0.187 vs backtest 0.205 (-0.019 abs, -9.0% rel, z=-0.9, n=160); within thresholds
+  pnl         ok            mean PnL/stake +0.601 vs backtest +0.351 (shortfall -71%, z=-0.8, n=160); within thresholds
   skipped: drift
 [exit code: 0]
 ```
@@ -920,7 +993,8 @@ pmlab monitor: OK  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
 - **Cron.** Give it absolute paths and a `PATH` that finds `pmlab`; log the JSON for a record
   (`--json /var/log/pmlab/health.json`); and remember that a `%` in a crontab line must be escaped.
 - **Bad input is never green.** A missing champion, a corrupt trade log, a typo'd snapshot directory (it is
-  not created), an unwritable `--json`: all exit 64 with one line on stderr.
+  not created), an unwritable `--json`, a `--as-of` with no UTC offset, a `champion.json` whose
+  expectation holds a `NaN`: all exit 64 with one line on stderr.
 
 ```text
 $ pmlab monitor -a /nonexistent -w paper_healthy --reference data/panel.parquet --as-of 2026-12-31T00:00:00Z --snapshots data/snaps/paper_healthy
@@ -933,6 +1007,14 @@ pmlab monitor: error: champion.json is unreadable (artifacts_bad/public_models/c
 
 $ pmlab monitor -a artifacts -w paper_healthy --reference data/panel.parquet --as-of 2026-12-31T00:00:00Z --snapshots data/snaps/paper_helthy
 pmlab monitor: error: snapshot directory not found: data/snaps/paper_helthy
+[exit code: 64]
+
+$ pmlab monitor -a artifacts -w paper_healthy --skip drift --as-of 2026-12-31T00:00:00
+pmlab monitor: error: --as-of '2026-12-31T00:00:00' has no UTC offset, so it could be anyone's local time; give one explicitly, e.g. 2026-03-01T00:00:00Z or 2026-03-01T00:00:00+01:00
+[exit code: 64]
+
+$ pmlab monitor -a artifacts_nan -w paper_degraded --skip drift --as-of 2026-12-31T00:00:00Z
+pmlab monitor: error: champion.json is unreadable (artifacts_nan/public_models/champion.json): ValueError: std_pnl_per_stake must be a finite number, got nan
 [exit code: 64]
 
 $ pmlab monitor --bogus
