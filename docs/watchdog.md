@@ -1063,7 +1063,7 @@ pmlab resettle: artifacts/workspaces/paper_legacy/signals/v2/forward_paper_trade
     C 2027-08-10 morning_of no: +0.997000 -> +3.125313
     C 2028-04-22 morning_of no: -5.834206 -> -1.003000
     ... and 373 more
-  Backup of the original: /home/arthur/work/tmp-pmlab/e2e/work/artifacts/workspaces/paper_legacy/signals/v2/forward_paper_trades.json.bak-20261021T212321Z
+  Backup of the original: /srv/pmlab/artifacts/workspaces/paper_legacy/signals/v2/forward_paper_trades.json.bak-20261021T212321Z
 [exit code: 0]
 
 $ ls artifacts/workspaces/paper_legacy/signals/v2/
@@ -1081,7 +1081,8 @@ $ ls artifacts/workspaces/paper_legacy/signals/v2/ | wc -l
 458 re-settled trades vs the same trades settled fresh by the engine: largest difference in realized_pnl 0.0e+00
 ```
 
-And what the watchdog says about that log before and after:
+The absolute prefix of the backup path is shortened to `/srv/pmlab/` here. And what the watchdog says about
+that log afterwards (before, the same command was INSUFFICIENT, as [shown above](#which-trades-count)):
 
 ```text
 $ pmlab monitor -a artifacts -w paper_legacy --reference data/panel.parquet --snapshots data/snaps/paper_legacy --family e2e_family --as-of 2028-12-31T00:00:00Z --verbose
