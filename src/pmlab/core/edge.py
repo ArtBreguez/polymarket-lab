@@ -11,11 +11,15 @@ from dataclasses import dataclass
 
 from pmlab.core.costs import CostModel
 
-__all__ = ["DEFAULT_MIN_EDGE", "QuoteEdges", "compute_edge", "quote_edges"]
+__all__ = ["DEFAULT_MIN_EDGE", "QuoteEdges", "compute_edge", "edge_clears", "quote_edges"]
 
 # `pmlab record-trades --min-edge` default: the smallest best_edge worth a trade. The
 # backtest's live policy reads the same constant, so the two cannot drift apart.
 DEFAULT_MIN_EDGE = 0.20
+
+# Slack for float round-off when an edge is held against `--min-edge`: 0.6 - 0.5 is
+# 0.09999999999999998, and an edge of exactly 0.10 must clear a threshold of 0.10.
+_EDGE_TOLERANCE = 1e-9
 
 
 def compute_edge(
@@ -117,6 +121,11 @@ def quote_edges(
         best_edge=candidates[direction],
         direction=direction,
     )
+
+
+def edge_clears(best_edge: float, min_edge: float) -> bool:
+    """Is `best_edge` at least `min_edge`? The one comparison `record-trades` and the backtest share."""
+    return best_edge >= min_edge - _EDGE_TOLERANCE
 
 
 def _is_unit_interval(value: float) -> bool:

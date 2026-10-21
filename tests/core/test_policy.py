@@ -20,7 +20,7 @@ import math
 import pytest
 
 from pmlab.core.costs import CostModel
-from pmlab.core.edge import DEFAULT_MIN_EDGE, quote_edges
+from pmlab.core.edge import DEFAULT_MIN_EDGE, edge_clears, quote_edges
 from pmlab.core.policy import TradePolicy
 from pmlab.execution.edge_signal import EdgeSignal
 
@@ -93,6 +93,24 @@ class TestQuoteEdges:
 
     def test_the_default_threshold_is_the_one_record_trades_uses(self) -> None:
         assert DEFAULT_MIN_EDGE == 0.20
+
+
+class TestEdgeClears:
+    """`best_edge >= min_edge`, with float round-off forgiven: 0.6 - 0.5 is 0.0999...98."""
+
+    def test_an_edge_equal_to_the_threshold_clears(self) -> None:
+        assert edge_clears(0.2, 0.2)
+
+    def test_round_off_below_the_threshold_still_clears(self) -> None:
+        assert 0.6 - 0.5 < 0.1  # the float trap this guards against
+        assert edge_clears(0.6 - 0.5, 0.1)
+
+    def test_a_real_shortfall_does_not_clear(self) -> None:
+        assert not edge_clears(0.0999, 0.1)
+        assert not edge_clears(-math.inf, -1.0)
+
+    def test_a_nan_edge_never_clears(self) -> None:
+        assert not edge_clears(math.nan, -1.0)
 
 
 class TestTradePolicy:
