@@ -42,6 +42,7 @@ from pmlab.monitoring.watchdog import (
     _cost_basis,
     exit_code_for,
     health_report,
+    parse_as_of,
 )
 
 _PUBLISHED = "2026-01-01T00:00:00+00:00"
@@ -915,11 +916,11 @@ class TestInputErrors:
                 champion=_champion(published_at="whenever"), trades=[], drift=None, as_of=_AS_OF
             )
 
-    def test_naive_as_of_is_read_as_utc(self) -> None:
-        a = health_report(
-            champion=_champion(), trades=_trades(), drift=_drift(), as_of="2026-03-01"
-        )
-        assert a.status == "ok"
+    @pytest.mark.parametrize("naive", ["2026-03-01", "2026-03-01T00:00:00", "2026-03-01 12:30"])
+    def test_a_naive_as_of_is_refused_not_read_as_utc(self, naive: str) -> None:
+        """A cutoff with no offset could be anyone's local midnight: ask, never guess."""
+        with pytest.raises(WatchdogInputError, match=r"UTC offset.*Z"):
+            health_report(champion=_champion(), trades=_trades(), drift=_drift(), as_of=naive)
 
     def test_as_of_may_be_a_datetime_string_with_z(self) -> None:
         r = health_report(
@@ -1545,3 +1546,33 @@ class TestAsOfIsPointInTimeForSettlement:
             checks=("pnl",),
         )
         assert report.status == "ok" and report.render() == ""
+
+
+class TestParseAsOf:
+    """The strict parser for a cutoff: an ISO-8601 timestamp with an explicit offset."""
+
+    def test_z_is_utc(self) -> None:
+        assert parse_as_of("2026-03-01T00:00:00Z").isoformat() == "2026-03-01T00:00:00+00:00"
+
+    def test_an_offset_is_converted_to_utc(self) -> None:
+        assert parse_as_of("2026-03-01T02:00:00+02:00").isoformat() == "2026-03-01T00:00:00+00:00"
+
+    @pytest.mark.parametrize("naive", ["2026-03-01", "2026-03-01T00:00:00", "2026-03-01T00:00"])
+    def test_naive_is_refused_with_a_message_that_says_how_to_fix_it(self, naive: str) -> None:
+        with pytest.raises(WatchdogInputError) as excinfo:
+            parse_as_of(naive)
+        text = str(excinfo.value)
+        assert naive in text and "UTC offset" in text and "Z" in text
+
+    @pytest.mark.parametrize("bad", ["yesterday-ish", "", "2026-13-45T00:00:00Z"])
+    def test_garbage_is_refused(self, bad: str) -> None:
+        with pytest.raises(WatchdogInputError, match="ISO-8601"):
+            parse_as_of(bad)
+
+    def test_a_non_string_is_refused(self) -> None:
+        with pytest.raises(WatchdogInputError):
+            parse_as_of(20260301)  # type: ignore[arg-type]
+
+    def test_the_name_appears_in_the_message(self) -> None:
+        with pytest.raises(WatchdogInputError, match="--window-start"):
+            parse_as_of("2026-03-01", name="--window-start")

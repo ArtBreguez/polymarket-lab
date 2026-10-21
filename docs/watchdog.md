@@ -734,7 +734,7 @@ def verdicts(live_edge, n_live, sims=400):
             for r in draw(rng, n_live, live_edge)
         ]
         report = health_report(champion=champion, trades=trades, drift=None,
-                               as_of="2026-03-01", config=cfg, checks=("pnl",))
+                               as_of="2026-03-01T00:00:00Z", config=cfg, checks=("pnl",))
         hits += report.status in ("warn", "alert")
     return hits / sims
 
@@ -814,7 +814,7 @@ def verdicts(miscalibration, n_live, sims=300):
             for p, won in zip(f, y, strict=True)
         ]
         report = health_report(champion=champion, trades=trades, drift=None,
-                               as_of="2026-03-01", config=cfg, checks=("calibration",))
+                               as_of="2026-03-01T00:00:00Z", config=cfg, checks=("calibration",))
         counts[report.status] += 1
     return counts
 
@@ -897,7 +897,12 @@ pmlab monitor: OK  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
 ```
 
 - **The clock.** `--as-of` defaults to now (UTC) and is the only place the wall clock is read. Pass it
-  explicitly to replay an earlier moment; everything is point-in-time as of it.
+  explicitly to replay an earlier moment; everything is point-in-time as of it. It must carry a UTC
+  offset (`2026-03-01T00:00:00Z`, `2026-03-01T00:00:00+01:00`): `2026-03-01` or `2026-03-01T00:00:00` is
+  refused with exit 64, because on a cron box in another zone that would be a different instant and
+  the report would still look right. The same goes for `--window-start` and the `as_of` argument of
+  `health_report`. (The timestamps *inside* the trade log are read leniently: a naive `recorded_at`
+  is taken as UTC.)
 - **Cron.** Give it absolute paths and a `PATH` that finds `pmlab`; log the JSON for a record
   (`--json /var/log/pmlab/health.json`); and remember that a `%` in a crontab line must be escaped.
 - **Bad input is never green.** A missing champion, a corrupt trade log, a typo'd snapshot directory (it is

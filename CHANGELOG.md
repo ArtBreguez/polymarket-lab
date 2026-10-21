@@ -100,6 +100,11 @@ cron: `pmlab monitor ... || notify`.
   calibration and PnL report `insufficient` ("no backtest expectation recorded"); a
   present but unusable record (non-finite number, negative spread, fewer than two
   trades) is an error (exit 64), not a silent `None` and never a silent pass.
+- **A cutoff needs a UTC offset.** `--as-of` (and `--window-start`, and the `as_of`
+  argument of `health_report`) refuse a naive timestamp such as `2026-03-01` with exit
+  64 and a message asking for `Z` or an explicit offset, instead of reading it as UTC:
+  on a cron box in another zone that is a different instant and the report would still
+  look right. Timestamps inside the trade log stay lenient.
 - **Typo'd configuration is rejected**, not ignored: an unknown threshold key would
   otherwise leave the default in force while the operator believed otherwise.
 - A trade log is put in a canonical order before any float sum. Shuffling the file

@@ -33,7 +33,7 @@ from pmlab.monitoring.watchdog import (
     WatchdogConfig,
     WatchdogInputError,
     health_report,
-    parse_timestamp,
+    parse_as_of,
 )
 
 
@@ -308,9 +308,7 @@ def _run(
 ) -> int:
     # The one place the clock is read. Everything downstream is a function of it.
     as_of = as_of if as_of is not None else datetime.now(UTC).isoformat(timespec="seconds")
-    cutoff = parse_timestamp(as_of)
-    if cutoff is None:
-        raise UsageError(f"--as-of {as_of!r} is not an ISO-8601 timestamp")
+    cutoff = parse_as_of(as_of, name="--as-of")
     if window_days < 1:
         raise UsageError(f"--window-days must be at least 1, got {window_days}")
     unknown = sorted(set(skip) - set(CHECKS))
@@ -330,8 +328,7 @@ def _run(
             raise UsageError("--reference and --snapshots must be given together")
         if reference is not None and snapshots is not None:
             start = window_start or (cutoff - timedelta(days=window_days)).isoformat()
-            if parse_timestamp(start) is None:
-                raise UsageError(f"--window-start {start!r} is not an ISO-8601 timestamp")
+            parse_as_of(start, name="--window-start")
             drift = _drift_report(
                 manifest=manifest,
                 champion_path=champion_path,

@@ -542,7 +542,9 @@ def monitor_cmd(
         7, "--window-days", help="Live drift window, ending at --as-of"
     ),
     window_start: str | None = typer.Option(
-        None, "--window-start", help="ISO start of the live drift window (overrides --window-days)"
+        None,
+        "--window-start",
+        help="ISO start of the live drift window, with a UTC offset (overrides --window-days)",
     ),
     feature: Annotated[
         list[str] | None,
@@ -555,7 +557,9 @@ def monitor_cmd(
         False, "--no-prediction", help="Skip prediction drift (does not load the champion model)"
     ),
     as_of: str | None = typer.Option(
-        None, "--as-of", help="ISO-8601 cutoff, point-in-time (default: now, UTC)"
+        None,
+        "--as-of",
+        help="ISO-8601 cutoff with a UTC offset, e.g. 2026-03-01T00:00:00Z (default: now, UTC)",
     ),
     config: str | None = typer.Option(
         None, "--config", help="TOML/JSON file overriding drift, calibration and PnL thresholds"

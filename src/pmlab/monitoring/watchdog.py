@@ -67,6 +67,7 @@ __all__ = [
     "WatchdogInputError",
     "exit_code_for",
     "health_report",
+    "parse_as_of",
     "parse_timestamp",
 ]
 
@@ -488,7 +489,11 @@ class HealthReport:
 
 
 def parse_timestamp(value: Any) -> datetime | None:
-    """An ISO-8601 string as an aware UTC datetime; a naive one is read as UTC."""
+    """An ISO-8601 string as an aware UTC datetime; a naive one is read as UTC.
+
+    Lenient on purpose, for the timestamps *in the data* (a hand-written trade log, a
+    bare ``target_date``). A cutoff the operator types goes through `parse_as_of`.
+    """
     if not isinstance(value, str):
         return None
     try:
@@ -496,6 +501,28 @@ def parse_timestamp(value: Any) -> datetime | None:
     except ValueError:
         return None
     return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def parse_as_of(value: Any, *, name: str = "as_of") -> datetime:
+    """A cutoff as an aware UTC datetime. It must carry an explicit UTC offset.
+
+    A cutoff with none ("2026-03-01", "2026-03-01T00:00:00") is whoever's local
+    midnight; reading it as UTC would silently move the window by hours on a cron box
+    in another zone, and the report would still look right. So it is refused.
+
+    Raises:
+        WatchdogInputError: Not a string, not ISO-8601, or naive.
+    """
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise WatchdogInputError(f"{name} {value!r} is not an ISO-8601 timestamp") from None
+    if parsed.tzinfo is None:
+        raise WatchdogInputError(
+            f"{name} {value!r} has no UTC offset, so it could be anyone's local time; "
+            "give one explicitly, e.g. 2026-03-01T00:00:00Z or 2026-03-01T00:00:00+01:00"
+        )
+    return parsed.astimezone(UTC)
 
 
 def _is_number(value: Any) -> TypeGuard[int | float]:
@@ -1109,13 +1136,14 @@ def health_report(
             unavailable, not as fine).
         as_of: ISO-8601 cutoff. Nothing recorded after it, and no trade settled
             after it (`settled_at`; `target_date` for a trade from an older release
-            that has none), is evidence. Naive means UTC.
+            that has none), is evidence. Must carry a UTC offset (``Z`` is fine);
+            a naive timestamp is refused, not read as UTC.
         config: Thresholds and the `insufficient` policy; defaults if omitted.
         checks: Which of `CHECKS` to run. The rest are listed in `skipped`.
 
     Raises:
-        WatchdogInputError: Unparseable `as_of` or publish time, an unknown or
-            empty `checks`, or a malformed trade row.
+        WatchdogInputError: An unparseable or offset-less `as_of`, an unparseable
+            publish time, an unknown or empty `checks`, or a malformed trade row.
     """
     config = config or WatchdogConfig()
 
@@ -1127,9 +1155,7 @@ def health_report(
     selected_checks = [name for name in CHECKS if name in checks]
     skipped = tuple(name for name in CHECKS if name not in checks)
 
-    as_of_ts = parse_timestamp(as_of)
-    if as_of_ts is None:
-        raise WatchdogInputError(f"as_of {as_of!r} is not an ISO-8601 timestamp")
+    as_of_ts = parse_as_of(as_of)
     published_ts = parse_timestamp(champion.published_at)
     if published_ts is None:
         raise WatchdogInputError(

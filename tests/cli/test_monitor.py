@@ -669,6 +669,33 @@ class TestUsageErrors:
         assert result.exit_code == EXIT_USAGE
         assert "as-of" in result.stderr or "as_of" in result.stderr
 
+    @pytest.mark.parametrize("naive", ["2026-03-01", "2026-03-01T00:00:00"])
+    def test_a_naive_as_of_is_refused_rather_than_read_as_utc(
+        self, world: World, naive: str
+    ) -> None:
+        """A cron box in Paris must not have its midnight silently read as UTC."""
+        result = runner.invoke(app, world.args("--no-prediction", as_of=naive))
+        assert result.exit_code == EXIT_USAGE
+        assert "--as-of" in result.stderr
+        assert "UTC offset" in result.stderr and "Z" in result.stderr
+        assert result.stdout == ""
+
+    @pytest.mark.parametrize("given", ["2026-03-01T00:00:00Z", "2026-03-01T01:00:00+01:00"])
+    def test_an_explicit_offset_is_accepted_and_means_the_same_instant(
+        self, world: World, given: str
+    ) -> None:
+        out = world.root / "h.json"
+        result = runner.invoke(app, world.args("--no-prediction", "--json", str(out), as_of=given))
+        assert result.exit_code == EXIT_OK, result.stderr
+        assert json.loads(out.read_text())["as_of"] == given
+
+    def test_a_naive_window_start_is_refused_too(self, world: World) -> None:
+        result = runner.invoke(
+            app, world.args("--no-prediction", "--window-start", "2026-02-20T00:00:00")
+        )
+        assert result.exit_code == EXIT_USAGE
+        assert "--window-start" in result.stderr and "UTC offset" in result.stderr
+
     def test_a_missing_reference_panel(self, world: World) -> None:
         world.reference.unlink()
         result = runner.invoke(app, world.args())
