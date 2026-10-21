@@ -15,6 +15,8 @@ import pytest
 from scipy import stats as sp
 
 from pmlab.monitoring.stats import (
+    cusum,
+    detectable_gap,
     holm_adjust,
     mixture_reference,
     normal_isf,
@@ -178,3 +180,178 @@ class TestMixtureReference:
     ) -> None:
         with pytest.raises(ValueError):
             mixture_reference(counts, groups)
+
+
+def _max_suffix_sum(steps: np.ndarray) -> float:
+    """Page's identity: the CUSUM statistic after n steps is the best suffix sum.
+
+    S_n = max over j in 0..n of (steps[j] + ... + steps[n-1]), the empty suffix included.
+    A different computation from the recursion in `cusum`, so it can check it.
+    """
+    best = 0.0
+    total = 0.0
+    for value in steps[::-1]:
+        total += value
+        best = max(best, total)
+    return best
+
+
+class TestCusum:
+    def test_a_hand_worked_run(self) -> None:
+        # steps x - k with k = 0.5:  0.5, 1.5, -1.5, 0.0, 2.5
+        # statistic after each:      0.5, 2.0,  0.5, 0.5, 3.0   (never below zero)
+        result = cusum([1.0, 2.0, -1.0, 0.5, 3.0], [0.5] * 5, threshold=3.0)
+        assert result.statistic == pytest.approx(3.0)
+        assert result.peak == pytest.approx(3.0)
+        assert result.crossed_at == 5
+        assert result.n == 5
+
+    def test_the_statistic_cannot_go_negative_so_good_luck_is_forgotten(self) -> None:
+        # A long winning streak must not bank credit against a later losing one.
+        good = [-1.0] * 100
+        bad = [1.0] * 10
+        alone = cusum(bad, [0.0] * 10, threshold=1e9).statistic
+        after_luck = cusum(good + bad, [0.0] * 110, threshold=1e9).statistic
+        assert after_luck == pytest.approx(alone)
+        assert after_luck == pytest.approx(10.0)
+
+    def test_the_allowance_is_subtracted_every_step(self) -> None:
+        # Ten steps of exactly the allowance accumulate nothing; slightly above, something.
+        assert cusum([0.5] * 10, [0.5] * 10, threshold=1.0).statistic == 0.0
+        assert cusum([0.6] * 10, [0.5] * 10, threshold=1.0).statistic == pytest.approx(1.0)
+
+    def test_the_allowance_may_differ_per_step(self) -> None:
+        result = cusum([1.0, 1.0, 1.0], [0.0, 0.5, 1.0], threshold=10.0)
+        assert result.statistic == pytest.approx(1.0 + 0.5 + 0.0)
+
+    def test_crossing_is_the_first_trade_that_reaches_the_threshold(self) -> None:
+        result = cusum([1.0] * 10, [0.0] * 10, threshold=4.0)
+        assert result.crossed_at == 4
+        assert result.statistic == pytest.approx(10.0)  # the run goes on after the signal
+
+    def test_exactly_the_threshold_signals(self) -> None:
+        assert cusum([2.0, 2.0], [0.0, 0.0], threshold=4.0).crossed_at == 2
+
+    def test_a_signal_is_remembered_after_the_statistic_recovers(self) -> None:
+        result = cusum([5.0, -9.0, -9.0], [0.0] * 3, threshold=5.0)
+        assert result.crossed_at == 1
+        assert result.statistic == 0.0
+        assert result.peak == pytest.approx(5.0)
+
+    def test_no_crossing_is_none(self) -> None:
+        assert cusum([0.1] * 20, [0.0] * 20, threshold=50.0).crossed_at is None
+
+    def test_an_empty_sequence_has_a_zero_statistic(self) -> None:
+        result = cusum([], [], threshold=1.0)
+        assert (result.statistic, result.peak, result.crossed_at, result.n) == (0.0, 0.0, None, 0)
+
+    def test_the_order_of_the_trades_matters(self) -> None:
+        # The same trades, losses last versus losses first: only the first is a live problem.
+        losses_last = cusum([-1.0] * 20 + [1.0] * 10, [0.0] * 30, threshold=1e9).statistic
+        losses_first = cusum([1.0] * 10 + [-1.0] * 20, [0.0] * 30, threshold=1e9).statistic
+        assert losses_last == pytest.approx(10.0)
+        assert losses_first == 0.0
+
+    def test_it_agrees_with_pages_identity_on_random_sequences(self) -> None:
+        rng = np.random.default_rng(5)
+        for _ in range(300):
+            n = int(rng.integers(1, 60))
+            x = rng.normal(0.1, 1.0, n)
+            k = rng.uniform(0.0, 0.6, n)
+            result = cusum(x.tolist(), k.tolist(), threshold=1e9)
+            assert result.statistic == pytest.approx(_max_suffix_sum(x - k), abs=1e-9)
+            peak = max(_max_suffix_sum((x - k)[:i]) for i in range(1, n + 1))
+            assert result.peak == pytest.approx(peak, abs=1e-9)
+
+    def test_the_average_run_length_matches_siegmunds_approximation(self) -> None:
+        """Siegmund's approximation for a one-sided CUSUM on unit-variance normal data, with
+        drift d = mean - k per step and b = h + 1.166:
+
+            ARL = (exp(-2 d b) + 2 d b - 1) / (2 d**2)
+
+        In control the mean is 0, so d = -k. Written down independently of the code."""
+
+        def siegmund(drift: float, h: float) -> float:
+            b = h + 1.166
+            return (math.exp(-2 * drift * b) + 2 * drift * b - 1) / (2 * drift**2)
+
+        k, h = 0.5, 4.0
+        rng = np.random.default_rng(6)
+        runs = []
+        for _ in range(3000):
+            x = rng.normal(0.0, 1.0, 5000)
+            crossed = cusum(x.tolist(), [k] * 5000, threshold=h).crossed_at
+            assert crossed is not None
+            runs.append(crossed)
+        assert float(np.mean(runs)) == pytest.approx(siegmund(-k, h), rel=0.06)
+
+    def test_a_shifted_mean_is_found_within_the_expected_delay(self) -> None:
+        """The same approximation out of control: mean shift 1 sigma, allowance 0.5, so the
+        drift is +0.5 per step and a threshold of 8 is reached after about 16 trades."""
+        k, h, shift = 0.5, 8.0, 1.0
+        drift = shift - k
+        b = h + 1.166
+        expected = (math.exp(-2 * drift * b) + 2 * drift * b - 1) / (2 * drift**2)
+        rng = np.random.default_rng(7)
+        delays = []
+        for _ in range(3000):
+            x = rng.normal(shift, 1.0, 400)
+            crossed = cusum(x.tolist(), [k] * 400, threshold=h).crossed_at
+            assert crossed is not None
+            delays.append(crossed)
+        assert float(np.mean(delays)) == pytest.approx(expected, rel=0.06)
+
+    @pytest.mark.parametrize(
+        ("shortfalls", "allowances", "threshold"),
+        [
+            ([1.0], [0.0, 0.0], 1.0),  # lengths differ
+            ([math.nan], [0.0], 1.0),
+            ([1.0], [math.inf], 1.0),
+            ([1.0], [0.0], 0.0),
+            ([1.0], [0.0], -1.0),
+            ([1.0], [0.0], math.nan),
+            ([1.0], [0.0], math.inf),
+        ],
+    )
+    def test_unusable_input_is_refused(
+        self, shortfalls: list[float], allowances: list[float], threshold: float
+    ) -> None:
+        with pytest.raises(ValueError):
+            cusum(shortfalls, allowances, threshold)
+
+
+class TestDetectableGap:
+    def test_a_hand_worked_example(self) -> None:
+        # (z_alpha + z_power) * se = (2 + 0.84162) * 0.1
+        assert detectable_gap(0.1, 2.0, 0.8) == pytest.approx(0.284162, abs=1e-6)
+
+    def test_it_is_proportional_to_the_standard_error(self) -> None:
+        assert detectable_gap(0.2, 2.0, 0.8) == pytest.approx(2 * detectable_gap(0.1, 2.0, 0.8))
+
+    def test_more_power_or_a_stricter_test_need_a_bigger_gap(self) -> None:
+        assert detectable_gap(0.1, 2.0, 0.9) > detectable_gap(0.1, 2.0, 0.8)
+        assert detectable_gap(0.1, 3.0, 0.8) > detectable_gap(0.1, 2.0, 0.8)
+
+    def test_at_fifty_percent_power_the_gap_is_exactly_the_critical_value(self) -> None:
+        assert detectable_gap(0.1, 2.0, 0.5) == pytest.approx(0.2)
+
+    def test_the_test_really_has_that_power_at_that_gap(self) -> None:
+        """Simulate the one-sided z test the formula is about: with the true gap equal to
+        the detectable gap, the test clears z_alpha about `power` of the time."""
+        rng = np.random.default_rng(8)
+        n, sigma, z_alpha, power = 200, 1.0, 2.0, 0.8
+        se = sigma / math.sqrt(n)
+        gap = detectable_gap(se, z_alpha, power)
+        means = rng.normal(gap, se, 200_000)  # the sampling distribution of the live mean
+        rate = float(np.mean(means / se >= z_alpha))
+        assert rate == pytest.approx(power, abs=0.006)
+
+    @pytest.mark.parametrize(
+        ("se", "z", "power"), [(-1.0, 2.0, 0.8), (0.1, 2.0, 0.0), (0.1, 2.0, 1.0)]
+    )
+    def test_unusable_input_is_refused(self, se: float, z: float, power: float) -> None:
+        with pytest.raises(ValueError):
+            detectable_gap(se, z, power)
+
+    def test_no_spread_needs_no_gap(self) -> None:
+        assert detectable_gap(0.0, 2.0, 0.8) == 0.0
