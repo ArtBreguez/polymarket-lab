@@ -148,6 +148,9 @@ def rolling_origin_eval(
                     # ("segment") — no manual glue required downstream.
                     "outcome": "won" if pnl > 0 else "lost",
                     "segment": str(row["segment"]) if "segment" in row else "all",
+                    # Whether the label we forecast actually occurred. `outcome`
+                    # above is a *profit* flag; calibration needs the label itself.
+                    "label_occurred": bool(row["outcome_label"] == row["winning_label"]),
                 }
             )
 
@@ -174,6 +177,7 @@ def rolling_origin_eval(
                 "edge",
                 "outcome",
                 "segment",
+                "label_occurred",
             ]
         )
 

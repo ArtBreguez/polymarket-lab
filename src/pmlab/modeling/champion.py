@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pmlab.backtest.expectation import BacktestExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult
 from pmlab.core.costs import CostModel
 from pmlab.modeling.base import MarketForecaster
@@ -28,6 +29,10 @@ class ChampionManifest:
     # before costs were recorded — a live run cannot then verify it is trading
     # under the same assumptions the promotion was based on.
     costs: CostModel | None = None
+    # What the backtest promised (mean/spread/size of per-trade PnL, Brier), so a
+    # live run can be held against it. None for champions published before it was
+    # recorded: the watchdog then reports the check as unavailable, never as fine.
+    expectation: BacktestExpectation | None = None
 
     @classmethod
     def publish(
@@ -39,6 +44,7 @@ class ChampionManifest:
         model_name: str = "champion",
         calibrator: IsotonicCalibrator | None = None,
         costs: CostModel | None = None,
+        expectation: BacktestExpectation | None = None,
     ) -> ChampionManifest:
         """Publish a champion model.
 
@@ -49,6 +55,10 @@ class ChampionManifest:
                 live run assert it is trading with the same friction the promotion
                 assumed; without it, live and backtest PnL can diverge for reasons
                 that have nothing to do with the market.
+            expectation: The backtest's per-trade PnL and Brier statistics
+                (`BacktestExpectation.from_trades`). Without it, `pmlab monitor`
+                cannot say whether live PnL or calibration has fallen short of
+                what the promotion assumed.
         """
         if gate.decision != "GO":
             raise ValueError(
@@ -76,6 +86,7 @@ class ChampionManifest:
             published_at=published_at,
             plugin_family=plugin_family,
             costs=costs,
+            expectation=expectation,
         )
 
         json_data = {
@@ -86,6 +97,7 @@ class ChampionManifest:
             "plugin_family": plugin_family,
             "publish_gate": gate.to_dict(),
             "costs": costs.to_dict() if costs is not None else None,
+            "backtest_expectation": expectation.to_dict() if expectation is not None else None,
         }
         json_path = output_dir / "champion.json"
         with open(json_path, "w") as f:
@@ -106,6 +118,13 @@ class ChampionManifest:
         # still loads instead of raising KeyError.
         raw_costs = data.get("costs")
         costs = CostModel(**raw_costs) if raw_costs else None
+        # Absent key (an older champion) means "unknown". A *present but broken*
+        # record raises: it must not quietly read as "unknown" and weaken the
+        # watchdog without anyone noticing.
+        raw_expectation = data.get("backtest_expectation")
+        expectation = (
+            BacktestExpectation.from_dict(raw_expectation) if raw_expectation is not None else None
+        )
 
         return cls(
             model_name=data["model_name"],
@@ -115,6 +134,7 @@ class ChampionManifest:
             published_at=data["published_at"],
             plugin_family=data["plugin_family"],
             costs=costs,
+            expectation=expectation,
         )
 
     def get_allowed_segments(self) -> set[str]:
