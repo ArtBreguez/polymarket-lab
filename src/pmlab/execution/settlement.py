@@ -120,6 +120,10 @@ class SettlementEngine:
         # PnL look better than the backtest by exactly the friction it modelled.
         fill_price = trade.get("fill_price")
         entry_price = float(fill_price) if fill_price is not None else quote
+        # Said on the trade, so a reader can tell a PnL that carries the slippage
+        # from one that does not. Releases up to 0.9.0 settled at the quote even
+        # when a fill_price was recorded, and wrote no such key.
+        basis = "fill_price" if fill_price is not None else "quote"
         size = flat_stake / max(entry_price, 1e-9)
         # Both directions are a BUY of a token at `entry_price`, exactly as the
         # backtest prices a trade. A NO trade used to be settled as a short YES at
@@ -137,5 +141,6 @@ class SettlementEngine:
             **trade,
             "outcome": outcome,
             "realized_pnl": round(pnl, 6),
+            "settled_basis": basis,
             "settlement_version": SETTLEMENT_VERSION,
         }

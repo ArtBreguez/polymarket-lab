@@ -568,6 +568,10 @@ _EXCLUSION_LABELS = (
     ("n_after_as_of", "not yet knowable at as_of"),
     ("n_unscoreable", "with no usable stake or PnL"),
     ("n_excluded_no_side", "on the NO side (the backtest only buys YES)"),
+    (
+        "n_excluded_legacy_settlement",
+        "settled at the quote by an older release although they paid a different fill",
+    ),
     ("n_excluded_cost_basis", "filled under different costs than champion.json records"),
 )
 
@@ -877,6 +881,28 @@ def _calibration_check(
     return CheckResult("calibration", "ok", (f"{summary}; within thresholds",), metrics)
 
 
+def _pnl_is_on_the_recorded_fill(trade: Mapping[str, Any]) -> bool:
+    """Does this YES trade's realized_pnl carry the price its fill_price says it paid?
+
+    Settlement writes `settled_basis` when it settles. A trade without it was settled
+    by 0.9.0 or earlier, which entered at the quote even when a `fill_price` was
+    recorded; one marked "quote" while carrying a different fill is just as
+    inconsistent. Either is exact only if the fill equals the quote (or none was
+    recorded), because then both arithmetics enter at the same price. Recomputing the
+    rest would replace a number the operator can see in their log with one derived
+    here, so they are left out instead.
+
+    Takes YES trades only: NO trades never get this far (`n_excluded_no_side`).
+    """
+    if trade.get("settled_basis") == "fill_price":
+        return True
+    fill = trade.get("fill_price")
+    if fill is None:
+        return True
+    quote = trade.get("gamma_price")
+    return _is_number(fill) and _is_number(quote) and abs(float(fill) - float(quote)) <= 1e-8
+
+
 def _cost_basis(trade: Mapping[str, Any], costs: CostModel, stake: float) -> str:
     """ "match", "mismatch" or "unverified" for one trade against the champion's costs."""
     verdicts: list[bool] = []
@@ -902,6 +928,7 @@ def _pnl_check(
     returns: list[float] = []
     n_unscoreable = 0
     n_no_side = 0
+    n_legacy = 0
     n_cost_excluded = 0
     n_cost_unverified = 0
     for trade in selection.trades:
@@ -915,6 +942,9 @@ def _pnl_check(
         # a draw from the distribution being tested against: leave it out, counted.
         if trade.get("direction", "yes") != "yes":
             n_no_side += 1
+            continue
+        if not _pnl_is_on_the_recorded_fill(trade):
+            n_legacy += 1
             continue
         if costs is not None:
             verdict = _cost_basis(trade, costs, float(stake))
@@ -931,6 +961,7 @@ def _pnl_check(
         "n_trades": len(returns),
         "n_unscoreable": n_unscoreable,
         "n_excluded_no_side": n_no_side,
+        "n_excluded_legacy_settlement": n_legacy,
         "n_excluded_cost_basis": n_cost_excluded,
         "n_cost_unverified": n_cost_unverified if costs is not None else None,
         "cost_basis": (

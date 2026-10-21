@@ -54,8 +54,13 @@ cron: `pmlab monitor ... || notify`.
   records it, but `SettlementEngine` recomputed the entry from `gamma_price`, so with
   any slippage in the cost model live `realized_pnl` read better than the backtest's
   by exactly that friction (live 1.081 vs backtest 0.974 on the same trade at a quote
-  of 0.10). It now settles at `fill_price`; logs written before it was recorded fall
-  back to the quote and settle to the same number as before. A live-vs-backtest
+  of 0.10). It now settles at `fill_price` and writes `settled_basis`
+  (`"fill_price"`, or `"quote"` when none was recorded). A trade with no `fill_price`
+  still enters at the quote, exactly as before. **A trade settled by 0.9.0 or earlier
+  keeps the number it was given even if it carries a `fill_price`: that number is the
+  frictionless one**, and it has no `settled_basis`. `pmlab monitor` leaves such trades
+  out of the PnL check (`n_excluded_legacy_settlement`) unless their `fill_price`
+  equals the quote, rather than judging them as cost-matched. A live-vs-backtest
   comparison would otherwise have been biased toward green.
 
 ### Notes on semantics

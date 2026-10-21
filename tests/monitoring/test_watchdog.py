@@ -530,7 +530,8 @@ class TestCostBasis:
     def _stamped(self, n: int, costs: CostModel, **kw: object) -> list[dict]:
         fill = round(costs.fill_price(0.40, stake=1.0), 8)
         fee = round(costs.fee(1.0), 6)
-        return _trades(n, fill_price=fill, fee_paid=fee, **kw)
+        # As the current SettlementEngine leaves them: settled on the recorded fill.
+        return _trades(n, fill_price=fill, fee_paid=fee, settled_basis="fill_price", **kw)
 
     def test_trades_under_the_same_costs_are_compared(self) -> None:
         champ = _champion(costs=self._COSTS)
@@ -1336,3 +1337,97 @@ class TestADefenceAgainstNonFiniteNumbers:
 
     def test_a_healthy_report_is_unchanged_by_the_guards(self) -> None:
         assert _report().status == "ok"
+
+
+# --------------------------------------------------------------------------
+# Trades settled at the quote that paid a different price
+# --------------------------------------------------------------------------
+
+
+class TestTradesSettledBeforeThePnlCarriedTheFill:
+    """Up to 0.9.0 a trade was settled at the quote even if it recorded a fill_price.
+
+    Its realized_pnl carries none of the slippage its fill_price says it paid, so a
+    cost-basis check that compares fill_price with the champion's costs would call it
+    "matched" while its PnL is the frictionless one: live looks better than the
+    backtest by exactly the friction. Such a trade is left out, and counted.
+    """
+
+    _COSTS = CostModel(taker_bps=30.0, slippage_bps=100.0)
+    _FILL = round(_COSTS.fill_price(0.40, stake=1.0), 8)  # a YES quote of 0.40, plus 1% slippage
+    _FEE = round(_COSTS.fee(1.0), 6)
+
+    def _legacy(self, n: int = 60, **extra: object) -> list[dict]:
+        """Settled by an older release: no settled_basis, a fill that differs from the quote."""
+        return _trades(n, fill_price=self._FILL, fee_paid=self._FEE, **extra)
+
+    def _current(self, n: int = 60, **extra: object) -> list[dict]:
+        return _trades(
+            n, fill_price=self._FILL, fee_paid=self._FEE, settled_basis="fill_price", **extra
+        )
+
+    def test_a_quote_settled_trade_with_a_different_fill_is_left_out(self) -> None:
+        champ = _champion(costs=self._COSTS)
+        check = _check(_report(trades=self._legacy(), champion=champ), "pnl")
+        assert check.metrics["n_excluded_legacy_settlement"] == 60
+        assert check.metrics["n_trades"] == 0
+        assert check.status == "insufficient"
+        assert "settled at the quote" in " ".join(check.reasons)
+
+    def test_it_is_left_out_even_when_the_champion_records_no_costs(self) -> None:
+        check = _check(_report(trades=self._legacy()), "pnl")
+        assert check.metrics["n_excluded_legacy_settlement"] == 60
+
+    def test_a_trade_settled_on_its_fill_is_kept(self) -> None:
+        champ = _champion(costs=self._COSTS)
+        check = _check(_report(trades=self._current(), champion=champ), "pnl")
+        assert check.metrics["n_excluded_legacy_settlement"] == 0
+        assert check.metrics["n_trades"] == 60
+        assert check.metrics["cost_basis"] == "match"
+
+    def test_legacy_trades_cannot_dilute_a_real_shortfall(self) -> None:
+        """Frictionless-looking legacy PnL beside current trades that really lost."""
+        current = self._current(60, pnl=-0.20)
+        legacy = self._legacy(60, pnl=0.50)
+        check = _check(_report(trades=current + legacy), "pnl")
+        assert check.status == "alert"
+        assert check.metrics["n_trades"] == 60
+        assert check.metrics["n_excluded_legacy_settlement"] == 60
+
+    def test_a_legacy_trade_with_no_fill_recorded_is_exact_and_kept(self) -> None:
+        """Nothing was recorded that the old arithmetic ignored: same number."""
+        check = _check(_report(trades=_trades(60)), "pnl")
+        assert check.metrics["n_excluded_legacy_settlement"] == 0
+        assert check.metrics["n_trades"] == 60
+
+    def test_a_legacy_trade_that_filled_at_the_quote_is_exact_and_kept(self) -> None:
+        trades = _trades(60, fill_price=0.40)  # gamma_price is 0.40
+        check = _check(_report(trades=trades), "pnl")
+        assert check.metrics["n_excluded_legacy_settlement"] == 0
+        assert check.metrics["n_trades"] == 60
+
+    def test_a_legacy_fill_that_differs_by_even_a_little_is_not_exact(self) -> None:
+        trades = _trades(60, fill_price=0.4001)
+        check = _check(_report(trades=trades), "pnl")
+        assert check.metrics["n_excluded_legacy_settlement"] == 60
+
+    def test_a_fill_with_no_quote_to_compare_to_is_not_exact(self) -> None:
+        trades = [{k: v for k, v in t.items() if k != "gamma_price"} for t in self._legacy()]
+        check = _check(_report(trades=trades), "pnl")
+        assert check.metrics["n_excluded_legacy_settlement"] == 60
+
+    def test_a_trade_that_says_it_settled_at_the_quote_but_carries_another_fill(self) -> None:
+        trades = _trades(60, fill_price=self._FILL, settled_basis="quote")
+        check = _check(_report(trades=trades), "pnl")
+        assert check.metrics["n_excluded_legacy_settlement"] == 60
+
+    def test_a_no_trade_is_counted_once_as_no_side_not_as_legacy(self) -> None:
+        trades = _trades(60, direction="no", fill_price=0.70)
+        check = _check(_report(trades=trades), "pnl")
+        assert check.metrics["n_excluded_no_side"] == 60
+        assert check.metrics["n_excluded_legacy_settlement"] == 0
+
+    def test_calibration_does_not_care_how_the_pnl_was_settled(self) -> None:
+        check = _check(_report(trades=self._legacy()), "calibration")
+        assert check.metrics["n_trades"] == 60
+        assert check.status == "ok"

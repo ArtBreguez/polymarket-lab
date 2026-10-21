@@ -296,3 +296,40 @@ class TestLiveNoTradeEqualsBacktestBuyOfTheNoToken:
         assert live["realized_pnl"] / stake == pytest.approx(
             float(backtest.trades.iloc[0]["realized_pnl"]) / stake, abs=1e-5
         )
+
+
+class TestTheSettlementRecordsItsBasis:
+    """Which price the PnL was computed from, written on the trade.
+
+    Releases up to 0.9.0 settled at the quote even when the broker had recorded a
+    `fill_price`. Such a trade's `realized_pnl` carries none of the slippage its
+    `fill_price` says it paid, and nothing on the trade said so.
+    """
+
+    def test_a_trade_settled_at_its_recorded_fill_says_so(self, tmp_path: Path) -> None:
+        settled = _settle(tmp_path, _trade(direction="yes", fill=0.315), truth="YES")
+        assert settled["settled_basis"] == "fill_price"
+
+    def test_a_no_trade_settled_at_its_recorded_fill_says_so(self, tmp_path: Path) -> None:
+        settled = _settle(tmp_path, _trade(direction="no", fill=0.735), truth="NO")
+        assert settled["settled_basis"] == "fill_price"
+
+    @pytest.mark.parametrize("direction", ["yes", "no"])
+    def test_a_trade_with_no_recorded_fill_is_settled_at_the_quote(
+        self, tmp_path: Path, direction: str
+    ) -> None:
+        settled = _settle(tmp_path, _trade(direction=direction), truth="YES")
+        assert settled["settled_basis"] == "quote"
+
+    def test_an_explicit_null_fill_is_the_quote(self, tmp_path: Path) -> None:
+        trade = {**_trade(direction="yes"), "fill_price": None}
+        assert _settle(tmp_path, trade, truth="YES")["settled_basis"] == "quote"
+
+    def test_the_basis_matches_the_arithmetic_actually_used(self, tmp_path: Path) -> None:
+        at_fill = _settle(tmp_path, _trade(direction="yes", fill=0.315), truth="YES")
+        assert at_fill["realized_pnl"] == pytest.approx(1.0 / 0.315 - 1.0, abs=1e-6)
+
+    def test_an_already_settled_trade_gains_no_basis(self, tmp_path: Path) -> None:
+        legacy = {**_trade(direction="yes", fill=0.315), "outcome": "won", "realized_pnl": 2.333333}
+        settled = _settle(tmp_path, legacy, truth="YES")
+        assert "settled_basis" not in settled

@@ -284,6 +284,14 @@ The PnL check also leaves out, counted in the report:
   trade's per-stake PnL is the same arithmetic, but it is not a draw from the
   distribution being tested against, so the z test's null does not cover it.
   Calibration still counts them: a forecast is about the label, whichever side was taken.
+- trades **settled at the quote although they paid a different fill**
+  (`n_excluded_legacy_settlement`). Releases up to 0.9.0 entered every settlement at the
+  quote, so such a trade's `realized_pnl` carries none of the slippage its `fill_price`
+  says it paid, and would otherwise be judged as cost-matched. Settlement now writes
+  `settled_basis` on every trade; one without it is kept only if its `fill_price` equals
+  the quote (or none was recorded), because then both arithmetics enter at the same
+  price. It is excluded rather than recomputed so the number the watchdog uses is always
+  the one in your log.
 - trades filled under a **different cost model** than `champion.json` records
   (`n_excluded_cost_basis`), because live and backtest PnL are only comparable if both
   paid the same friction (see [Costs](costs.md)). A trade with no cost fields is kept and

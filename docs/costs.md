@@ -110,6 +110,12 @@ into the live path too:
    restores a champion whose cost assumptions are known.
 7. `PaperBroker(costs=...)` fills at the same price the backtest would, and records
    `fill_price` next to `gamma_price`.
+8. `SettlementEngine` settles each trade at its recorded `fill_price` (a NO trade as a
+   buy of the NO token at its own price), so `realized_pnl` carries the friction. It
+   writes `settled_basis` (`"fill_price"`, or `"quote"` when none was recorded) and
+   `settlement_version` on the trade. Releases up to 0.9.0 settled at the quote even
+   when a `fill_price` was recorded and wrote neither key; `pmlab monitor` leaves such
+   trades out of its PnL comparison (see [the watchdog](watchdog.md#which-trades-count)).
 
 ---
 
