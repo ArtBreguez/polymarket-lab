@@ -192,13 +192,18 @@ def _record(artifacts: Path, workspace: str, *extra: str) -> Any:
 # --------------------------------------------------------------------------
 
 
+def _unwrapped(output: str) -> str:
+    """Rich wraps a long path mid-word at 80 columns; a long tmp dir must not fail a test."""
+    return output.replace("\n", "")
+
+
 class TestTheCostsFile:
     @pytest.mark.parametrize("command", ["backtest", "promote", "record"])
     def test_a_missing_costs_file_is_a_clean_error(self, tmp_path: Path, command: str) -> None:
         missing = str(tmp_path / "nope.json")
         result = self._run(tmp_path, command, missing)
         assert result.exit_code == 1
-        assert "nope.json" in result.output
+        assert "nope.json" in _unwrapped(result.output)
         assert "Traceback" not in result.output
 
     @pytest.mark.parametrize(
@@ -218,7 +223,7 @@ class TestTheCostsFile:
         bad.write_text(payload)
         result = self._run(tmp_path, "backtest", str(bad))
         assert result.exit_code == 1
-        assert needle in result.output
+        assert needle in _unwrapped(result.output)
         assert not (tmp_path / "metrics.json").exists()
 
     def test_a_costs_object_nested_under_costs_is_accepted(self, tmp_path: Path) -> None:
