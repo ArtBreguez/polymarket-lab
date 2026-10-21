@@ -15,9 +15,14 @@ forecast says, "vanished" 6 points less (the market now prices it correctly), "r
 12 points less. Costs are 0.3% of the stake.
 
 Most tables call `health_report`, the real thing. The few that follow a book trade by
-trade (continuous monitoring, tens of thousands of paths) use a vectorised copy of the
-fixed z test or the production `cusum`; `tests/monitoring/test_power.py` checks that both
-agree with `health_report`.
+trade (continuous monitoring, thousands of paths of thousands of trades) use a vectorised
+copy of the fixed z test and of the CUSUM recursion; `tests/monitoring/test_power.py` checks
+that both agree with `health_report` and with the production `cusum`.
+
+Two ways of counting a CUSUM alarm appear, because they answer different questions. The
+watchdog alerts while the statistic is above the threshold, so "alert at a run after N
+trades" is what a cron job sees. "Crossed at least once within N trades" is the chance that
+*some* run along the way saw an alert: it only grows with the length of the book.
 """
 
 from __future__ import annotations
@@ -42,7 +47,6 @@ from pmlab import (
     WatchdogConfig,
     health_report,
 )
-from pmlab.monitoring.stats import cusum
 
 COST = 0.003
 EDGES = {"as promised": 0.0, "halved": -0.03, "vanished": -0.06, "reversed": -0.12}
@@ -197,54 +201,89 @@ def table_firing(sims: int, sizes: tuple[int, ...] = (30, 50, 100, 200, 400, 800
 # 2. The sequential test on its own
 # --------------------------------------------------------------------------
 
+LONG_BOOKS = (100, 200, 400, 800, 1500, 3000)
 
-def cusum_paths(
+
+def cusum_scan(
+    live: np.ndarray,
+    mu: np.ndarray,
+    sd: np.ndarray,
+    allowance: np.ndarray,
+    h: float,
+    checkpoints: tuple[int, ...] = LONG_BOOKS,
+) -> tuple[np.ndarray, dict[int, np.ndarray]]:
+    """A vectorised copy of `cusum` over many paths: (first crossing, statistic at checkpoints).
+
+    `live` is (champions, trades) of returns per stake; `mu`/`sd` are each champion's backtest
+    mean and spread, `allowance` its per-trade allowance. Checked against the production
+    `cusum` in tests/monitoring/test_power.py.
+    """
+    reps, n = live.shape
+    statistic = np.zeros(reps)
+    first = np.full(reps, np.inf)
+    at: dict[int, np.ndarray] = {}
+    for i in range(n):
+        statistic = np.maximum(0.0, statistic + (mu - live[:, i]) / sd - allowance)
+        first[(statistic >= h) & np.isinf(first)] = i + 1
+        if i + 1 in checkpoints:
+            at[i + 1] = statistic.copy()
+    return first, at
+
+
+def simulate_cusum(
     reps: int,
     n: int,
     shift: float,
     *,
-    change_at: int = 0,
     seed: int,
     allowance: float,
+    backtest_se: float,
     h: float,
     n_bt: int = 400,
-) -> np.ndarray:
-    """First trade at which the production `cusum` signals, per simulated champion (inf: never)."""
+    change_at: int = 0,
+    checkpoints: tuple[int, ...] = LONG_BOOKS,
+) -> tuple[np.ndarray, dict[int, np.ndarray]]:
+    """First crossing per simulated champion (inf: never) and the statistic at each checkpoint."""
     rng = np.random.default_rng(seed)
-    first = np.full(reps, np.inf)
-    for r in range(reps):
-        bt = draw(rng, n_bt, 0.0).ret
-        mu, sd = float(bt.mean()), float(bt.std(ddof=1))
-        live = draw(rng, n, shift, change_at=change_at).ret
-        result = cusum(((mu - live) / sd).tolist(), [allowance * mu / sd] * n, threshold=h)
-        if result.crossed_at is not None:
-            first[r] = result.crossed_at
-    return first
+    q = rng.uniform(0.30, 0.60, (reps, n_bt))
+    backtest = np.where(rng.random((reps, n_bt)) < q + 0.06, 1.0 / q - 1.0, -1.0) - COST
+    mu, sd = backtest.mean(1), backtest.std(1, ddof=1)
+    k = allowance * mu / sd + backtest_se / np.sqrt(n_bt)
+    q = rng.uniform(0.30, 0.60, (reps, n))
+    effect = np.where(np.arange(n) < change_at, 0.0, shift)
+    live = np.where(rng.random((reps, n)) < q + 0.06 + effect, 1.0 / q - 1.0, -1.0) - COST
+    return cusum_scan(live, mu, sd, k, h, checkpoints)
 
 
-def table_backtest_size(reps: int, allowance: float, h: float) -> None:
+def table_backtest_size(reps: int, allowance: float, backtest_se: float, h: float) -> None:
     print("The sequential test when the backtest is short (the promised mean is an estimate)")
-    print(f"{reps} simulated champions per row; shares within the first 400 live trades")
+    print(f"{reps} simulated champions per row")
     print()
-    print(f"{'backtest trades':<18}{'false alarms':>14}{'edge vanished':>15}")
+    print(
+        f"{'backtest trades':<18}{'crossed within 400':>20}{'alert at 3000':>15}"
+        f"{'vanished: alert at 400':>24}{'at 800':>9}"
+    )
     for n_bt in (30, 50, 100, 200, 400, 1000):
-        null = cusum_paths(reps, 400, 0.0, seed=70, allowance=allowance, h=h, n_bt=n_bt)
-        gone = cusum_paths(reps, 400, -0.06, seed=71, allowance=allowance, h=h, n_bt=n_bt)
+        first, at = simulate_cusum(
+            reps, 3000, 0.0, seed=70, allowance=allowance, backtest_se=backtest_se, h=h, n_bt=n_bt
+        )
+        _, gone = simulate_cusum(
+            reps, 800, -0.06, seed=71, allowance=allowance, backtest_se=backtest_se, h=h, n_bt=n_bt
+        )
         print(
-            f"{n_bt:<18}{_pct(float(np.mean(null <= 400))):>14}{_pct(float(np.mean(gone <= 400))):>15}"
+            f"{n_bt:<18}{_pct(float(np.mean(first <= 400))):>20}"
+            f"{_pct(float(np.mean(at[3000] >= h))):>15}"
+            f"{_pct(float(np.mean(gone[400] >= h))):>24}{_pct(float(np.mean(gone[800] >= h))):>9}"
         )
     print()
 
 
-def table_cusum(reps: int, allowance: float, h: float) -> None:
+def table_cusum(reps: int, allowance: float, backtest_se: float, h: float) -> None:
     print(
-        f"The sequential test alone (allowance {allowance:g} x the promised edge, threshold {h:g},"
+        f"The sequential test alone (allowance {allowance:g} x the promised edge + "
+        f"{backtest_se:g} standard errors of the promise, threshold {h:g}, a 400-trade backtest,"
         f" {reps} simulated champions per row)"
     )
-    print("share of champions it has signalled on within the first N live trades;")
-    print("median = the trade at which it signalled, among those it signalled on")
-    print()
-    print(f"{'live edge':<24}{'N=100':>8}{'N=200':>8}{'N=400':>8}{'N=800':>8}{'median':>9}")
     scenarios: list[tuple[str, float, int]] = [
         ("as promised", 0.0, 0),
         ("halved", -0.03, 0),
@@ -253,14 +292,38 @@ def table_cusum(reps: int, allowance: float, h: float) -> None:
         ("halved after 150", -0.03, 150),
         ("vanished after 150", -0.06, 150),
     ]
-    for i, (name, shift, change_at) in enumerate(scenarios):
-        first = cusum_paths(
-            reps, 800, shift, change_at=change_at, seed=50 + i, allowance=allowance, h=h
+    results = [
+        (
+            name,
+            *simulate_cusum(
+                reps,
+                max(LONG_BOOKS),
+                shift,
+                seed=50 + i,
+                allowance=allowance,
+                backtest_se=backtest_se,
+                h=h,
+                change_at=change_at,
+            ),
         )
-        cells = "".join(f"{_pct(float(np.mean(first <= n))):>8}" for n in (100, 200, 400, 800))
+        for i, (name, shift, change_at) in enumerate(scenarios)
+    ]
+    header = f"{'live edge':<22}" + "".join(f"{'N=' + str(n):>8}" for n in LONG_BOOKS)
+    print()
+    print("share of champions whose alert is on at the run after N live trades")
+    print(header)
+    for name, _, at in results:
+        print(f"{name:<22}" + "".join(f"{_pct(float(np.mean(at[n] >= h))):>8}" for n in LONG_BOOKS))
+    print()
+    print("share that crossed the threshold at least once within the first N live trades")
+    print(header)
+    for name, first, _ in results:
+        print(f"{name:<22}" + "".join(f"{_pct(float(np.mean(first <= n))):>8}" for n in LONG_BOOKS))
+    print()
+    print("median trade at which the threshold was first crossed, among those that crossed")
+    for name, first, _ in results:
         seen = first[np.isfinite(first)]
-        median = f"{np.median(seen):>9.0f}" if len(seen) else f"{'-':>9}"
-        print(f"{name:<24}{cells}{median}")
+        print(f"  {name:<22}{np.median(seen):>6.0f}" if len(seen) else f"  {name:<22}{'-':>6}")
     print()
 
 
@@ -300,44 +363,41 @@ def fixed_test_fires(
     return fire
 
 
-def table_continuous(reps: int, allowance: float, h: float) -> None:
+def table_continuous(reps: int, allowance: float, backtest_se: float, h: float) -> None:
     print(
         f"False alarms when the check is run after every settled trade ({reps} simulated champions)"
     )
-    print("share of champions that raise an alarm at some run within the first N trades,")
-    print("although nothing has changed")
+    print("nothing has changed. For each test: the share of champions that raised an alarm at")
+    print("some run within the first N trades (events), and the share whose alarm is on at the")
+    print("run after trade N (what a cron job sees at that moment)")
     rng = np.random.default_rng(7)
-    n_max = 800
-    seq_first = np.full(reps, np.inf)
-    mus = np.empty(reps)
-    sds = np.empty(reps)
-    live = np.empty((reps, n_max))
-    for r in range(reps):
-        bt = draw(rng, 400, 0.0).ret
-        mus[r], sds[r] = bt.mean(), bt.std(ddof=1)
-        live[r] = draw(rng, n_max, 0.0).ret
-        crossed = cusum(
-            ((mus[r] - live[r]) / sds[r]).tolist(),
-            [allowance * mus[r] / sds[r]] * n_max,
-            threshold=h,
-        ).crossed_at
-        if crossed is not None:
-            seq_first[r] = crossed
+    n_max = max(LONG_BOOKS)
+    q = rng.uniform(0.30, 0.60, (reps, 400))
+    backtest = np.where(rng.random((reps, 400)) < q + 0.06, 1.0 / q - 1.0, -1.0) - COST
+    mu, sd = backtest.mean(1), backtest.std(1, ddof=1)
+    q = rng.uniform(0.30, 0.60, (reps, n_max))
+    live = np.where(rng.random((reps, n_max)) < q + 0.06, 1.0 / q - 1.0, -1.0) - COST
+    first, at = cusum_scan(live, mu, sd, allowance * mu / sd + backtest_se / np.sqrt(400), h)
+    sequential_on = {n: at[n] >= h for n in LONG_BOOKS}
     levels = {
-        "warn or alert (exit 10 or 20)": fixed_test_fires(live, mus, sds, 400),
-        "alert only (exit 20)": fixed_test_fires(live, mus, sds, 400, shortfall=1.0, z_min=3.0),
+        "warn or alert (exit 10 or 20)": fixed_test_fires(live, mu, sd, 400),
+        "alert only (exit 20)": fixed_test_fires(live, mu, sd, 400, shortfall=1.0, z_min=3.0),
     }
     for title, fires_at in levels.items():
         print()
         print(title)
-        print(f"{'live trades':<14}{'fixed test':>12}{'sequential':>12}{'either':>10}")
+        print(
+            f"{'live trades':<13}{'fixed: events':>15}{'at N':>8}{'sequential: events':>21}{'at N':>8}"
+            f"{'either: events':>17}"
+        )
         ever = np.maximum.accumulate(fires_at, axis=1)
-        for n in (100, 200, 400, 800):
-            fixed = ever[:, n - 1]
-            seq = seq_first <= n
+        for n in LONG_BOOKS:
+            fixed_ev, fixed_now = ever[:, n - 1], fires_at[:, n - 1]
+            seq_ev = first <= n
             print(
-                f"{n:<14}{_pct(float(fixed.mean())):>12}{_pct(float(seq.mean())):>12}"
-                f"{_pct(float((fixed | seq).mean())):>10}"
+                f"{n:<13}{_pct(float(fixed_ev.mean())):>15}{_pct(float(fixed_now.mean())):>8}"
+                f"{_pct(float(seq_ev.mean())):>21}{_pct(float(sequential_on[n].mean())):>8}"
+                f"{_pct(float((fixed_ev | seq_ev).mean())):>17}"
             )
     print()
 
@@ -429,13 +489,54 @@ def table_segments(sims: int, counts: tuple[int, ...] = (2, 5, 10, 20), n_live: 
 # --------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------
+# 6. All the parts together
+# --------------------------------------------------------------------------
+
+
+def table_whole(sims: int, counts: tuple[int, ...] = (1, 3, 5, 10), n_live: int = 100) -> None:
+    print(
+        f"False alarms from the whole PnL check, every part together ({sims} simulated champions per row)"
+    )
+    print(f"nothing has changed; each segment has {n_live} live trades, judged once at the end")
+    print("(book, both sides, every segment, the sequential test)")
+    print()
+    print(
+        f"{'segments':<10}{'warn or alert':>15}{'alert only':>13}{'alerts from the sequential test':>34}"
+    )
+    for count in counts:
+        rng = np.random.default_rng(500 + count)
+        names = [f"S{i:02d}" for i in range(count)]
+        warn = alert = sequential = 0
+        for _ in range(sims):
+            champ = champion({name: draw(rng, 400, 0.0) for name in names})
+            rows = [
+                row
+                for i, name in enumerate(names)
+                for row in trade_rows(draw(rng, n_live, 0.0), name, i * n_live)
+            ]
+            check = report(champ, rows).checks[0]
+            warn += fires(check.status)
+            alert += check.status == "alert"
+            sequential += bool(check.metrics.get("sequential", {}).get("signalled"))
+        print(
+            f"{count:<10}{_pct(warn / sims):>15}{_pct(alert / sims):>13}{_pct(sequential / sims):>34}"
+        )
+    print()
+
+
 TABLES: dict[str, Callable[[argparse.Namespace], None]] = {
     "firing": lambda a: table_firing(a.sims),
-    "cusum": lambda a: table_cusum(a.reps, a.allowance, a.threshold),
-    "backtest-size": lambda a: table_backtest_size(a.reps // 3, a.allowance, a.threshold),
-    "continuous": lambda a: table_continuous(a.reps_continuous, a.allowance, a.threshold),
+    "cusum": lambda a: table_cusum(a.reps, a.allowance, a.backtest_se, a.threshold),
+    "backtest-size": lambda a: table_backtest_size(
+        a.reps // 2, a.allowance, a.backtest_se, a.threshold
+    ),
+    "continuous": lambda a: table_continuous(
+        a.reps_continuous, a.allowance, a.backtest_se, a.threshold
+    ),
     "calibration": lambda a: table_calibration(a.sims),
     "segments": lambda a: table_segments(a.sims),
+    "whole": lambda a: table_whole(a.sims),
 }
 
 
@@ -456,13 +557,15 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     defaults = PnLThresholds()
     args.allowance = defaults.cusum_allowance
+    args.backtest_se = defaults.cusum_backtest_se
     args.threshold = defaults.cusum_threshold
     args.sims = args.sims or (80 if args.quick else 400)
     args.reps = args.reps or (1500 if args.quick else 10000)
     args.reps_continuous = 600 if args.quick else 4000
     print(
-        f"settings: cusum_allowance={args.allowance:g}, cusum_threshold={args.threshold:g}, "
-        f"z_warn={defaults.z_warn:g}, shortfall_warn={defaults.shortfall_warn:g}, min_trades={defaults.min_trades}"
+        f"settings: cusum_allowance={args.allowance:g}, cusum_backtest_se={args.backtest_se:g}, "
+        f"cusum_threshold={args.threshold:g}, z_warn={defaults.z_warn:g}, "
+        f"shortfall_warn={defaults.shortfall_warn:g}, min_trades={defaults.min_trades}"
     )
     print()
     for name in args.tables or list(TABLES):

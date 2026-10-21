@@ -17,11 +17,13 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import numpy as np
 import pytest
 
 from pmlab.monitoring.stats import cusum
+from pmlab.monitoring.watchdog import PnLThresholds
 
 
 def _load() -> ModuleType:
@@ -57,64 +59,111 @@ class TestTheFastCopiesAgreeWithTheRealCheck:
                 assert (status == "alert") == bool(alert[0, n - 1]), (shift, n, status)
 
     @pytest.mark.parametrize("shift", [0.0, -0.06])
-    def test_the_scripts_cusum_is_health_reports_cusum(self, shift: float) -> None:
+    def test_the_vectorised_cusum_is_the_production_cusum_and_health_reports(
+        self, shift: float
+    ) -> None:
         rng = np.random.default_rng(12)
+        defaults = PnLThresholds()
         for _ in range(10):
             backtest = wp.draw(rng, 400, 0.0)
             champ = wp.champion({"s": backtest})
             live = wp.draw(rng, 500, shift)
             mu, sd = float(backtest.ret.mean()), float(backtest.ret.std(ddof=1))
-            expected = cusum(((mu - live.ret) / sd).tolist(), [0.5 * mu / sd] * 500, threshold=40.0)
+            k = defaults.cusum_allowance * mu / sd + defaults.cusum_backtest_se / np.sqrt(400)
+            expected = cusum(((mu - live.ret) / sd).tolist(), [k] * 500, defaults.cusum_threshold)
+            first, at = wp.cusum_scan(
+                live.ret[None, :],
+                np.array([mu]),
+                np.array([sd]),
+                np.array([k]),
+                defaults.cusum_threshold,
+                checkpoints=(500,),
+            )
             seq = wp.report(champ, wp.trade_rows(live)).checks[0].metrics["sequential"]
             assert seq["crossed_at"] == expected.crossed_at
             assert seq["statistic"] == pytest.approx(expected.statistic)
             assert seq["peak"] == pytest.approx(expected.peak)
+            assert at[500][0] == pytest.approx(expected.statistic)
+            if expected.crossed_at is None:
+                assert np.isinf(first[0])
+            else:
+                assert first[0] == expected.crossed_at
+            assert seq["signalled"] == (expected.statistic >= defaults.cusum_threshold)
+
+
+def _simulate(reps: int = 4000, shift: float = 0.0, **kwargs: Any) -> tuple[Any, Any]:
+    defaults = PnLThresholds()
+    settings: dict[str, Any] = {
+        "allowance": defaults.cusum_allowance,
+        "backtest_se": defaults.cusum_backtest_se,
+        "h": defaults.cusum_threshold,
+        "seed": 1,
+        **kwargs,
+    }
+    return wp.simulate_cusum(reps, 3000, shift, **settings)
 
 
 class TestTheSequentialTestsFalseAlarmRate:
-    """Documented: about 1.2% of champions signal falsely within their first 400 trades (a
-    backtest of 400), next to nothing within 100, and about 5% within 800."""
+    """Documented: with a 400-trade backtest, about 3% of champions have crossed the threshold
+    at least once within 400 trades and 7% within 800, but the alert is on at only about 1-2%
+    of runs at any moment, however long the book, because it clears when a run ends."""
 
-    def test_within_400_trades_it_is_about_a_percent(self) -> None:
-        first = wp.cusum_paths(2500, 400, 0.0, seed=1, allowance=0.5, h=40.0)
-        assert 0.004 <= float(np.mean(first <= 400)) <= 0.025
+    def test_events_within_400_and_800_trades(self) -> None:
+        first, _ = _simulate()
+        assert 0.012 <= float(np.mean(first <= 400)) <= 0.045
+        assert 0.04 <= float(np.mean(first <= 800)) <= 0.10
         assert float(np.mean(first <= 100)) <= 0.004
 
+    def test_the_alert_on_at_any_moment_stays_low_however_long_the_book(self) -> None:
+        _, at = _simulate()
+        threshold = PnLThresholds().cusum_threshold
+        for n in (400, 800, 1500, 3000):
+            assert float(np.mean(at[n] >= threshold)) <= 0.03, n
+
     def test_a_short_backtest_makes_it_less_trustworthy_which_is_why_there_is_a_floor(self) -> None:
-        short = wp.cusum_paths(1500, 400, 0.0, seed=2, allowance=0.5, h=40.0, n_bt=30)
-        long = wp.cusum_paths(1500, 400, 0.0, seed=2, allowance=0.5, h=40.0, n_bt=400)
-        assert float(np.mean(short <= 400)) > 3 * float(np.mean(long <= 400))
+        threshold = PnLThresholds().cusum_threshold
+        _, short = _simulate(2500, seed=2, n_bt=30)
+        _, long = _simulate(2500, seed=2, n_bt=400)
+        assert float(np.mean(short[3000] >= threshold)) > 2 * float(
+            np.mean(long[3000] >= threshold)
+        )
+
+    def test_the_backtests_uncertainty_in_the_allowance_is_what_bounds_it(self) -> None:
+        """Without it the champions whose backtest flattered them drift to a standing alert."""
+        threshold = PnLThresholds().cusum_threshold
+        _, with_se = _simulate(3000, seed=3, backtest_se=0.5)
+        _, without = _simulate(3000, seed=3, backtest_se=0.0)
+        assert float(np.mean(without[3000] >= threshold)) > 2 * float(
+            np.mean(with_se[3000] >= threshold)
+        )
 
 
 class TestWhatTheSequentialTestAdds:
     def test_it_finds_a_vanished_edge_that_the_fixed_test_misses(self) -> None:
-        reps = 800
+        reps, n = 800, 800
         rng = np.random.default_rng(3)
-        n = 800
-        live = np.empty((reps, n))
-        mus = np.empty(reps)
-        sds = np.empty(reps)
-        first = np.full(reps, np.inf)
-        for r in range(reps):
-            bt = wp.draw(rng, 400, 0.0).ret
-            mus[r], sds[r] = bt.mean(), bt.std(ddof=1)
-            live[r] = wp.draw(rng, n, -0.06).ret
-            crossed = cusum(
-                ((mus[r] - live[r]) / sds[r]).tolist(), [0.5 * mus[r] / sds[r]] * n, threshold=40.0
-            ).crossed_at
-            if crossed is not None:
-                first[r] = crossed
-        fixed = wp.fixed_test_fires(live, mus, sds, 400)[:, n - 1]  # one look, at 800 trades
-        either = fixed | (first <= n)
-        assert float(either.mean()) > float(fixed.mean()) + 0.15
+        q = rng.uniform(0.30, 0.60, (reps, 400))
+        backtest = np.where(rng.random((reps, 400)) < q + 0.06, 1.0 / q - 1.0, -1.0) - wp.COST
+        mu, sd = backtest.mean(1), backtest.std(1, ddof=1)
+        q = rng.uniform(0.30, 0.60, (reps, n))
+        live = np.where(rng.random((reps, n)) < q + 0.0, 1.0 / q - 1.0, -1.0) - wp.COST
+        defaults = PnLThresholds()
+        allowance = defaults.cusum_allowance * mu / sd + defaults.cusum_backtest_se / np.sqrt(400)
+        _, at = wp.cusum_scan(live, mu, sd, allowance, defaults.cusum_threshold, (n,))
+        fixed = wp.fixed_test_fires(live, mu, sd, 400)[:, n - 1]  # one look, at 800 trades
+        either = fixed | (at[n] >= defaults.cusum_threshold)
+        assert float(either.mean()) > float(fixed.mean()) + 0.10
 
     def test_it_catches_a_decay_that_starts_late_which_the_pooled_mean_dilutes(self) -> None:
-        late = wp.cusum_paths(800, 600, -0.06, seed=4, allowance=0.5, h=40.0, change_at=150)
-        assert float(np.mean(late <= 600)) > 0.25
+        _, at = wp.simulate_cusum(
+            1500, 3000, -0.06, seed=4, allowance=0.5, backtest_se=0.5, h=30.0, change_at=300,
+            checkpoints=(800,),
+        )  # fmt: skip
+        assert float(np.mean(at[800] >= 30.0)) > 0.20
 
     def test_in_a_healthy_book_it_says_nothing_before_a_hundred_trades(self) -> None:
-        early = wp.cusum_paths(500, 100, 0.0, seed=5, allowance=0.5, h=40.0)
-        assert float(np.mean(early <= 100)) == 0.0
+        first, _ = _simulate(1500, seed=5)
+        assert float(np.mean(first <= 100)) <= 0.002
 
 
 class TestCalibrationIsNotTheEarlierSignal:
@@ -161,10 +210,13 @@ class TestMoreSegmentsDoNotMeanMoreFalseAlarms:
 
 class TestTheScriptRuns:
     @pytest.mark.parametrize(
-        "table", ["firing", "cusum", "backtest-size", "continuous", "calibration", "segments"]
+        "table",
+        ["firing", "cusum", "backtest-size", "continuous", "calibration", "segments", "whole"],
     )
     def test_every_table_prints(self, table: str, capsys: pytest.CaptureFixture[str]) -> None:
         wp.main([table, "--sims", "3", "--reps", "60"])
         out = capsys.readouterr().out
-        assert out.startswith("settings: cusum_allowance=0.5, cusum_threshold=40")
+        assert out.startswith(
+            "settings: cusum_allowance=0.5, cusum_backtest_se=0.5, cusum_threshold=30"
+        )
         assert "%" in out

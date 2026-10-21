@@ -231,16 +231,18 @@ class PnLThresholds:
 
     The **sequential test** (`sequential`) is a one-sided CUSUM on each trade's
     standardized shortfall, in settlement order. It is the other way a PnL alert is
-    raised: it signals a run of shortfalls that the pooled mean dilutes with the healthy
-    trades before it. `cusum_allowance` is the part of the promised edge a trade may fall
-    short by without it counting (a fraction of the edge, in units of the trade's own
-    spread: 0.5 is tuned to an edge that has vanished) and `cusum_threshold` is the
-    height at which it signals. The defaults were calibrated by simulation, see
-    `docs/watchdog.md`.
+    raised: it is above `cusum_threshold` while the book is in a run of shortfalls that the
+    pooled mean dilutes with the healthy trades before it, and it clears when the run ends.
+    What each trade is allowed to fall short by without it counting is
+    ``cusum_allowance`` times the promised edge, plus `cusum_backtest_se` standard errors of
+    the promise itself (both in units of the trade's own spread): the backtest mean is an
+    estimate, and a CUSUM that ignored its error would drift to an alert on any champion whose
+    backtest happened to flatter it. 0.5 of the edge is tuned to an edge that has vanished.
+    The defaults were calibrated by simulation, see `docs/watchdog.md`.
 
-    A promise made on few trades is a noisy one, and unlike the fixed test the CUSUM
-    cannot count that noise: `cusum_min_backtest_trades` is the fewest backtest trades a
-    side may have been promised on for its trades to feed the sequential test.
+    A promise made on very few trades is too noisy even so: `cusum_min_backtest_trades` is
+    the fewest backtest trades a cell may have been promised on for its trades to feed the
+    sequential test.
 
     `mde_power` is the power the *minimum detectable shortfall* is quoted at.
     """
@@ -252,13 +254,21 @@ class PnLThresholds:
     z_alert: float = 3.0
     sequential: bool = True
     cusum_allowance: float = 0.5
-    cusum_threshold: float = 40.0
+    cusum_backtest_se: float = 0.5
+    cusum_threshold: float = 30.0
     cusum_min_backtest_trades: int = 100
     mde_power: float = 0.8
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "min_trades", _check_int("min_trades", self.min_trades, 2))
-        for name in ("shortfall_warn", "shortfall_alert", "z_warn", "z_alert", "cusum_allowance"):
+        for name in (
+            "shortfall_warn",
+            "shortfall_alert",
+            "z_warn",
+            "z_alert",
+            "cusum_allowance",
+            "cusum_backtest_se",
+        ):
             object.__setattr__(self, name, _check_float(name, getattr(self, name)))
         _check_pair("shortfall_warn", self.shortfall_warn, "shortfall_alert", self.shortfall_alert)
         _check_pair("z_warn", self.z_warn, "z_alert", self.z_alert)
@@ -1953,13 +1963,20 @@ def _sequential_scope(
 
     Each trade is standardized by its own cell's promise (its segment and side, else the
     book's record for its side): its shortfall is ``(mean - return) / std`` of that cell, and
-    the allowance is `cusum_allowance` times the cell's ``mean / std``, so a book that trades
-    more NO, or more of a weaker segment, than the backtest did is not mistaken for a decline.
-    A cell with no spread, no positive promise, or a promise made on fewer than
-    `cusum_min_backtest_trades` trades cannot be standardized: its trades are skipped and
-    counted. Trades that tie on settlement time
-    and identity are one step (their shortfalls and allowances add), which keeps the
-    result independent of the order the log happens to list them in.
+    its allowance is `cusum_allowance` times the cell's ``mean / std`` plus `cusum_backtest_se`
+    standard errors of the promise (``1 / sqrt(n)`` of the backtest trades behind it), so a
+    book that trades more NO, or more of a weaker segment, than the backtest did is not
+    mistaken for a decline, nor a champion whose backtest merely flattered it. A cell with no
+    spread, no positive promise, or a promise made on fewer than `cusum_min_backtest_trades`
+    trades cannot be standardized: its trades are skipped and counted. Trades that tie on
+    settlement time and identity are one step (their shortfalls and allowances add), which
+    keeps the result independent of the order the log happens to list them in.
+
+    It alerts while the statistic is at or above the threshold, not for ever once it has
+    crossed: the chance that a healthy book has crossed at least once grows with its length,
+    so a remembered signal would turn every long-lived champion into a standing alert. When a
+    bad run ends the statistic falls back and the alert clears; the first crossing and the
+    peak stay in the report.
     """
     steps: list[tuple[float, float, int]] = []  # (shortfall, allowance, trades) per step
     for _, tied in itertools.groupby(sorted(rows, key=lambda r: r.order), key=lambda r: r.order):
@@ -1969,7 +1986,9 @@ def _sequential_scope(
             mean, std, n_backtest = strata[row.stratum]
             if mean > 0 and std > 0 and n_backtest >= cfg.cusum_min_backtest_trades:
                 shortfall += (mean - row.value) / std
-                allowance += cfg.cusum_allowance * mean / std
+                allowance += cfg.cusum_allowance * mean / std + cfg.cusum_backtest_se / math.sqrt(
+                    n_backtest
+                )
                 count += 1
         if count:
             steps.append((shortfall, allowance, count))
@@ -1978,6 +1997,7 @@ def _sequential_scope(
     common = {
         "threshold": cfg.cusum_threshold,
         "allowance_fraction": cfg.cusum_allowance,
+        "backtest_se": cfg.cusum_backtest_se,
         "n_skipped": skipped,
     }
     if not steps:
@@ -2002,18 +2022,24 @@ def _sequential_scope(
         if result.crossed_at is None
         else sum(count for _, _, count in steps[: result.crossed_at])
     )
-    signalled = crossed_at is not None
+    signalled = result.statistic >= cfg.cusum_threshold
+    level = f"{cfg.cusum_threshold:g}"
     if signalled:
         status = "alert"
         reason = (
-            f"sequential: CUSUM crossed {cfg.cusum_threshold:g} at trade {crossed_at} of "
-            f"{n} (now {result.statistic:.1f}, peak {result.peak:.1f}); alert whenever it "
-            f"crosses {cfg.cusum_threshold:g}"
+            f"sequential: CUSUM at {result.statistic:.1f}, above {level} (first crossed {level} "
+            f"at trade {crossed_at} of {n}, peak {result.peak:.1f}); alert while it stays above"
+        )
+    elif crossed_at is not None:
+        status = "ok"
+        reason = (
+            f"sequential: CUSUM {result.statistic:.1f} of {level}; it crossed {level} at trade "
+            f"{crossed_at} of {n} (peak {result.peak:.1f}) and has come back; within thresholds"
         )
     else:
         status = "ok"
         reason = (
-            f"sequential: CUSUM {result.statistic:.1f} of {cfg.cusum_threshold:g} "
+            f"sequential: CUSUM {result.statistic:.1f} of {level} "
             f"(peak {result.peak:.1f}, n={n}); within thresholds"
         )
     metrics = {

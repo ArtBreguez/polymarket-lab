@@ -157,7 +157,8 @@ class TestTheSettings:
         cfg = PnLThresholds()
         assert cfg.sequential is True
         assert cfg.cusum_allowance == 0.5
-        assert cfg.cusum_threshold == 40.0
+        assert cfg.cusum_backtest_se == 0.5
+        assert cfg.cusum_threshold == 30.0
         assert cfg.cusum_min_backtest_trades == 100
         assert cfg.mde_power == 0.8
 
@@ -177,6 +178,9 @@ class TestTheSettings:
             {"cusum_threshold": math.nan},
             {"cusum_allowance": -0.1},
             {"cusum_allowance": math.nan},
+            {"cusum_backtest_se": -0.1},
+            {"cusum_backtest_se": math.nan},
+            {"cusum_backtest_se": math.inf},
             {"cusum_min_backtest_trades": 1},
             {"cusum_min_backtest_trades": 2.5},
             {"cusum_min_backtest_trades": True},
@@ -197,39 +201,51 @@ class TestTheSettings:
 
     def test_a_report_written_before_these_settings_still_loads(self) -> None:
         data = _report(_trades(60)).to_dict()
-        for key in ("sequential", "cusum_allowance", "cusum_threshold", "mde_power"):
+        for key in (
+            "sequential",
+            "cusum_allowance",
+            "cusum_backtest_se",
+            "cusum_threshold",
+            "cusum_min_backtest_trades",
+            "mde_power",
+        ):
             del data["config"]["pnl"][key]
         again = HealthReport.from_dict(data)
-        assert again.config.pnl.cusum_threshold == 40.0
+        assert again.config.pnl.cusum_threshold == 30.0
+
+
+# What each trade subtracts at the defaults, for a backtest of 400 trades at +0.2 +/- 0.6:
+# half the promised edge in units of its spread, plus half a standard error of that promise.
+_K = 0.5 * 0.2 / 0.6 + 0.5 / math.sqrt(400)
 
 
 class TestTheSequentialTest:
     def test_a_constant_stream_has_a_known_statistic(self) -> None:
-        # Every trade returns -0.4 against a promise of +0.2 +/- 0.6.
+        # Every trade returns -0.4 against a promise of +0.2 +/- 0.6:
         #   standardized shortfall x = (0.2 + 0.4) / 0.6 = 1.0
-        #   allowance k = 0.5 * 0.2 / 0.6 = 1/6        -> each step adds 5/6
+        #   allowance k = 0.5 * 0.2 / 0.6 + 0.5 / sqrt(400) = 1/6 + 0.025
         trades = _in_order(_trades(60, pnl=-0.4, pnl_sd=0.0))
         seq = _pnl(_report(trades)).metrics["sequential"]
         assert seq["n"] == 60
-        assert seq["statistic"] == pytest.approx(60 * 5 / 6)
-        assert seq["peak"] == pytest.approx(60 * 5 / 6)
-        assert seq["allowance"] == pytest.approx(1 / 6)
-        assert seq["threshold"] == 40.0
-        assert seq["crossed_at"] == 48  # ceil(40 / (5/6))
+        assert seq["statistic"] == pytest.approx(60 * (1 - _K))
+        assert seq["peak"] == pytest.approx(60 * (1 - _K))
+        assert seq["allowance"] == pytest.approx(_K)
+        assert seq["threshold"] == 30.0
+        assert seq["crossed_at"] == math.ceil(30 / (1 - _K))  # 38
         assert seq["signalled"] is True
 
     def test_a_healthy_book_does_not_signal(self) -> None:
         seq = _pnl(_report(_in_order(_trades(500)))).metrics["sequential"]
         assert seq["signalled"] is False
         assert seq["crossed_at"] is None
-        assert seq["statistic"] < 40.0
+        assert seq["statistic"] < 30.0
 
     def test_a_slow_decay_is_caught_only_by_the_sequential_test(self) -> None:
         """400 trades as promised, then the edge is gone. The pooled mean over 670 trades
         is 40% short of the promise: not a finding. The run of shortfalls at the end is.
 
-        After the change each trade adds (0.2 - 0) / 0.6 - 0.5 * 0.2 / 0.6 = 1/6 to the
-        statistic, so it reaches 40 after 240 trades."""
+        After the change each trade adds (0.2 - 0) / 0.6 - K = 0.1417 to the statistic, so it
+        is above 30 after about 212 trades and still climbing."""
         trades = _in_order(_trades(400), _trades(270, pnl=0.0))
         check = _pnl(_report(trades))
         assert check.metrics["shortfall_rel"] == pytest.approx(0.403, abs=0.01)
@@ -238,22 +254,35 @@ class TestTheSequentialTest:
         assert check.reasons[0].startswith("sequential:")
         seq = check.metrics["sequential"]
         assert seq["signalled"] is True
-        assert seq["crossed_at"] == pytest.approx(400 + 240, abs=4)
+        assert seq["statistic"] >= 30.0
+        assert seq["crossed_at"] == pytest.approx(400 + 212, abs=8)
 
-    def test_the_line_says_where_it_signalled(self) -> None:
+    def test_the_line_says_where_it_first_crossed_and_where_it_is_now(self) -> None:
         trades = _in_order(_trades(400), _trades(270, pnl=0.0))
-        seq = _pnl(_report(trades)).metrics["sequential"]
-        line = _pnl(_report(trades)).reasons[0]
-        assert f"trade {seq['crossed_at']} of 670" in line
-        assert "CUSUM" in line
-
-    def test_a_signal_is_remembered_after_the_book_recovers(self) -> None:
-        trades = _in_order(_trades(100, pnl=-0.6), _trades(300))
         check = _pnl(_report(trades))
         seq = check.metrics["sequential"]
-        assert seq["signalled"] is True
-        assert seq["statistic"] < seq["peak"]  # it has come back down since
-        assert check.status == "alert"
+        line = check.reasons[0]
+        assert "CUSUM" in line
+        assert f"{seq['statistic']:.1f}" in line
+        assert f"first crossed 30 at trade {seq['crossed_at']} of 670" in line
+
+    def test_a_signal_clears_once_the_book_has_recovered(self) -> None:
+        """The alert says the book is in a bad run now. A bad run that has ended is not an
+        alert for ever (a sticky one would make every long-lived champion alert, because the
+        chance of having crossed at least once grows with the length of the book)."""
+        trades = _in_order(_trades(60, pnl=-0.4, pnl_sd=0.0), _trades(400))
+        check = _pnl(_report(trades))
+        seq = check.metrics["sequential"]
+        assert seq["crossed_at"] == math.ceil(30 / (1 - _K))  # it did cross
+        assert seq["peak"] >= 30.0
+        assert seq["statistic"] < 30.0  # and has come back
+        assert seq["signalled"] is False
+        assert check.status == "ok"
+        assert "come back" in seq["reason"]
+
+    def test_a_run_that_is_still_bad_stays_an_alert(self) -> None:
+        trades = _in_order(_trades(60, pnl=-0.4, pnl_sd=0.0), _trades(40, pnl=-0.4, pnl_sd=0.0))
+        assert _pnl(_report(trades)).metrics["sequential"]["signalled"] is True
 
     def test_the_fixed_test_and_the_sequential_test_can_both_fire(self) -> None:
         check = _pnl(_report(_in_order(_trades(200, pnl=-0.6))))
@@ -271,28 +300,46 @@ class TestTheSequentialTest:
     def test_a_lower_threshold_signals_earlier(self) -> None:
         trades = _in_order(_trades(60, pnl=-0.4, pnl_sd=0.0))
         config = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=10.0))
-        assert _pnl(_report(trades, config=config)).metrics["sequential"]["crossed_at"] == 12
+        assert _pnl(_report(trades, config=config)).metrics["sequential"]["crossed_at"] == (
+            math.ceil(10 / (1 - _K))
+        )
 
     def test_the_threshold_is_inclusive_to_the_last_digit(self) -> None:
-        trades = _in_order(_trades(300), _trades(120, pnl=0.0))
+        trades = _in_order(_trades(300), _trades(150, pnl=0.0))
         huge = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=1e9))
-        peak = _pnl(_report(trades, config=huge)).metrics["sequential"]["peak"]
-        at = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=peak))
-        above = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=peak + 1e-6))
+        now = _pnl(_report(trades, config=huge)).metrics["sequential"]["statistic"]
+        assert now > 5
+        at = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=now))
+        above = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=now + 1e-6))
         assert _pnl(_report(trades, config=at)).metrics["sequential"]["signalled"] is True
         assert _pnl(_report(trades, config=above)).metrics["sequential"]["signalled"] is False
 
-    def test_the_allowance_is_a_fraction_of_the_promised_edge(self) -> None:
+    def test_the_allowance_has_two_parts(self) -> None:
         trades = _in_order(_trades(60, pnl=-0.4, pnl_sd=0.0))
-        none = WatchdogConfig(pnl=PnLThresholds(cusum_allowance=0.0, cusum_threshold=1e9))
-        full = WatchdogConfig(pnl=PnLThresholds(cusum_allowance=1.0, cusum_threshold=1e9))
-        # k = a * 0.2 / 0.6; x = 1.0
-        assert _pnl(_report(trades, config=none)).metrics["sequential"][
-            "statistic"
-        ] == pytest.approx(60.0)
-        assert _pnl(_report(trades, config=full)).metrics["sequential"][
-            "statistic"
-        ] == pytest.approx(60 * (1 - 1 / 3))
+
+        def statistic(**settings: float) -> float:
+            config = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=1e9, **settings))
+            return float(_pnl(_report(trades, config=config)).metrics["sequential"]["statistic"])
+
+        # x = 1.0 on every trade; the allowance is a * 0.2 / 0.6 + b / sqrt(400).
+        assert statistic(cusum_allowance=0.0, cusum_backtest_se=0.0) == pytest.approx(60.0)
+        assert statistic(cusum_allowance=1.0, cusum_backtest_se=0.0) == pytest.approx(
+            60 * (1 - 1 / 3)
+        )
+        assert statistic(cusum_allowance=0.0, cusum_backtest_se=1.0) == pytest.approx(
+            60 * (1 - 1 / 20)
+        )
+
+    def test_a_shorter_backtest_makes_the_promise_less_certain_and_the_allowance_larger(
+        self,
+    ) -> None:
+        trades = _in_order(_trades(60, pnl=-0.4, pnl_sd=0.0))
+        config = WatchdogConfig(pnl=PnLThresholds(cusum_threshold=1e9))
+        short = _pnl(_report(trades, _expectation(n_trades=100), config=config))
+        long = _pnl(_report(trades, _expectation(n_trades=1600), config=config))
+        assert short.metrics["sequential"]["allowance"] == pytest.approx(1 / 6 + 0.5 / 10)
+        assert long.metrics["sequential"]["allowance"] == pytest.approx(1 / 6 + 0.5 / 40)
+        assert short.metrics["sequential"]["statistic"] < long.metrics["sequential"]["statistic"]
 
 
 class TestTheOrderTheTradesSettledIn:
@@ -313,9 +360,9 @@ class TestTheOrderTheTradesSettledIn:
         losses_first = _in_order(bad, good)
         last = _pnl(_report(losses_last, config=self._cfg())).metrics["sequential"]
         first = _pnl(_report(losses_first, config=self._cfg())).metrics["sequential"]
-        assert last["statistic"] == pytest.approx(40 * 5 / 6)
+        assert last["statistic"] == pytest.approx(40 * (1 - _K))
         assert first["statistic"] == 0.0  # the later wins wiped the earlier losses
-        assert first["peak"] == pytest.approx(40 * 5 / 6)
+        assert first["peak"] == pytest.approx(40 * (1 - _K))
 
     def test_trades_settled_in_the_same_hour_are_ordered_by_their_identity(self) -> None:
         a = _trades(60, pnl=-0.4, pnl_sd=0.0, segment="A")
