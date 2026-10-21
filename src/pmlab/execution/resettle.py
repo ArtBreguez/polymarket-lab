@@ -184,7 +184,12 @@ def resettle_file(
 
     A dry run reads and reports. Otherwise, if anything needs re-settling, the original is
     copied to ``<name>.bak-<UTC timestamp>`` next to it first, and the log is replaced
-    atomically; if nothing does, no backup is made and the file is not rewritten.
+    atomically; if nothing does, no backup is made and the file is not rewritten. A symlink is
+    followed: the file it points to is the one fixed and backed up.
+
+    Nothing locks the log. Run it when nothing else is writing to it: a `record-trades` or a
+    settlement that appends between the read and the replace would be lost, exactly as two
+    of those two running at once would lose each other's rows.
 
     Returns:
         The result, and the backup's path (None for a dry run or when nothing was written).
@@ -195,6 +200,9 @@ def resettle_file(
     """
     if not path.is_file():
         raise FileNotFoundError(f"trade log not found: {path}")
+    # Replacing a symlink would swap the link for a regular file and leave the log it points
+    # at untouched: work on the file itself.
+    path = path.resolve()
     try:
         data = json.loads(path.read_text())
     except ValueError as exc:

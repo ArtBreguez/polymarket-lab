@@ -363,3 +363,26 @@ class TestMoreCornersOfTheLibrary:
         # The backup was written before the attempt, and holds the original.
         backups = list(tmp_path.glob("trades.json.bak-*"))
         assert len(backups) == 1 and backups[0].read_bytes() == original
+
+
+class TestASymlinkedLog:
+    def test_the_real_file_is_fixed_and_the_link_stays_a_link(self, tmp_path: Path) -> None:
+        import json
+
+        from pmlab.execution.resettle import resettle_file
+
+        real = tmp_path / "real"
+        real.mkdir()
+        target = real / "trades.json"
+        target.write_text(json.dumps({"trades": [_legacy()]}))
+        original = target.read_bytes()
+        link = tmp_path / "forward_paper_trades.json"
+        link.symlink_to(target)
+
+        result, backup = resettle_file(link, dry_run=False, now_utc=_NOW)
+
+        assert link.is_symlink()  # not swapped for a regular file
+        assert json.loads(target.read_text())["trades"][0]["settlement_version"] == 1
+        assert result.n_changed == 1
+        assert backup is not None and backup.read_bytes() == original
+        assert backup.parent == real  # next to the file that was changed
