@@ -125,3 +125,62 @@ def test_an_unusable_expectation_makes_the_champion_unloadable(
 
     with pytest.raises(ValueError):
         ChampionManifest.load(path)
+
+
+def _split_expectation() -> BacktestExpectation:
+    from pmlab.backtest.expectation import GroupExpectation
+    from pmlab.core.policy import TradePolicy
+
+    return BacktestExpectation(
+        n_trades=120,
+        flat_stake=1.0,
+        mean_pnl_per_stake=0.05,
+        std_pnl_per_stake=0.9,
+        brier_score=0.21,
+        brier_std=0.17,
+        by_direction={
+            "yes": GroupExpectation(70, 0.12, 1.0, 0.20, 0.16),
+            "no": GroupExpectation(50, -0.04, 0.7, 0.23, 0.18),
+        },
+        policy=TradePolicy.live(min_edge=0.07),
+    )
+
+
+def test_the_per_direction_expectation_and_policy_survive_publish_and_load(tmp_path: Path) -> None:
+    _publish(tmp_path, expectation=_split_expectation())
+
+    on_disk = json.loads((tmp_path / "champion.json").read_text())["backtest_expectation"]
+    assert set(on_disk["by_direction"]) == {"yes", "no"}
+    assert on_disk["policy"] == {
+        "selection": "best_edge",
+        "directions": ["yes", "no"],
+        "min_edge": 0.07,
+    }
+    assert ChampionManifest.load(tmp_path / "champion.json").expectation == _split_expectation()
+
+
+def test_a_champion_with_an_expectation_but_no_split_still_loads(tmp_path: Path) -> None:
+    """The 0.9.1-dev format: an expectation with no by_direction / policy keys."""
+    _publish(tmp_path, expectation=_expectation())
+    path = tmp_path / "champion.json"
+    data = json.loads(path.read_text())
+    del data["backtest_expectation"]["by_direction"]
+    del data["backtest_expectation"]["policy"]
+    path.write_text(json.dumps(data))
+
+    loaded = ChampionManifest.load(path).expectation
+    assert loaded is not None
+    assert loaded.by_direction is None
+    assert loaded.policy is None
+    assert loaded.mean_pnl_per_stake == 0.05
+
+
+def test_an_unusable_split_makes_the_champion_unloadable(tmp_path: Path) -> None:
+    _publish(tmp_path, expectation=_split_expectation())
+    path = tmp_path / "champion.json"
+    data = json.loads(path.read_text())
+    data["backtest_expectation"]["by_direction"]["no"]["std_pnl_per_stake"] = float("nan")
+    path.write_text(json.dumps(data))
+
+    with pytest.raises(ValueError):
+        ChampionManifest.load(path)

@@ -21,13 +21,67 @@ fair between like subsets.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-__all__ = ["BacktestExpectation"]
+from pmlab.core.policy import TradePolicy
+
+__all__ = ["MIN_GROUP_TRADES", "BacktestExpectation", "GroupExpectation"]
+
+# A side or a segment is given an expectation of its own only if the backtest traded it at
+# least this often; a promise made on fewer trades is not one a live book can be held to.
+# It matches the watchdog's default `min_trades`.
+MIN_GROUP_TRADES = 30
+
+_DIRECTIONS = ("yes", "no")
+
+
+@dataclass(frozen=True)
+class GroupExpectation:
+    """Mean, spread and size of one group of backtest trades: a side, or a segment.
+
+    The same numbers `BacktestExpectation` keeps for the whole backtest, per unit
+    stake. A group is held to the same rules as the whole: every number finite, a
+    spread that is not negative, at least two trades, a Brier score in [0, 1].
+    """
+
+    n_trades: int
+    mean_pnl_per_stake: float
+    std_pnl_per_stake: float
+    brier_score: float | None = None
+    brier_std: float | None = None
+
+    def __post_init__(self) -> None:
+        _check_trade_count(self.n_trades)
+        _check_statistics(
+            self.mean_pnl_per_stake, self.std_pnl_per_stake, self.brier_score, self.brier_std
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "n_trades": self.n_trades,
+            "mean_pnl_per_stake": self.mean_pnl_per_stake,
+            "std_pnl_per_stake": self.std_pnl_per_stake,
+            "brier_score": self.brier_score,
+            "brier_std": self.brier_std,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> GroupExpectation:
+        """Restore a record; raises ValueError (KeyError if a key is absent) if unusable."""
+        brier_score = data.get("brier_score")
+        brier_std = data.get("brier_std")
+        return cls(
+            n_trades=_as_int("n_trades", data["n_trades"]),
+            mean_pnl_per_stake=_as_float("mean_pnl_per_stake", data["mean_pnl_per_stake"]),
+            std_pnl_per_stake=_as_float("std_pnl_per_stake", data["std_pnl_per_stake"]),
+            brier_score=None if brier_score is None else _as_float("brier_score", brier_score),
+            brier_std=None if brier_std is None else _as_float("brier_std", brier_std),
+        )
 
 
 @dataclass(frozen=True)
@@ -37,6 +91,17 @@ class BacktestExpectation:
     `brier_score` / `brier_std` are the mean and standard deviation of the
     per-trade squared forecast error. They are `None` when the backtest trades did
     not carry both `predicted_prob` and `label_occurred`.
+
+    `by_direction` holds the same numbers for the YES trades and for the NO trades on
+    their own: a NO trade is a buy of a different token, picked where the model is
+    bearish, and its PnL and forecast error are not draws from the YES distribution.
+    ``None`` means the backtest did not record a split (a champion published before
+    0.9.1, or a frame without a `direction` column): the pooled numbers then describe
+    the historical backtest, which only bought YES. A side the backtest traded fewer
+    than `MIN_GROUP_TRADES` times is absent from the mapping.
+
+    `policy` is the decision rule the backtest ran (`TradePolicy`), recorded so live
+    trading can use the same threshold. ``None`` when not recorded.
 
     An expectation is only worth recording if a live run can be measured against it,
     so the constructor refuses one that cannot: every number finite, a spread that is
@@ -53,46 +118,58 @@ class BacktestExpectation:
     std_pnl_per_stake: float
     brier_score: float | None = None
     brier_std: float | None = None
+    by_direction: Mapping[str, GroupExpectation] | None = None
+    policy: TradePolicy | None = None
 
     def __post_init__(self) -> None:
-        if isinstance(self.n_trades, bool) or not isinstance(self.n_trades, int):
-            raise ValueError(f"n_trades must be an integer, got {self.n_trades!r}")
-        if self.n_trades < 2:
-            raise ValueError(
-                f"n_trades must be at least 2 (one trade has no spread), got {self.n_trades}"
-            )
+        _check_trade_count(self.n_trades)
         _require_finite("flat_stake", self.flat_stake)
         if self.flat_stake <= 0:
             raise ValueError(f"flat_stake must be positive, got {self.flat_stake!r}")
-        _require_finite("mean_pnl_per_stake", self.mean_pnl_per_stake)
-        _require_finite("std_pnl_per_stake", self.std_pnl_per_stake)
-        if self.std_pnl_per_stake < 0:
-            raise ValueError(f"std_pnl_per_stake must be >= 0, got {self.std_pnl_per_stake!r}")
-        if self.brier_score is not None:
-            _require_finite("brier_score", self.brier_score)
-            if not 0.0 <= self.brier_score <= 1.0:
-                raise ValueError(f"brier_score must be within [0, 1], got {self.brier_score!r}")
-        if self.brier_std is not None:
-            _require_finite("brier_std", self.brier_std)
-            if self.brier_std < 0:
-                raise ValueError(f"brier_std must be >= 0, got {self.brier_std!r}")
+        _check_statistics(
+            self.mean_pnl_per_stake, self.std_pnl_per_stake, self.brier_score, self.brier_std
+        )
+        if self.by_direction is not None:
+            object.__setattr__(
+                self,
+                "by_direction",
+                _checked_split(self.by_direction, _DIRECTIONS, "direction", self.n_trades),
+            )
+        if self.policy is not None and not isinstance(self.policy, TradePolicy):
+            raise ValueError(f"policy must be a TradePolicy, got {self.policy!r}")
 
     @classmethod
-    def from_trades(cls, trades: pd.DataFrame, *, flat_stake: float = 1.0) -> BacktestExpectation:
+    def from_trades(
+        cls,
+        trades: pd.DataFrame,
+        *,
+        flat_stake: float = 1.0,
+        policy: TradePolicy | None = None,
+        min_group_trades: int = MIN_GROUP_TRADES,
+    ) -> BacktestExpectation:
         """Summarise a `rolling_origin_eval(...).trades` frame.
 
         Args:
             trades: Needs `realized_pnl`. If it also has `predicted_prob` and
-                `label_occurred`, the Brier expectation is filled in too.
+                `label_occurred`, the Brier expectation is filled in too. If it has a
+                `direction` column ("yes" / "no"), each side with at least
+                `min_group_trades` trades gets an expectation of its own.
             flat_stake: The notional each backtest trade risked — the
                 `flat_stake` the backtest was run with.
+            policy: The trade policy the backtest ran, to record with the numbers.
+            min_group_trades: Fewest trades a side needs to be recorded (at least 2).
 
         Raises:
             ValueError: On fewer than two trades (no spread to measure), a
-                non-finite PnL, a non-positive stake, or forecasts outside [0, 1].
+                non-finite PnL, a non-positive stake, forecasts outside [0, 1] or a
+                `direction` other than yes/no.
         """
         if not math.isfinite(flat_stake) or flat_stake <= 0:
             raise ValueError(f"flat_stake must be a positive finite number, got {flat_stake!r}")
+        if isinstance(min_group_trades, bool) or not isinstance(min_group_trades, int):
+            raise ValueError(f"min_group_trades must be an integer >= 2, got {min_group_trades!r}")
+        if min_group_trades < 2:
+            raise ValueError(f"min_group_trades must be an integer >= 2, got {min_group_trades!r}")
         if "realized_pnl" not in trades.columns:
             raise ValueError("trades has no realized_pnl column")
 
@@ -105,24 +182,42 @@ class BacktestExpectation:
             raise ValueError("realized_pnl must be finite for every trade")
 
         per_stake = pnl / flat_stake
-        brier_score: float | None = None
-        brier_std: float | None = None
+        prob: np.ndarray | None = None
+        occurred: np.ndarray | None = None
         if "predicted_prob" in trades.columns and "label_occurred" in trades.columns:
             prob = trades["predicted_prob"].to_numpy(dtype=float)
             if not np.isfinite(prob).all() or (prob < 0).any() or (prob > 1).any():
                 raise ValueError("predicted_prob must be finite probabilities in [0, 1]")
             occurred = trades["label_occurred"].to_numpy(dtype=bool).astype(float)
-            terms = (prob - occurred) ** 2
-            brier_score = float(terms.mean())
-            brier_std = float(terms.std(ddof=1))
 
+        by_direction: dict[str, GroupExpectation] | None = None
+        if "direction" in trades.columns:
+            sides = trades["direction"].astype(str).to_numpy()
+            unknown = sorted(set(sides) - set(_DIRECTIONS))
+            if unknown:
+                raise ValueError(
+                    f"trades has unknown direction value(s) {unknown}; valid: {list(_DIRECTIONS)}"
+                )
+            by_direction = {}
+            for side in _DIRECTIONS:
+                mask = sides == side
+                if int(mask.sum()) >= min_group_trades:
+                    by_direction[side] = _summarise(
+                        per_stake[mask],
+                        None if prob is None else prob[mask],
+                        None if occurred is None else occurred[mask],
+                    )
+
+        whole = _summarise(per_stake, prob, occurred)
         return cls(
-            n_trades=len(pnl),
+            n_trades=whole.n_trades,
             flat_stake=float(flat_stake),
-            mean_pnl_per_stake=float(per_stake.mean()),
-            std_pnl_per_stake=float(per_stake.std(ddof=1)),
-            brier_score=brier_score,
-            brier_std=brier_std,
+            mean_pnl_per_stake=whole.mean_pnl_per_stake,
+            std_pnl_per_stake=whole.std_pnl_per_stake,
+            brier_score=whole.brier_score,
+            brier_std=whole.brier_std,
+            by_direction=by_direction,
+            policy=policy,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,13 +228,33 @@ class BacktestExpectation:
             "std_pnl_per_stake": self.std_pnl_per_stake,
             "brier_score": self.brier_score,
             "brier_std": self.brier_std,
+            "by_direction": (
+                None
+                if self.by_direction is None
+                else {side: stats.to_dict() for side, stats in self.by_direction.items()}
+            ),
+            "policy": None if self.policy is None else self.policy.to_dict(),
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> BacktestExpectation:
-        """Restore a record; raises ValueError (KeyError if a key is absent) if unusable."""
+    def from_dict(cls, data: Mapping[str, Any]) -> BacktestExpectation:
+        """Restore a record; raises ValueError (KeyError if a key is absent) if unusable.
+
+        A record written before 0.9.1 has neither `by_direction` nor `policy`; both load
+        as ``None``. One that has them but cannot be used raises: it must never read as
+        "not recorded" and quietly weaken the watchdog.
+        """
         brier_score = data.get("brier_score")
         brier_std = data.get("brier_std")
+        raw_split = data.get("by_direction")
+        by_direction: dict[str, GroupExpectation] | None = None
+        if raw_split is not None:
+            if not isinstance(raw_split, Mapping):
+                raise ValueError(f"by_direction must be an object, got {raw_split!r}")
+            by_direction = {
+                str(side): GroupExpectation.from_dict(stats) for side, stats in raw_split.items()
+            }
+        raw_policy = data.get("policy")
         return cls(
             n_trades=_as_int("n_trades", data["n_trades"]),
             flat_stake=_as_float("flat_stake", data["flat_stake"]),
@@ -147,7 +262,80 @@ class BacktestExpectation:
             std_pnl_per_stake=_as_float("std_pnl_per_stake", data["std_pnl_per_stake"]),
             brier_score=None if brier_score is None else _as_float("brier_score", brier_score),
             brier_std=None if brier_std is None else _as_float("brier_std", brier_std),
+            by_direction=by_direction,
+            policy=None if raw_policy is None else TradePolicy.from_dict(raw_policy),
         )
+
+
+def _summarise(
+    per_stake: np.ndarray, prob: np.ndarray | None, occurred: np.ndarray | None
+) -> GroupExpectation:
+    """Mean, spread and Brier of one group of trades (per-stake PnL, forecast terms)."""
+    brier_score: float | None = None
+    brier_std: float | None = None
+    if prob is not None and occurred is not None:
+        terms = (prob - occurred) ** 2
+        brier_score = float(terms.mean())
+        brier_std = float(terms.std(ddof=1))
+    return GroupExpectation(
+        n_trades=len(per_stake),
+        mean_pnl_per_stake=float(per_stake.mean()),
+        std_pnl_per_stake=float(per_stake.std(ddof=1)),
+        brier_score=brier_score,
+        brier_std=brier_std,
+    )
+
+
+def _check_trade_count(n_trades: object) -> None:
+    if isinstance(n_trades, bool) or not isinstance(n_trades, int):
+        raise ValueError(f"n_trades must be an integer, got {n_trades!r}")
+    if n_trades < 2:
+        raise ValueError(f"n_trades must be at least 2 (one trade has no spread), got {n_trades}")
+
+
+def _check_statistics(
+    mean: float, std: float, brier_score: float | None, brier_std: float | None
+) -> None:
+    _require_finite("mean_pnl_per_stake", mean)
+    _require_finite("std_pnl_per_stake", std)
+    if std < 0:
+        raise ValueError(f"std_pnl_per_stake must be >= 0, got {std!r}")
+    if brier_score is not None:
+        _require_finite("brier_score", brier_score)
+        if not 0.0 <= brier_score <= 1.0:
+            raise ValueError(f"brier_score must be within [0, 1], got {brier_score!r}")
+    if brier_std is not None:
+        _require_finite("brier_std", brier_std)
+        if brier_std < 0:
+            raise ValueError(f"brier_std must be >= 0, got {brier_std!r}")
+
+
+def _checked_split(
+    split: Mapping[str, GroupExpectation],
+    valid: tuple[str, ...],
+    noun: str,
+    n_trades: int,
+) -> dict[str, GroupExpectation]:
+    """A copy of `split` in the canonical order, or ValueError if it cannot be a split."""
+    if not isinstance(split, Mapping):
+        raise ValueError(f"by_{noun} must be an object, got {split!r}")
+    unknown = sorted(set(split) - set(valid))
+    if unknown:
+        raise ValueError(f"unknown {noun}(s) {unknown} in the expectation; valid: {list(valid)}")
+    checked: dict[str, GroupExpectation] = {}
+    for key in valid:
+        if key not in split:
+            continue
+        stats = split[key]
+        if not isinstance(stats, GroupExpectation):
+            raise ValueError(f"by_{noun}[{key!r}] must be a GroupExpectation, got {stats!r}")
+        if stats.n_trades > n_trades:
+            raise ValueError(
+                f"{noun} {key!r} has {stats.n_trades} trades, more than the whole backtest's "
+                f"{n_trades}"
+            )
+        checked[key] = stats
+    return checked
 
 
 def _require_finite(name: str, value: float) -> None:
