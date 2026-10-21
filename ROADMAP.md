@@ -20,8 +20,8 @@ as of **v0.9.1**.
 | 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV, bootstrap stability report, **cost model** | ✅ core complete |
 | 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
 | 6. Execution | Paper + Live broker, settlement, one cost model shared with the backtest | No latency model; costs are an approximation, not a book walk |
-| 7. Monitoring | cost assumptions and the backtest expectation travel with the champion; live calibration on realized trades; PSI/KL drift; `pmlab monitor` watchdog with cron-friendly exit codes | The watchdog reports, nothing acts on it (no pause or retrain trigger); health is judged in aggregate, not per segment |
-| 8. Reproducibility & DX | CLI (9 cmds), typed, docs | No end-to-end tutorial, no seeds/config capture |
+| 7. Monitoring | cost assumptions and the backtest expectation travel with the champion; live calibration on realized trades; PSI/KL drift; `pmlab monitor` watchdog with cron-friendly exit codes | The watchdog reports, nothing acts on it (no pause or retrain trigger) |
+| 8. Reproducibility & DX | CLI (10 cmds), typed, docs | No end-to-end tutorial, no seeds/config capture |
 
 ---
 
@@ -111,6 +111,10 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
   that could not be measured is `insufficient`, never green; exit codes separate
   warn / alert / insufficient / bad input / internal error. `health_report` is the
   pure core. Reports and exits — acting on an alert is left to the caller.
+  The backtest simulates the live policy (YES and NO), so the book is held to the
+  backtest per side and per segment, Holm-corrected; a sequential test catches an
+  edge that fades; every PnL result says what it could have detected. `pmlab
+  resettle` repairs logs that an older release booked wrongly.
 
 ## v1.0.0 — Polish, DX, and stability guarantee
 
