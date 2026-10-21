@@ -2,6 +2,137 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.2] — 2026-10-21
+
+### Fixed — the weather panel showed the backtest only the bin that won (#28)
+
+`WeatherTmaxPlugin.build_training_row` emitted **one row per market**, labelled with the
+winning bin (`outcome_label == winning_label`) and priced at the market's *highest* bin price
+from discovery. The backtest chooses, per market, which bin to buy and whether to buy YES or
+NO; a panel holding only the winner lets it make exactly one kind of decision correctly. Every
+YES it takes wins, every NO it takes loses, whatever the model says, and the model is trained
+on labels that are all 1. The PnL such a panel reports belongs to the panel, not the model.
+Since 0.9.1 made `--policy live` the default this decided real YES/NO trades, and
+`--policy top-bin-yes` had always been affected.
+
+**Measured, on a synthetic world with fair prices** (60 days x 8 markets x 5 bins, every bin
+priced at its true probability, so any policy's expected PnL is exactly 0; frictionless, the
+CLI's `LGBMForecaster`, stride 2, seeds 7/11/23). A "z" is the PnL over the standard deviation
+it must have if the prices are fair:
+
+| panel | policy | trades | hit rate | PnL | z |
+|---|---|---|---|---|---|
+| one winning row per market (before) | `top-bin-yes` | 224 | 100% | +377 to +393 | +19.4 to +19.8 |
+| one winning row per market (before) | `live` (min edge 0.05) | 224 | 0% (all NO) | -224 | -18.2 to -18.4 |
+| one row per bin (this release) | `top-bin-yes` | 232 | 17-19% | -52 to +0.3 | -1.35 to +0.01 |
+| one row per bin (this release) | `live` (min edge 0.05) | 226-232 | 47-52% | -8.5 to +10.7 | -0.31 to +0.40 |
+
+The sign under `live` follows the model, the size does not: LightGBM fitted on one class
+reports a probability of about 1e-15 for every label, so the policy buys NO on the winner and
+loses the stake each time; a model that predicts the training base rate (p = 1 on this panel)
+buys YES on the winner and wins each time. Both are the same panel artifact. The regression
+test (`tests/plugins/weather_tmax/test_panel_bias.py`) asserts both, and that the per-bin panel
+stays inside 4 standard deviations of zero on all three seeds.
+
+- **`MarketPlugin.build_training_rows(spec, horizon, **kwargs) -> list[dict]`** — every row of
+  one (market, decision), one per outcome bin. The default wraps `build_training_row`
+  (`[row]`, or `[]` for `None`), so a plugin written for the singular form needs no change.
+  `build_training_row` stays abstract.
+- **`WeatherTmaxPlugin.build_training_rows`** — one row per bin, each with that bin's own
+  `outcome_label` and `market_price`, plus `decision_date`, `decision_ts`, `price_ts` and
+  `price_source` so a leakage audit can tell where a price came from and when. `decision_time`
+  is required. Bins that cannot be priced get no row and are **counted** under a reason in an
+  `exclusions` mapping the caller passes (logged at WARNING when it passes none):
+  `price_missing`, `price_invalid`, `price_degenerate` (exactly 0 or 1, which is what a settled
+  market shows), `price_untimed`, `price_after_cutoff`, and per market `market_unresolved`,
+  `market_truth_unbinned`, `market_no_usable_price`.
+- **No price is invented.** `market_price` no longer defaults to 0.5, and neither does
+  `_build_spec`: an absent or unreadable Gamma price is `None` in `outcome_schema`, a short
+  price list leaves the remaining bins unpriced, and one bad entry no longer discards the others.
+- **Point-in-time.** A price is used only if it was observed strictly before the decision (the
+  rule `FeatureSnapshotStore.as_of` applies to features). `discover_markets` now stamps
+  `price_observed_at` (one reading of an injectable `clock`) and `price_source = "discovery"`
+  on every spec. **The discovery-time Gamma price is the only per-bin price this plugin has**:
+  the CLOB client reads the current midpoint and keeps no history, and the snapshot store holds
+  no per-bin price. A market discovered after it resolved or after the decision has the wrong
+  prices and is excluded as `price_after_cutoff`, not used. A better source can be supplied per
+  bin in `outcome_schema` (`observed_at`, `source`).
+- **`check_price_timing(df)` / `PriceTimingReport`** in `pmlab.data`: raises `LeakageError` if a
+  row's `price_ts` is at or after its `decision_ts`, or has none. `build_panel` runs it always
+  (not only with `check_leakage=True`); a panel without the two columns is not checked.
+- **`build_panel` takes lists of rows** (the output of `build_training_rows`, per market) as
+  well as single rows and `None`.
+- **`rolling_origin_eval` ignores the panel's index.** `top_prob` read the chosen rows back by
+  index label, so a panel stacked market by market (`pd.concat` of one frame per market, each
+  indexed 0..K-1) matched the same label in every market: 448 trades where a clean index gives 56 (a 40-day,
+  8-market, 5-bin panel, stride 5). It was latent with one row per market; assembling a per-bin
+  panel market by market makes it likely.
+
+### Changed
+
+- `WeatherTmaxPlugin.build_training_row` is **deprecated** (`DeprecationWarning`). It returns
+  the winning bin's row at that bin's own price (it used to carry the market maximum), and a
+  panel made of it is still biased. It no longer substitutes 0.5 and returns `None` when the
+  winning bin has no usable price. Its `decision_time` is optional, as before.
+- `metadata["market_price"]` on a weather spec stays, as the highest *known* bin price, and is
+  `None` when none is known. It is for display; it is never a row's price.
+- Feature columns no longer overwrite a row's `market_id`, `outcome_label`, `market_price` and
+  the other structural keys (the structural keys win).
+- A panel has K rows per market, but the backtest makes one trade per (market, decision date),
+  so `num_trades`, hit rate, the gate's per-segment `n`, the expectation and every watchdog
+  count are per trade and unchanged in meaning (pinned in
+  `tests/backtest/test_rolling_origin_per_bin.py`). Two settings are in rows: `--min-train-rows`
+  (20 rows is 4 markets at K = 5; scale it by K) and any row-wise split of your own, where the
+  bins of a market belong on one side.
+
+### Upgrading — champions promoted from a weather panel built before 0.9.2
+
+**Their `backtest_expectation` is optimistic, and so is the gate that let them through.** A
+champion exists only because its gate said GO, so its backtest PnL was non-negative; on a
+panel of winners that number does not measure edge, and `champion.json` records it as the
+promise the live book will be held to.
+
+- **Check whether a panel is affected:** `(panel["outcome_label"] == panel["winning_label"]).all()`
+  is `True` for a winner-only panel.
+- **What the watchdog will do:** `pmlab monitor` compares live PnL per stake with the recorded
+  per-stake mean. Against an inflated reference expect a PnL **shortfall** alert (exit 20) once
+  there are enough settled trades (30 by default; `insufficient`, exit 30, until then). In this
+  release's end-to-end check, a champion that promised +1.778 per stake, held to a live book
+  with no edge (+0.021 per stake over 150 trades), alerted: a 99% shortfall at z = 15.5, the
+  sequential test having crossed its threshold at trade 13. That alert is the reference being
+  wrong, not the market having changed. The recorded calibration reference is no better: it
+  comes from the same trades, in which the label always occurred (a Brier of 1.000 in that
+  run), so calibration reads `ok` whatever the live book does.
+- **What to do:** rebuild the panel with `build_training_rows`, re-run `pmlab backtest --output
+  metrics.json` (scale `--min-train-rows` by the bins per market), re-run the gate, and
+  re-promote with `pmlab promote-champion ... --expectation metrics.json`. Expect some of those
+  to come back `NO_GO`: that is the correct outcome, not a regression.
+- **A `GO` on the rebuilt panel is not evidence of edge.** The gate asks for PnL >= 0 over at
+  least 40 trades, which a model with no edge passes about half the time. In the end-to-end
+  check (a world where no policy can have an edge) `top-bin-yes` came back `NO_GO` and `live`
+  `GO` at +4.40 over 41 trades, z = +0.69; the champion recorded +0.107 per stake with a spread
+  of 1.0, and `pmlab monitor` then reported OK against a fair live book while stating it could
+  only detect a shortfall of 453% or more at n = 150. Read the PnL against its spread
+  (`std_pnl_per_stake` in the `--output` JSON and in `champion.json`), not the decision.
+- No number printed in the README or `docs/` came from a weather panel; the only backtest output
+  there (`docs/watchdog.md`) is a user-written synthetic world.
+
+### Known limits, not changed here
+
+- `sports_f1` has the same defect and was left alone: its row has no `outcome_label` and its
+  `market_price` is always the 0.5 default (its spec records no prices), so it cannot pass
+  `build_panel` today.
+- The per-bin rows share their market-level forecast features, so a model cannot tell the bins
+  apart unless the forecast client or a subclass adds bin-aware features. Separately, the
+  plugin's stub features (`forecast_*`, `lead_hours`) are not `feature_*`, the only columns the
+  backtest passes to the model; a forecast client has to name its keys `feature_*`.
+- A training window with a single class makes LightGBM report ~1e-15 for the label, and
+  `rolling_origin_eval` trades on it. A per-bin panel does not trigger it (each market adds a
+  winner and losers), but it is still there for any panel whose training window has one class,
+  and it is the second half of why the old panel lost under `live`.
+- `CalibratedForecaster` and the conformal wrapper split by random row, so the bins of one
+  market can fall on both sides; drift reports count reference *rows* as samples.
+
 ## [0.9.1] — 2026-10-21
 
 ### Added — Watchdog CLI

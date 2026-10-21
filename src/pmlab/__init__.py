@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.expectation import BacktestExpectation, GroupExpectation, SegmentExpectation
