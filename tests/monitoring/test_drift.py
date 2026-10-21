@@ -519,6 +519,20 @@ class TestCategorical:
         assert fd.unseen_categories == ()
         assert fd.psi is not None and fd.psi < 0.01
 
+    def test_one_and_one_point_zero_and_true_are_one_category(self):
+        # Python hashes 1, 1.0 and True alike, so the category counter merges them.
+        # That is intended: an int column turns float when a NaN appears, and a
+        # bool column round-trips through ints. Anything else is a different category.
+        ref = pd.Series([1, 2] * 300, dtype=object)
+        cur = pd.Series([True, 2.0] * 200 + [1.0, 2] * 100, dtype=object)
+        cfg = DriftConfig(categorical=("f",))
+        fd = _one(drift_report({"f": ref}, {"f": cur}, config=cfg), "f")
+        assert fd.unseen_categories == () and fd.n_unseen_categories == 0
+        assert fd.psi == 0.0
+        # ...but the string "1" is not the number 1.
+        as_text = _one(drift_report({"f": ref}, {"f": ["1", "2"] * 300}, config=cfg), "f")
+        assert as_text.n_unseen_categories == 2
+
     def test_missing_categorical_values_are_counted_not_binned(self):
         ref = ["a"] * 500 + ["b"] * 500
         cur = ["a"] * 250 + ["b"] * 250 + [None] * 250 + [np.nan] * 250
@@ -1216,6 +1230,16 @@ class TestSerialisation:
         with pytest.raises(ValueError, match="fine"):
             FeatureDrift.from_dict(payload)
 
+    def test_overlap_count_is_serialised_and_round_trips(self):
+        report = dataclasses.replace(_awkward_report(), n_current_excluded_overlap=42)
+        payload = report.to_dict()
+        assert payload["n_current_excluded_overlap"] == 42
+        assert isinstance(payload["n_current_excluded_overlap"], int)
+        assert DriftReport.from_dict(json.loads(json.dumps(payload))) == report
+
+    def test_the_pure_function_never_excludes_anything(self):
+        assert _awkward_report().n_current_excluded_overlap == 0
+
     def test_config_round_trips(self):
         cfg = DriftConfig(
             n_bins=7,
@@ -1398,10 +1422,61 @@ class TestFromStore:
         assert report.status == "insufficient"
         assert report.absent_from_current == ()
 
-    def test_an_unknown_family_is_insufficient_not_a_crash(self, store):
-        report = drift_report_from_store(store, "never-captured", _reference_panel(), **_WINDOW)
+    def test_an_unknown_family_is_an_error_not_a_quiet_insufficient_report(self, store):
+        # A typo in the family name must not look like "no live data yet".
+        store.append(_FAMILY, _live_snaps(n=300))
+        with pytest.raises(ValueError, match="never-captured"):
+            drift_report_from_store(store, "never-captured", _reference_panel(), **_WINDOW)
+
+    def test_a_known_family_with_nothing_before_the_cutoff_is_just_insufficient(self, store):
+        store.append(_FAMILY, _live_snaps(n=300, day="2025-06-01"))  # all after the cutoff
+        report = drift_report_from_store(store, _FAMILY, _reference_panel(), **_WINDOW)
         assert report.n_current == 0
         assert report.status == "insufficient"
+
+    def test_window_start_after_cutoff_is_an_error(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        with pytest.raises(ValueError, match="window_start"):
+            drift_report_from_store(
+                store,
+                _FAMILY,
+                _reference_panel(),
+                window_start="2025-03-10T00:00:00Z",
+                cutoff="2025-03-01T00:00:00Z",
+            )
+
+    def test_window_start_is_compared_after_normalising_time_zones(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        with pytest.raises(ValueError, match="window_start"):
+            drift_report_from_store(
+                store,
+                _FAMILY,
+                _reference_panel(),
+                window_start="2025-03-10T02:00:00+02:00",  # 00:00Z, == cutoff below + 1h
+                cutoff="2025-03-09T23:00:00Z",
+            )
+
+    def test_window_start_equal_to_cutoff_is_an_empty_window_not_an_error(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        report = drift_report_from_store(
+            store,
+            _FAMILY,
+            _reference_panel(),
+            window_start="2025-03-10T00:00:00Z",
+            cutoff="2025-03-10T00:00:00Z",
+        )
+        assert report.n_current == 0 and report.status == "insufficient"
+
+    def test_an_empty_features_list_is_an_error(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        with pytest.raises(ValueError, match="features"):
+            drift_report_from_store(store, _FAMILY, _reference_panel(), features=[], **_WINDOW)
+
+    def test_a_reference_with_no_feature_columns_and_no_features_given_is_an_error(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        bare = _reference_panel()[["market_id", "decision_date", "winning_label"]]
+        with pytest.raises(ValueError, match="features"):
+            drift_report_from_store(store, _FAMILY, bare, **_WINDOW)
 
     def test_predict_fn_is_not_called_on_an_empty_window(self, store):
         calls: list[int] = []
@@ -1412,8 +1487,9 @@ class TestFromStore:
                 raise AssertionError("predict_fn must not see an empty frame")
             return np.full(len(frame), 0.5)
 
+        store.append(_FAMILY, _live_snaps(n=300, day="2025-01-02"))  # all before window_start
         report = drift_report_from_store(
-            store, "never-captured", _reference_panel(), predict_fn=predict, **_WINDOW
+            store, _FAMILY, _reference_panel(), predict_fn=predict, **_WINDOW
         )
         assert calls == [400]  # the reference only
         assert report.prediction is not None
@@ -1433,6 +1509,126 @@ class TestFromStore:
         assert sorted(seen) == [400, 400]
         assert report.prediction is not None
         assert report.prediction.status == "alert"
+
+    # ---- the live window must not contain the markets the model was trained on
+
+    def _with_training_markets_recaptured(self, store, n_live: int = 300, n_trained: int = 100):
+        store.append(_FAMILY, _live_snaps(n=n_live))
+        # Training markets, re-captured inside the window with wild values.
+        store.append(
+            _FAMILY,
+            [
+                _snap(f"train{i}", "2025-03-05T12:00:00Z", feature_a=50.0, feature_b=10.0)
+                for i in range(n_trained)
+            ],
+        )
+
+    def test_markets_in_the_reference_panel_are_excluded_from_the_live_window(self, store):
+        self._with_training_markets_recaptured(store)
+        report = drift_report_from_store(store, _FAMILY, _reference_panel(), **_WINDOW)
+        assert report.n_current == 300
+        assert report.n_current_excluded_overlap == 100
+        assert _one(report, "feature_a").status == "ok"  # the wild values were not evidence
+
+    def test_the_overlap_can_be_kept_explicitly(self, store):
+        self._with_training_markets_recaptured(store)
+        report = drift_report_from_store(
+            store, _FAMILY, _reference_panel(), exclude_reference_markets=False, **_WINDOW
+        )
+        assert report.n_current == 400
+        assert report.n_current_excluded_overlap == 0
+        assert _one(report, "feature_a").status == "alert"  # and it shows how much it matters
+
+    def test_with_no_overlap_nothing_is_excluded(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        report = drift_report_from_store(store, _FAMILY, _reference_panel(), **_WINDOW)
+        assert report.n_current == 300 and report.n_current_excluded_overlap == 0
+
+    def test_market_ids_are_compared_as_text(self, store):
+        store.append(
+            _FAMILY,
+            [
+                _snap(str(i), "2025-03-05T12:00:00Z", feature_a=0.0, feature_b=10.0)
+                for i in range(50)
+            ],
+        )
+        panel = _reference_panel().assign(market_id=list(range(400)))  # ints, store has "0".."49"
+        report = drift_report_from_store(store, _FAMILY, panel, **_WINDOW)
+        assert report.n_current_excluded_overlap == 50 and report.n_current == 0
+
+    def test_a_window_made_only_of_training_markets_is_insufficient_not_ok(self, store):
+        store.append(
+            _FAMILY,
+            [
+                _snap(f"train{i}", "2025-03-05T12:00:00Z", feature_a=0.0, feature_b=10.0)
+                for i in range(300)
+            ],
+        )
+
+        def predict(frame: pd.DataFrame) -> np.ndarray:
+            if len(frame) != 400:
+                raise AssertionError("predict_fn must not see the emptied live window")
+            return np.full(len(frame), 0.5)
+
+        report = drift_report_from_store(
+            store, _FAMILY, _reference_panel(), predict_fn=predict, **_WINDOW
+        )
+        assert report.n_current == 0 and report.n_current_excluded_overlap == 300
+        assert report.status == "insufficient"
+
+    def test_predict_fn_sees_the_window_without_the_training_markets(self, store):
+        self._with_training_markets_recaptured(store)
+        seen: list[int] = []
+
+        def predict(frame: pd.DataFrame) -> np.ndarray:
+            seen.append(len(frame))
+            return np.full(len(frame), 0.5)
+
+        drift_report_from_store(store, _FAMILY, _reference_panel(), predict_fn=predict, **_WINDOW)
+        assert sorted(seen) == [300, 400]
+
+    def test_a_reference_without_market_ids_cannot_be_checked_for_overlap(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        anonymous = _reference_panel().drop(columns=["market_id"])
+        with pytest.raises(ValueError, match="market_id.*exclude_reference_markets"):
+            drift_report_from_store(store, _FAMILY, anonymous, **_WINDOW)
+        report = drift_report_from_store(
+            store, _FAMILY, anonymous, exclude_reference_markets=False, **_WINDOW
+        )
+        assert report.n_current == 300
+
+    def test_a_training_market_recaptured_in_the_window_is_excluded_for_a_real_panel(self, store):
+        rng = np.random.default_rng(0)
+        store.append(
+            _FAMILY,
+            [
+                _snap(
+                    f"t{i}",
+                    "2025-01-05T00:00:00Z",
+                    feature_a=float(rng.normal()),
+                    feature_b=float(rng.normal(10, 2)),
+                )
+                for i in range(300)
+            ],
+        )
+        resolutions = pd.DataFrame(
+            {
+                "market_id": [f"t{i}" for i in range(300)],
+                "decision_date": "2025-01-10",
+                "winning_label": ["Yes", "No"] * 150,
+            }
+        )
+        panel = build_panel_from_snapshots(store, _FAMILY, resolutions)
+        store.append(_FAMILY, _live_snaps(n=300))
+        store.append(
+            _FAMILY,
+            [
+                _snap(f"t{i}", "2025-03-06T00:00:00Z", feature_a=40.0, feature_b=10.0)
+                for i in range(60)
+            ],
+        )
+        report = drift_report_from_store(store, _FAMILY, panel, **_WINDOW)
+        assert report.n_current == 300 and report.n_current_excluded_overlap == 60
 
     @pytest.mark.parametrize(
         "bad_output",

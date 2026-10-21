@@ -52,7 +52,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from typing import Any, Literal
 
 import numpy as np
@@ -82,6 +82,7 @@ _NUMERIC_KINDS = frozenset({"integer", "floating", "mixed-integer-float", "decim
 # Display cap only; `n_unseen_categories` always counts every one.
 _MAX_LISTED_UNSEEN = 20
 _FEATURE_PREFIX = "feature_"
+_MARKET_ID = "market_id"
 _PREDICTION = "prediction"
 
 
@@ -304,7 +305,10 @@ class DriftReport:
     but whose *output* moved is visible. `status` is the worst of all of them.
 
     `n_reference` / `n_current` are the row counts of the feature tables.
-    `absent_from_current` lists assessed features the current table does not have
+    `n_current_excluded_overlap` is how many live-window markets
+    `drift_report_from_store` dropped because the reference panel already contains
+    them (always 0 from the pure `drift_report`, which sees only the tables it is
+    given). `absent_from_current` lists assessed features the current table does not have
     at all (they are scored as 100% missing); `new_in_current` lists columns the
     reference does not have (informational — they are not assessed).
 
@@ -319,6 +323,7 @@ class DriftReport:
     n_current: int
     absent_from_current: tuple[str, ...]
     new_in_current: tuple[str, ...]
+    n_current_excluded_overlap: int = 0
 
     @property
     def _assessed(self) -> tuple[FeatureDrift, ...]:
@@ -371,6 +376,7 @@ class DriftReport:
             "status": self.status,
             "n_reference": self.n_reference,
             "n_current": self.n_current,
+            "n_current_excluded_overlap": self.n_current_excluded_overlap,
             "n_ok": self.n_ok,
             "n_warn": self.n_warn,
             "n_alert": self.n_alert,
@@ -397,6 +403,7 @@ class DriftReport:
             n_current=int(data["n_current"]),
             absent_from_current=tuple(str(n) for n in data["absent_from_current"]),
             new_in_current=tuple(str(n) for n in data["new_in_current"]),
+            n_current_excluded_overlap=int(data["n_current_excluded_overlap"]),
         )
 
 
@@ -765,6 +772,7 @@ def drift_report_from_store(
     cutoff: str,
     features: Sequence[str] | None = None,
     predict_fn: Callable[[pd.DataFrame], Sequence[float] | npt.ArrayLike] | None = None,
+    exclude_reference_markets: bool = True,
     config: DriftConfig | None = None,
 ) -> DriftReport:
     """Drift of a live window in a `FeatureSnapshotStore` against a training panel.
@@ -772,8 +780,9 @@ def drift_report_from_store(
     The current window is built with `store.as_of(family, cutoff)` — the store's
     own point-in-time read — so it holds, per market, the latest snapshot captured
     **strictly before** `cutoff`; nothing later can leak in. It is then restricted
-    to snapshots captured at or after `window_start`. The lower bound is
-    required: without it "current" would include the very markets the model was
+    to snapshots captured at or after `window_start`, and — by default — to markets
+    the reference panel does not contain. Both restrictions exist for the same
+    reason: without them "current" would include the very markets the model was
     trained on and drift would be understated.
 
     Args:
@@ -785,25 +794,62 @@ def drift_report_from_store(
         cutoff: ISO-8601 end of the live window (exclusive), same convention as
             `FeatureSnapshotStore.as_of`.
         features: Columns to assess; defaults to the reference's ``feature_*``
-            columns.
-        predict_fn: Optional. Called with the full reference panel and the full
-            current window, it returns predicted probabilities (one per row, the
-            probability of the label you trade). Use it to enable prediction drift.
+            columns. Must not be empty.
+        predict_fn: Optional. Called with the full reference panel and the live
+            window, it returns predicted probabilities: exactly one per row, the
+            probability of the label you trade. Use it to enable prediction drift.
             It is not called on an empty window.
+        exclude_reference_markets: Drop from the live window every market whose
+            ``market_id`` is in `reference`; they are not new evidence. The number
+            dropped is `DriftReport.n_current_excluded_overlap`. Needs a
+            ``market_id`` column in `reference`; pass ``False`` to keep them (or
+            if the panel has none).
         config: See `DriftConfig`.
 
     An empty window yields a report whose features are all "insufficient" rather
-    than an error: no live data is not evidence the world is fine.
+    than an error: no live data is not evidence the world is fine. The store
+    holding nothing at all for `family` is different — that is almost always a
+    typo — and raises.
+
+    Raises:
+        ValueError: if `family` has no snapshots in the store at all,
+            `window_start` is after `cutoff`, there are no features to assess,
+            `exclude_reference_markets` is set but `reference` has no ``market_id``
+            column, or `predict_fn` does not return one number per row in [0, 1].
     """
     feats = (
         list(features)
         if features is not None
         else [str(c) for c in reference.columns if str(c).startswith(_FEATURE_PREFIX)]
     )
+    if not feats:
+        raise ValueError(
+            "no features to assess: `features` is empty and the reference has no "
+            f"{_FEATURE_PREFIX}* columns"
+        )
+    start, end = _utc(window_start), _utc(cutoff)
+    if start > end:
+        raise ValueError(f"window_start ({window_start}) is after cutoff ({cutoff})")
+    trained_on: set[str] = set()
+    if exclude_reference_markets:
+        if _MARKET_ID not in reference.columns:
+            raise ValueError(
+                f"the reference has no {_MARKET_ID!r} column, so markets it shares with the "
+                "live window cannot be excluded; add the column or pass "
+                "exclude_reference_markets=False"
+            )
+        trained_on = set(reference[_MARKET_ID].astype(str))
 
     snapshots = store.as_of(family, cutoff)
+    if snapshots.empty and store.load(family).empty:
+        raise ValueError(f"the store has no snapshots for family {family!r}")
     if not snapshots.empty:
-        snapshots = snapshots[snapshots["captured_at"] >= _utc(window_start)]
+        snapshots = snapshots[snapshots["captured_at"] >= start]
+    n_overlap = 0
+    if exclude_reference_markets and not snapshots.empty:
+        overlap = snapshots[_MARKET_ID].astype(str).isin(trained_on)
+        n_overlap = int(overlap.sum())
+        snapshots = snapshots[~overlap]
     # A zero-row frame with the reference's columns keeps the report's shape stable.
     current = reference.iloc[0:0] if snapshots.empty else snapshots.reset_index(drop=True)
 
@@ -817,7 +863,7 @@ def drift_report_from_store(
         )
 
     wanted = set(feats) | {c for c in current.columns if str(c).startswith(_FEATURE_PREFIX)}
-    return drift_report(
+    report = drift_report(
         reference,
         current[[c for c in current.columns if c in wanted]],
         features=feats,
@@ -825,3 +871,4 @@ def drift_report_from_store(
         current_predictions=current_predictions,
         config=config,
     )
+    return replace(report, n_current_excluded_overlap=n_overlap)
