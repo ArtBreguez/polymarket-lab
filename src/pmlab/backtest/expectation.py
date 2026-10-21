@@ -30,7 +30,7 @@ import pandas as pd
 
 from pmlab.core.policy import TradePolicy
 
-__all__ = ["MIN_GROUP_TRADES", "BacktestExpectation", "GroupExpectation"]
+__all__ = ["MIN_GROUP_TRADES", "BacktestExpectation", "GroupExpectation", "SegmentExpectation"]
 
 # A side or a segment is given an expectation of its own only if the backtest traded it at
 # least this often; a promise made on fewer trades is not one a live book can be held to.
@@ -85,6 +85,51 @@ class GroupExpectation:
 
 
 @dataclass(frozen=True)
+class SegmentExpectation(GroupExpectation):
+    """One segment's numbers, with that segment's own split by side.
+
+    A segment trades YES and NO in its own proportion, so a live segment is held to its
+    own per-side means, weighted by the live mix, exactly as the whole book is.
+    """
+
+    by_direction: Mapping[str, GroupExpectation] | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.by_direction is not None:
+            object.__setattr__(
+                self,
+                "by_direction",
+                _checked_split(
+                    self.by_direction, _DIRECTIONS, "direction", self.n_trades, "its segment"
+                ),
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            **super().to_dict(),
+            "by_direction": (
+                None
+                if self.by_direction is None
+                else {side: stats.to_dict() for side, stats in self.by_direction.items()}
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> SegmentExpectation:
+        """Restore a record; raises ValueError (KeyError if a key is absent) if unusable."""
+        base = GroupExpectation.from_dict(data)
+        return cls(
+            n_trades=base.n_trades,
+            mean_pnl_per_stake=base.mean_pnl_per_stake,
+            std_pnl_per_stake=base.std_pnl_per_stake,
+            brier_score=base.brier_score,
+            brier_std=base.brier_std,
+            by_direction=_split_from_dict(data.get("by_direction"), "by_direction"),
+        )
+
+
+@dataclass(frozen=True)
 class BacktestExpectation:
     """Mean, spread and size of the backtest trades a champion was promoted on.
 
@@ -105,6 +150,12 @@ class BacktestExpectation:
     `policy` is the decision rule the backtest ran (`TradePolicy`), recorded so live
     trading can use the same threshold. ``None`` when not recorded.
 
+    `by_segment` holds the same numbers for each segment on its own, each with its own
+    split by side. A segment the backtest traded fewer than `MIN_GROUP_TRADES` times is
+    present with ``None``: recorded as *absent*, so "this segment could not be promised
+    anything" stays distinguishable from "nobody looked". ``None`` for the whole mapping
+    means no per-segment record was made (a champion published before it existed).
+
     An expectation is only worth recording if a live run can be measured against it,
     so the constructor refuses one that cannot: every number finite, a spread that is
     not negative, a stake above zero, a Brier score in [0, 1] and at least two
@@ -122,6 +173,7 @@ class BacktestExpectation:
     brier_std: float | None = None
     by_direction: Mapping[str, GroupExpectation] | None = None
     policy: TradePolicy | None = None
+    by_segment: Mapping[str, SegmentExpectation | None] | None = None
 
     def __post_init__(self) -> None:
         _check_trade_count(self.n_trades)
@@ -139,6 +191,10 @@ class BacktestExpectation:
             )
         if self.policy is not None and not isinstance(self.policy, TradePolicy):
             raise ValueError(f"policy must be a TradePolicy, got {self.policy!r}")
+        if self.by_segment is not None:
+            object.__setattr__(
+                self, "by_segment", _checked_segments(self.by_segment, self.n_trades)
+            )
 
     @classmethod
     def from_trades(
@@ -192,7 +248,7 @@ class BacktestExpectation:
                 raise ValueError("predicted_prob must be finite probabilities in [0, 1]")
             occurred = trades["label_occurred"].to_numpy(dtype=bool).astype(float)
 
-        by_direction: dict[str, GroupExpectation] | None = None
+        sides: np.ndarray | None = None
         if "direction" in trades.columns:
             sides = trades["direction"].astype(str).to_numpy()
             unknown = sorted(set(sides) - set(_DIRECTIONS))
@@ -200,19 +256,41 @@ class BacktestExpectation:
                 raise ValueError(
                     f"trades has unknown direction value(s) {unknown}; valid: {list(_DIRECTIONS)}"
                 )
-            by_direction = {}
-            for side in _DIRECTIONS:
-                mask = sides == side
-                n_side = int(mask.sum())
-                # A side that holds every trade is the pooled expectation, which has
-                # always been usable from two trades up; only a side that shares the
-                # book with the other one needs enough trades to stand on its own.
-                if n_side >= min_group_trades or n_side == len(sides):
-                    by_direction[side] = _summarise(
-                        per_stake[mask],
-                        None if prob is None else prob[mask],
-                        None if occurred is None else occurred[mask],
-                    )
+        everything = np.ones(len(per_stake), dtype=bool)
+        by_direction = (
+            None
+            if sides is None
+            else _split_by_side(sides, everything, per_stake, prob, occurred, min_group_trades)
+        )
+
+        by_segment: dict[str, SegmentExpectation | None] | None = None
+        if "segment" in trades.columns:
+            names = trades["segment"].astype(str).to_numpy()
+            by_segment = {}
+            for name in sorted(set(names)):
+                mask = names == name
+                if int(mask.sum()) < min_group_trades:
+                    by_segment[name] = None  # recorded as absent, not dropped
+                    continue
+                stats = _summarise(
+                    per_stake[mask],
+                    None if prob is None else prob[mask],
+                    None if occurred is None else occurred[mask],
+                )
+                by_segment[name] = SegmentExpectation(
+                    n_trades=stats.n_trades,
+                    mean_pnl_per_stake=stats.mean_pnl_per_stake,
+                    std_pnl_per_stake=stats.std_pnl_per_stake,
+                    brier_score=stats.brier_score,
+                    brier_std=stats.brier_std,
+                    by_direction=(
+                        None
+                        if sides is None
+                        else _split_by_side(
+                            sides, mask, per_stake, prob, occurred, min_group_trades
+                        )
+                    ),
+                )
 
         whole = _summarise(per_stake, prob, occurred)
         return cls(
@@ -224,6 +302,7 @@ class BacktestExpectation:
             brier_std=whole.brier_std,
             by_direction=by_direction,
             policy=policy,
+            by_segment=by_segment,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -240,6 +319,14 @@ class BacktestExpectation:
                 else {side: stats.to_dict() for side, stats in self.by_direction.items()}
             ),
             "policy": None if self.policy is None else self.policy.to_dict(),
+            "by_segment": (
+                None
+                if self.by_segment is None
+                else {
+                    name: None if stats is None else stats.to_dict()
+                    for name, stats in self.by_segment.items()
+                }
+            ),
         }
 
     @classmethod
@@ -252,14 +339,21 @@ class BacktestExpectation:
         """
         brier_score = data.get("brier_score")
         brier_std = data.get("brier_std")
-        raw_split = data.get("by_direction")
-        by_direction: dict[str, GroupExpectation] | None = None
-        if raw_split is not None:
-            if not isinstance(raw_split, Mapping):
-                raise ValueError(f"by_direction must be an object, got {raw_split!r}")
-            by_direction = {
-                str(side): GroupExpectation.from_dict(stats) for side, stats in raw_split.items()
-            }
+        by_direction = _split_from_dict(data.get("by_direction"), "by_direction")
+        raw_segments = data.get("by_segment")
+        by_segment: dict[str, SegmentExpectation | None] | None = None
+        if raw_segments is not None:
+            if not isinstance(raw_segments, Mapping):
+                raise ValueError(f"by_segment must be an object, got {raw_segments!r}")
+            by_segment = {}
+            for name, stats in raw_segments.items():
+                if stats is not None and not isinstance(stats, Mapping):
+                    raise ValueError(
+                        f"by_segment[{name!r}] must be an object or null, got {stats!r}"
+                    )
+                by_segment[str(name)] = (
+                    None if stats is None else SegmentExpectation.from_dict(stats)
+                )
         raw_policy = data.get("policy")
         return cls(
             n_trades=_as_int("n_trades", data["n_trades"]),
@@ -270,7 +364,44 @@ class BacktestExpectation:
             brier_std=None if brier_std is None else _as_float("brier_std", brier_std),
             by_direction=by_direction,
             policy=None if raw_policy is None else TradePolicy.from_dict(raw_policy),
+            by_segment=by_segment,
         )
+
+
+def _split_by_side(
+    sides: np.ndarray,
+    within: np.ndarray,
+    per_stake: np.ndarray,
+    prob: np.ndarray | None,
+    occurred: np.ndarray | None,
+    min_group_trades: int,
+) -> dict[str, GroupExpectation]:
+    """Per-side numbers for the trades selected by `within`.
+
+    A side that holds every one of those trades is the pooled expectation, which has
+    always been usable from two trades up; only a side that shares the book with the
+    other needs `min_group_trades` of its own.
+    """
+    total = int(within.sum())
+    split: dict[str, GroupExpectation] = {}
+    for side in _DIRECTIONS:
+        mask = within & (sides == side)
+        n_side = int(mask.sum())
+        if n_side >= min_group_trades or (n_side == total and n_side >= 2):
+            split[side] = _summarise(
+                per_stake[mask],
+                None if prob is None else prob[mask],
+                None if occurred is None else occurred[mask],
+            )
+    return split
+
+
+def _split_from_dict(raw: Any, name: str) -> dict[str, GroupExpectation] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{name} must be an object, got {raw!r}")
+    return {str(side): GroupExpectation.from_dict(stats) for side, stats in raw.items()}
 
 
 def _summarise(
@@ -321,6 +452,7 @@ def _checked_split(
     valid: tuple[str, ...],
     noun: str,
     n_trades: int,
+    whole: str = "the whole backtest",
 ) -> dict[str, GroupExpectation]:
     """A copy of `split` in the canonical order, or ValueError if it cannot be a split."""
     if not isinstance(split, Mapping):
@@ -337,10 +469,28 @@ def _checked_split(
             raise ValueError(f"by_{noun}[{key!r}] must be a GroupExpectation, got {stats!r}")
         if stats.n_trades > n_trades:
             raise ValueError(
-                f"{noun} {key!r} has {stats.n_trades} trades, more than the whole backtest's "
-                f"{n_trades}"
+                f"{noun} {key!r} has {stats.n_trades} trades, more than {whole}'s {n_trades}"
             )
         checked[key] = stats
+    return checked
+
+
+def _checked_segments(
+    segments: Mapping[str, SegmentExpectation | None], n_trades: int
+) -> dict[str, SegmentExpectation | None]:
+    """A copy of `segments`, or ValueError if it cannot describe parts of this backtest."""
+    if not isinstance(segments, Mapping):
+        raise ValueError(f"by_segment must be an object, got {segments!r}")
+    checked: dict[str, SegmentExpectation | None] = {}
+    for name, stats in segments.items():
+        if stats is not None and not isinstance(stats, SegmentExpectation):
+            raise ValueError(f"by_segment[{name!r}] must be a SegmentExpectation or None")
+        if stats is not None and stats.n_trades > n_trades:
+            raise ValueError(
+                f"segment {name!r} has {stats.n_trades} trades, more than the whole "
+                f"backtest's {n_trades}"
+            )
+        checked[str(name)] = stats
     return checked
 
 

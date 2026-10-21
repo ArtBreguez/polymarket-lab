@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -67,6 +67,15 @@ class ChampionManifest:
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        if expectation is not None and expectation.by_segment is not None:
+            # Every allowed segment is accounted for: one the backtest never traded is
+            # recorded as absent (null), so the watchdog can say "no expectation for this
+            # segment" rather than leave a hole that looks like an oversight.
+            allowed = {r.segment for r in gate.segment_results if r.passes}
+            missing = {name: None for name in sorted(allowed - set(expectation.by_segment))}
+            if missing:
+                expectation = replace(expectation, by_segment={**expectation.by_segment, **missing})
 
         model_path = output_dir / "champion.pkl"
         model.save(model_path)
