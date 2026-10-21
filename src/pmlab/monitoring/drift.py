@@ -556,6 +556,27 @@ def _valid_categorical(series: pd.Series) -> list[Any]:
     return list(series[~series.isna()].tolist())
 
 
+def _prediction_series(values: Sequence[float] | npt.ArrayLike, label: str) -> pd.Series:
+    """Predictions as a float Series; NaN is missing, anything outside [0, 1] is an error.
+
+    A model that returns logits, percentages or a stale column would otherwise be
+    binned like any other number and reported as a (spectacular) drift.
+    """
+    try:
+        series = pd.to_numeric(pd.Series(values), errors="raise").astype(float)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"{label} predictions are not numeric: {exc}") from exc
+    array = series.to_numpy()
+    bad = ~np.isnan(array) & ~((array >= 0.0) & (array <= 1.0))
+    if bad.any():
+        offending = array[bad]
+        raise ValueError(
+            f"{label} predictions must be probabilities in [0, 1]; {int(bad.sum())} of "
+            f"{len(array)} are not (min {offending.min():g}, max {offending.max():g})"
+        )
+    return series
+
+
 def _assess(
     name: str, kind: FeatureKind, ref: pd.Series, cur: pd.Series, cfg: DriftConfig
 ) -> FeatureDrift:
@@ -643,7 +664,8 @@ def drift_report(
             model's feature list so identifiers and labels are not assessed.
         reference_predictions: The model's predicted probabilities on the
             reference panel. Supply together with `current_predictions`.
-        current_predictions: The model's live predicted probabilities.
+        current_predictions: The model's live predicted probabilities. The two
+            arrays are different samples and need not be the same length.
         config: Bins, minimum sample, smoothing and thresholds.
 
     Returns:
@@ -653,14 +675,20 @@ def drift_report(
 
     Raises:
         ValueError: if `features` names a column the reference lacks, columns are
-            of unequal length, only one of the prediction arrays is given, or a
-            numeric feature holds values that cannot be read as numbers.
+            of unequal length, only one of the prediction arrays is given, a
+            prediction is not a number in [0, 1] (NaN is allowed: it is missing),
+            or a numeric feature holds values that cannot be read as numbers.
     """
     cfg = config if config is not None else DriftConfig()
     if (reference_predictions is None) != (current_predictions is None):
         raise ValueError(
             "reference_predictions and current_predictions must be given together (both or neither)"
         )
+
+    ref_predictions = cur_predictions = None
+    if reference_predictions is not None and current_predictions is not None:
+        ref_predictions = _prediction_series(reference_predictions, "reference")
+        cur_predictions = _prediction_series(current_predictions, "current")
 
     ref_cols, n_ref = _columns(reference, "reference")
     cur_cols, n_cur = _columns(current, "current")
@@ -689,14 +717,8 @@ def drift_report(
         )
 
     prediction = None
-    if reference_predictions is not None and current_predictions is not None:
-        prediction = _assess(
-            _PREDICTION,
-            "numeric",
-            pd.Series(reference_predictions),
-            pd.Series(current_predictions),
-            cfg,
-        )
+    if ref_predictions is not None and cur_predictions is not None:
+        prediction = _assess(_PREDICTION, "numeric", ref_predictions, cur_predictions, cfg)
 
     return DriftReport(
         config=cfg,
@@ -712,6 +734,26 @@ def drift_report(
 def _utc(timestamp: str) -> pd.Timestamp:
     ts = pd.Timestamp(timestamp)
     return ts.tz_localize("UTC") if ts.tzinfo is None else ts
+
+
+def _predict(
+    predict_fn: Callable[[pd.DataFrame], Sequence[float] | npt.ArrayLike],
+    frame: pd.DataFrame,
+    label: str,
+) -> npt.NDArray[np.float64]:
+    """Run `predict_fn` and insist on exactly one number per row."""
+    raw = predict_fn(frame)
+    try:
+        out = np.asarray(raw, dtype=float)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"predict_fn output for the {label} is not numeric: {exc}") from exc
+    if out.shape != (len(frame),):
+        raise ValueError(
+            f"predict_fn must return exactly one probability per row: got shape {out.shape} "
+            f"for the {label} ({len(frame)} rows); for a classifier select one column, "
+            "e.g. predict_proba(X)[:, 1]"
+        )
+    return out
 
 
 def drift_report_from_store(
@@ -767,11 +809,11 @@ def drift_report_from_store(
 
     reference_predictions = current_predictions = None
     if predict_fn is not None:
-        reference_predictions = np.asarray(predict_fn(reference), dtype=float)
+        reference_predictions = _predict(predict_fn, reference, "reference panel")
         current_predictions = (
             np.empty(0, dtype=float)
             if current.empty
-            else np.asarray(predict_fn(current), dtype=float)
+            else _predict(predict_fn, current, "live window")
         )
 
     wanted = set(feats) | {c for c in current.columns if str(c).startswith(_FEATURE_PREFIX)}

@@ -1105,6 +1105,49 @@ class TestPredictionDrift:
         assert report.prediction.status == "insufficient"
         assert report.prediction.psi is None
 
+    @pytest.mark.parametrize("bad", [-0.1, 1.5, 7.0, -3.0, float("inf"), float("-inf")])
+    @pytest.mark.parametrize("side", ["reference", "current"])
+    def test_predictions_outside_zero_one_are_rejected(self, side, bad):
+        good = self._preds(2, 5, 1)
+        poisoned = good.copy()
+        poisoned[3] = bad
+        ref, cur = (poisoned, good) if side == "reference" else (good, poisoned)
+        with pytest.raises(ValueError, match=rf"{side} predictions.*\[0, 1\]"):
+            drift_report({}, {}, reference_predictions=ref, current_predictions=cur)
+
+    def test_the_error_says_how_many_are_out_of_range(self):
+        cur = self._preds(2, 5, 2, n=100)
+        cur[:7] = 7.0
+        with pytest.raises(ValueError, match=r"7 of 100"):
+            drift_report(
+                {}, {}, reference_predictions=self._preds(2, 5, 1), current_predictions=cur
+            )
+
+    def test_zero_and_one_are_valid_probabilities(self):
+        edge = np.array([0.0, 1.0] * 250)
+        report = drift_report({}, {}, reference_predictions=edge, current_predictions=edge)
+        assert report.prediction is not None and report.prediction.status == "ok"
+
+    def test_non_numeric_predictions_are_rejected_with_a_clear_message(self):
+        with pytest.raises(ValueError, match="current predictions"):
+            drift_report(
+                {},
+                {},
+                reference_predictions=self._preds(2, 5, 1),
+                current_predictions=["high", "low"] * 200,
+            )
+
+    def test_reference_and_current_predictions_may_differ_in_length(self):
+        report = drift_report(
+            {},
+            {},
+            reference_predictions=self._preds(2, 5, 1, n=1500),
+            current_predictions=self._preds(2, 5, 2, n=400),
+        )
+        assert report.prediction is not None
+        assert report.prediction.n_reference == 1500 and report.prediction.n_current == 400
+        assert report.prediction.status == "ok"
+
     def test_prediction_counts_towards_the_summary(self):
         report = drift_report(
             {"x": _normal(seed=1)},
@@ -1390,6 +1433,66 @@ class TestFromStore:
         assert sorted(seen) == [400, 400]
         assert report.prediction is not None
         assert report.prediction.status == "alert"
+
+    @pytest.mark.parametrize(
+        "bad_output",
+        [
+            pytest.param(lambda n: np.full(n - 1, 0.5), id="one-short"),
+            pytest.param(lambda n: np.full(n + 1, 0.5), id="one-over"),
+            pytest.param(lambda n: np.full((n, 2), 0.5), id="predict_proba-both-columns"),
+            pytest.param(lambda n: np.full((n, 1), 0.5), id="column-vector"),
+            pytest.param(lambda n: 0.5, id="scalar"),
+            pytest.param(lambda n: [], id="empty"),
+        ],
+    )
+    @pytest.mark.parametrize("fails_on", ["reference", "current"])
+    def test_predict_fn_must_return_one_value_per_row(self, store, fails_on, bad_output):
+        store.append(_FAMILY, _live_snaps(n=300))
+        panel = _reference_panel()
+
+        def predict(frame: pd.DataFrame) -> Any:
+            is_reference = len(frame) == len(panel)
+            if is_reference == (fails_on == "reference"):
+                return bad_output(len(frame))
+            return np.full(len(frame), 0.5)
+
+        label = "reference panel" if fails_on == "reference" else "live window"
+        with pytest.raises(ValueError, match=rf"predict_fn.*one.*per row.*{label}"):
+            drift_report_from_store(store, _FAMILY, panel, predict_fn=predict, **_WINDOW)
+
+    def test_predict_fn_returning_non_numbers_is_a_clear_error(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        with pytest.raises(ValueError, match="predict_fn.*not numeric"):
+            drift_report_from_store(
+                store,
+                _FAMILY,
+                _reference_panel(),
+                predict_fn=lambda frame: ["yes"] * len(frame),
+                **_WINDOW,
+            )
+
+    def test_predict_fn_out_of_range_probabilities_are_rejected(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        with pytest.raises(ValueError, match=r"reference predictions.*\[0, 1\]"):
+            drift_report_from_store(
+                store,
+                _FAMILY,
+                _reference_panel(),
+                predict_fn=lambda frame: np.full(len(frame), 7.0),
+                **_WINDOW,
+            )
+
+    def test_predict_fn_may_return_a_list_or_a_series(self, store):
+        store.append(_FAMILY, _live_snaps(n=300))
+        for convert in (list, pd.Series):
+            report = drift_report_from_store(
+                store,
+                _FAMILY,
+                _reference_panel(),
+                predict_fn=lambda frame, convert=convert: convert([0.5] * len(frame)),
+                **_WINDOW,
+            )
+            assert report.prediction is not None
 
     def test_works_on_a_panel_built_by_the_real_panel_builder(self, store):
         rng = np.random.default_rng(0)
