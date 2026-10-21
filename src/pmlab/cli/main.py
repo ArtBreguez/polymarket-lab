@@ -60,6 +60,15 @@ def _load_costs(path: str | None) -> CostModel | None:
     return _costs_from(raw, path)
 
 
+def _describe_segments(allowed: set[str]) -> str:
+    """The allowed segments for the console; ``"all"`` is what an aggregate gate allows."""
+    from pmlab.core.segments import ALL_SEGMENTS
+
+    if ALL_SEGMENTS in allowed:
+        return "every segment (the gate was graded in aggregate)"
+    return str(allowed)
+
+
 def _describe_policy(policy: TradePolicy) -> str:
     """One line for the console: what the backtest traded."""
     if policy.selection == "top_prob":
@@ -241,7 +250,10 @@ def record_trades_cmd(
 
     manifest = ChampionManifest.load(settings.champion_json_path)
     allowed = manifest.get_allowed_segments()
-    rprint(f"Champion: [green]{manifest.model_name}[/green], allowed segments: {allowed}")
+    rprint(
+        f"Champion: [green]{manifest.model_name}[/green], allowed segments: "
+        f"{_describe_segments(allowed)}"
+    )
 
     # Fill under the cost model the champion was promoted under. A flag may name one
     # when the champion records none, but not a different one: trades filled under
@@ -585,7 +597,7 @@ def promote_champion_cmd(
         rprint("[green]Champion published![/green]")
         rprint(f"  Model: {manifest.model_path}")
         rprint(f"  Manifest: {output_dir}/champion.json")
-        rprint(f"  Allowed segments: {manifest.get_allowed_segments()}")
+        rprint(f"  Allowed segments: {_describe_segments(manifest.get_allowed_segments())}")
         rprint(f"  Costs: {costs.to_dict() if costs is not None else 'not recorded'}")
         policy = expectation.policy if expectation is not None else None
         rprint(f"  Policy: {_describe_policy(policy) if policy is not None else 'not recorded'}")

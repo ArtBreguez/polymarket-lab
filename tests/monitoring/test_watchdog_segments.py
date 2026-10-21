@@ -459,3 +459,77 @@ class TestThePolicyIsWrittenDownAndSurvivesTheJson:
         expectation = _expectation({"7": _seg(), "8": _seg()})
         pnl = _check(_report(trades, expectation, ("7", "8")), "pnl")
         assert set(pnl.metrics["segments"]) == {"7", "8"}
+
+
+def _aggregate_champion(expectation: BacktestExpectation) -> ChampionManifest:
+    """Promoted on `HoldoutGateResult.evaluate(trades)`: one aggregate segment, "all"."""
+    gate = HoldoutGateResult(
+        decision="GO",
+        segment_results=[SegmentGateResult("all", 300, 30.0, True, "ok")],
+        aggregate_pnl=30.0,
+        aggregate_trades=300,
+    )
+    return ChampionManifest(
+        model_name="champ",
+        model_path=Path("champion.pkl"),
+        calibrator_path=None,
+        gate=gate,
+        published_at=_PUBLISHED,
+        plugin_family="politics",
+        expectation=expectation,
+    )
+
+
+def _aggregate_report(
+    trades: list[dict[str, Any]], expectation: BacktestExpectation
+) -> HealthReport:
+    return health_report(
+        champion=_aggregate_champion(expectation),
+        trades=trades,
+        drift=None,
+        as_of=_AS_OF,
+        checks=("calibration", "pnl"),
+    )
+
+
+class TestAChampionPromotedOnAnAggregateGate:
+    """allowed_segments == {"all"} means every segment, here as in the broker."""
+
+    def test_trades_in_every_segment_are_evidence(self) -> None:
+        trades = _trades("Chicago", 40) + _trades("Dallas", 40) + _trades("Miami", 40)
+        pnl = _check(_aggregate_report(trades, _expectation(None)), "pnl")
+        assert pnl.metrics["n_out_of_segment"] == 0
+        assert pnl.metrics["n_trades"] == 120
+        assert pnl.metrics["allowed_segments"] == ["all"]
+        assert pnl.status == "ok"
+
+    def test_calibration_sees_them_too(self) -> None:
+        trades = _trades("Chicago", 40) + _trades("Dallas", 40)
+        calibration = _check(_aggregate_report(trades, _expectation(None)), "calibration")
+        assert calibration.metrics["n_out_of_segment"] == 0
+        assert calibration.metrics["n_trades"] == 80
+
+    def test_a_named_segment_champion_still_leaves_other_segments_out(self) -> None:
+        trades = _trades("A", 40) + _trades("Chicago", 40)
+        pnl = _check(_report(trades, _expectation(None), ("A",)), "pnl")
+        assert pnl.metrics["n_out_of_segment"] == 40
+
+    def test_segments_are_judged_when_the_backtest_recorded_them(self) -> None:
+        expectation = _expectation({"Chicago": _seg(), "Dallas": _seg()})
+        trades = _trades("Chicago", 400) + _trades("Dallas", 40, pnl=-0.40)
+        pnl = _check(_aggregate_report(trades, expectation), "pnl")
+        assert pnl.status == "alert"
+        assert pnl.reasons[0].startswith("segment Dallas:")
+
+    def test_a_backtest_that_only_knew_the_aggregate_is_not_judged_per_segment(self) -> None:
+        expectation = _expectation({"all": _seg()})
+        trades = _trades("Chicago", 60) + _trades("Dallas", 60)
+        pnl = _check(_aggregate_report(trades, expectation), "pnl")
+        assert "segments" not in pnl.metrics
+        assert pnl.metrics["segments_recorded"] is False
+        assert pnl.status == "ok"
+
+    def test_the_wildcard_does_not_swallow_an_empty_book(self) -> None:
+        pnl = _check(_aggregate_report([], _expectation(None)), "pnl")
+        assert pnl.status == "insufficient"
+        assert pnl.metrics["n_total"] == 0

@@ -114,3 +114,26 @@ def test_an_empty_allowlist_records_nothing_while_none_records_everything(tmp_pa
 
     assert nothing.record(signals, now_utc=now) == []
     assert len(everything.record(signals, now_utc=now)) == 1
+
+
+def test_a_champion_promoted_on_an_aggregate_gate_records_every_segment(tmp_path):
+    """allowed_segments == {"all"} is what an aggregate gate produces. It used to match no
+    signal at all, because signals carry real segment names."""
+    broker = PaperBroker(trades_path=tmp_path / "t.json", allowed_segments={"all"})
+    signals = [
+        make_signal(city="Chicago", target_date="2099-12-30"),
+        make_signal(city="Dallas", target_date="2099-12-31"),
+    ]
+    assert len(broker.record(signals, now_utc=datetime(2020, 1, 1, tzinfo=UTC))) == 2
+
+
+def test_all_beside_a_named_segment_still_records_everything(tmp_path):
+    broker = PaperBroker(trades_path=tmp_path / "t.json", allowed_segments={"all", "Miami"})
+    signal = make_signal(city="Chicago")
+    assert len(broker.record([signal], now_utc=datetime(2020, 1, 1, tzinfo=UTC))) == 1
+
+
+def test_named_segments_still_filter(tmp_path):
+    broker = PaperBroker(trades_path=tmp_path / "t.json", allowed_segments={"Dallas"})
+    signal = make_signal(city="Chicago")
+    assert broker.record([signal], now_utc=datetime(2020, 1, 1, tzinfo=UTC)) == []

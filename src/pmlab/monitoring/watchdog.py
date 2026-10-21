@@ -48,6 +48,7 @@ import numpy as np
 
 from pmlab.backtest.expectation import BacktestExpectation, SegmentExpectation
 from pmlab.core.costs import CostModel
+from pmlab.core.segments import ALL_SEGMENTS, segment_allowed
 from pmlab.execution.settlement import MIN_TRUSTED_NO_SETTLEMENT_VERSION
 from pmlab.modeling.champion import ChampionManifest
 from pmlab.monitoring.calibration_tracker import CalibrationTracker
@@ -613,7 +614,7 @@ def _select_trades(
             counts["n_open"] += 1
             continue
         segment = str(trade.get("city_or_segment", ""))
-        if segment not in allowed_segments:
+        if not segment_allowed(segment, allowed_segments):
             counts["n_out_of_segment"] += 1
             continue
         recorded = parse_timestamp(trade.get("recorded_at"))
@@ -1240,15 +1241,20 @@ def _too_few_for_a_side(key: str, n: int, min_trades: int) -> _Scope:
     return _too_few(key, _SIDE_LABEL[key], n, min_trades, "side")
 
 
+def _segments_recorded(expectation: BacktestExpectation) -> bool:
+    """Did the backtest record numbers for individual segments (not just the aggregate)?"""
+    return expectation.by_segment is not None and set(expectation.by_segment) != {ALL_SEGMENTS}
+
+
 def _segments_are_judged(expectation: BacktestExpectation, allowed: Sequence[str]) -> bool:
     """Is there a per-segment record to judge by, and a reason to use it?
 
     One allowed segment *is* the whole book: judging it again against the same trades
     would only repeat the overall line.
     """
-    if expectation.by_segment is None:
+    if not _segments_recorded(expectation):
         return False
-    return not (len(allowed) == 1 and allowed[0] != "all")
+    return not (len(allowed) == 1 and allowed[0] != ALL_SEGMENTS)
 
 
 _KIND_RANK = {"segment": 0, "side": 1, "overall": 2, "sequential": 3}
@@ -1529,7 +1535,7 @@ def _calibration_check(
         metrics["n_excluded_yes_side"] = n_yes_side
         metrics["expectation_directions"] = sorted(groups)
     if expectation is not None:
-        metrics["segments_recorded"] = expectation.by_segment is not None
+        metrics["segments_recorded"] = _segments_recorded(expectation)
 
     if expectation is None or expectation.brier_score is None or expectation.brier_std is None:
         return _insufficient(
@@ -1996,7 +2002,7 @@ def _pnl_check(
         "min_trades": cfg.min_trades,
     }
     if expectation is not None:
-        metrics["segments_recorded"] = expectation.by_segment is not None
+        metrics["segments_recorded"] = _segments_recorded(expectation)
 
     if expectation is None:
         return _insufficient(

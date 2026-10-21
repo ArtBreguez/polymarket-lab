@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from pmlab.backtest.expectation import BacktestExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult
 from pmlab.core.costs import CostModel
+from pmlab.core.segments import segment_allowed
 from pmlab.modeling.base import MarketForecaster
 
 if TYPE_CHECKING:
@@ -147,8 +148,16 @@ class ChampionManifest:
         )
 
     def get_allowed_segments(self) -> set[str]:
-        """Return segments where the gate result passes."""
+        """Return segments where the gate result passes.
+
+        A champion promoted on an aggregate gate returns ``{"all"}``: it was graded on
+        the whole trade log and allows every segment (see `allows_segment`).
+        """
         return {r.segment for r in self.gate.segment_results if r.passes}
+
+    def allows_segment(self, segment: str) -> bool:
+        """May this champion trade `segment`? ``"all"`` among the allowed means yes."""
+        return segment_allowed(segment, self.get_allowed_segments())
 
     def load_model(self) -> MarketForecaster:
         """Load the champion model from disk."""

@@ -159,3 +159,30 @@ def test_load_model_returns_forecaster(tmp_path):
     X = pd.DataFrame({"f1": [1.0, 2.0], "f2": [0.5, 0.3]})
     proba = loaded_model.predict_proba(X)
     assert proba.shape[1] == 2
+
+
+def test_a_per_segment_champion_allows_only_the_segments_that_passed(tmp_path):
+    manifest = ChampionManifest.publish(
+        model=_make_fitted_lgbm(),
+        gate=_make_go_gate(),
+        output_dir=tmp_path / "out",
+        plugin_family="test",
+    )
+    assert manifest.allows_segment("A")
+    assert manifest.allows_segment("B")
+    assert not manifest.allows_segment("Chicago")
+
+
+def test_a_champion_promoted_on_an_aggregate_gate_allows_every_segment(tmp_path):
+    from pmlab.backtest.holdout_gate import HoldoutGateResult
+
+    trades = pd.DataFrame({"realized_pnl": [0.1] * 60, "outcome": ["won"] * 60})
+    gate = HoldoutGateResult.evaluate(trades)
+    manifest = ChampionManifest.publish(
+        model=_make_fitted_lgbm(), gate=gate, output_dir=tmp_path / "out", plugin_family="test"
+    )
+    assert manifest.get_allowed_segments() == {"all"}  # as recorded in the gate
+    assert manifest.allows_segment("Chicago")
+    assert manifest.allows_segment("anything at all")
+    loaded = ChampionManifest.load(tmp_path / "out" / "champion.json")
+    assert loaded.allows_segment("Chicago")
