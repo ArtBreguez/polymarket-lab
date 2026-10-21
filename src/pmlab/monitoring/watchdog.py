@@ -332,8 +332,9 @@ class CheckResult:
     `reasons` is never empty: a problem says what is wrong and against which
     threshold, a healthy check says what it measured. `cause` is set only for
     ``insufficient`` and says why it could not be measured:
-    ``too_few_samples``, ``no_expectation``, ``invalid_expectation`` or
-    ``not_evaluated``.
+    ``too_few_samples``, ``no_expectation``, ``invalid_expectation`` (the recorded
+    expectation cannot be compared against), ``invalid_statistic`` (a number computed
+    from the live data is not finite) or ``not_evaluated``.
     """
 
     name: str
@@ -643,6 +644,62 @@ def _insufficient(
     )
 
 
+def _unusable_expectation(expectation: BacktestExpectation, *, calibration: bool) -> list[str]:
+    """What stops `expectation` being compared against, or [] if nothing does.
+
+    `BacktestExpectation` refuses all of this when it is built, so this is the
+    second line of defence for one that skipped that (mutated, duck-typed). NaN
+    compares false with everything, so an unchecked NaN spread turns a z test into
+    "no evidence" and the check into a silent pass; a zero count divides by zero.
+    """
+    problems: list[str] = []
+    n_trades = expectation.n_trades
+    if isinstance(n_trades, bool) or not isinstance(n_trades, int) or n_trades < 2:
+        problems.append(f"n_trades is {n_trades!r} (need an integer >= 2)")
+    fields = (
+        ("brier_score", "brier_std") if calibration else ("mean_pnl_per_stake", "std_pnl_per_stake")
+    )
+    for name in fields:
+        value = getattr(expectation, name)
+        if not _is_number(value) or not math.isfinite(value):
+            problems.append(f"{name} is {value!r} (need a finite number)")
+        elif "std" in name and value < 0:
+            problems.append(f"{name} is {value:g} (a spread cannot be negative)")
+    return problems
+
+
+def _invalid_expectation(
+    name: str, problems: Sequence[str], metrics: dict[str, Any]
+) -> CheckResult:
+    return _insufficient(
+        name,
+        "invalid_expectation",
+        [
+            f"the backtest expectation in champion.json cannot be compared against: "
+            f"{'; '.join(problems)}; re-publish the champion with a valid BacktestExpectation"
+        ],
+        metrics,
+    )
+
+
+def _invalid_statistic(
+    name: str, metrics: dict[str, Any], **statistics: float | None
+) -> CheckResult | None:
+    """An `insufficient` result if any statistic is NaN or infinite, else None."""
+    bad = sorted(k for k, v in statistics.items() if v is not None and not math.isfinite(v))
+    if not bad:
+        return None
+    return _insufficient(
+        name,
+        "invalid_statistic",
+        [
+            f"non-finite statistic(s) {', '.join(bad)}: the live data or the expectation cannot "
+            "be compared, so this check is unavailable rather than healthy; inspect the trade log"
+        ],
+        metrics,
+    )
+
+
 def _drift_check(report: DriftReport | None) -> CheckResult:
     if report is None:
         return _insufficient(
@@ -743,6 +800,9 @@ def _calibration_check(
             ],
             metrics,
         )
+    problems = _unusable_expectation(expectation, calibration=True)
+    if problems:
+        return _invalid_expectation("calibration", problems, metrics)
     if tracker.n_realized < cfg.min_trades:
         return _insufficient(
             "calibration",
@@ -757,17 +817,25 @@ def _calibration_check(
     terms = np.array(tracker.squared_errors(), dtype=float)
     overall = tracker.overall()
     assert overall is not None  # n_realized >= min_trades >= 2
-    live = float(terms.mean())
     reference = expectation.brier_score
+    with np.errstate(all="ignore"):  # an overflow is reported below, not printed by numpy
+        live = float(terms.mean())
+        live_var = float(terms.var(ddof=1))
+    unusable = _invalid_statistic("calibration", metrics, live_mean=live, live_variance=live_var)
+    if unusable is not None:
+        return unusable
     evidence = _one_sided_welch(
         live_mean=live,
-        live_var=float(terms.var(ddof=1)),
+        live_var=live_var,
         n_live=len(terms),
         ref_mean=reference,
         ref_std=expectation.brier_std,
         ref_n=expectation.n_trades,
         worse_when_higher=True,
     )
+    unusable = _invalid_statistic("calibration", metrics, gap=evidence.gap, z=evidence.z)
+    if unusable is not None:
+        return unusable
     gap = evidence.gap
     rel = gap / reference if reference > 0 else math.inf
     metrics.update(
@@ -881,11 +949,10 @@ def _pnl_check(
             ],
             metrics,
         )
-    if (
-        not math.isfinite(expectation.mean_pnl_per_stake)
-        or expectation.mean_pnl_per_stake <= 0
-        or expectation.n_trades < 2
-    ):
+    problems = _unusable_expectation(expectation, calibration=False)
+    if problems:
+        return _invalid_expectation("pnl", problems, metrics)
+    if expectation.mean_pnl_per_stake <= 0:
         return _insufficient(
             "pnl",
             "invalid_expectation",
@@ -908,11 +975,16 @@ def _pnl_check(
         )
 
     arr = np.array(returns, dtype=float)
-    live = float(arr.mean())
     reference = expectation.mean_pnl_per_stake
+    with np.errstate(all="ignore"):  # an overflow is reported below, not printed by numpy
+        live = float(arr.mean())
+        live_var = float(arr.var(ddof=1))
+    unusable = _invalid_statistic("pnl", metrics, live_mean=live, live_variance=live_var)
+    if unusable is not None:
+        return unusable
     evidence = _one_sided_welch(
         live_mean=live,
-        live_var=float(arr.var(ddof=1)),
+        live_var=live_var,
         n_live=len(arr),
         ref_mean=reference,
         ref_std=expectation.std_pnl_per_stake,
@@ -920,10 +992,13 @@ def _pnl_check(
         worse_when_higher=False,
     )
     shortfall = evidence.gap / reference
+    unusable = _invalid_statistic("pnl", metrics, shortfall=shortfall, z=evidence.z)
+    if unusable is not None:
+        return unusable
     metrics.update(
         {
             "mean_live": live,
-            "std_live": float(arr.std(ddof=1)),
+            "std_live": math.sqrt(live_var),
             "mean_backtest": reference,
             "shortfall_rel": shortfall,
             "z": evidence.z,

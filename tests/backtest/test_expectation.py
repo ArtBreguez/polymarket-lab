@@ -195,3 +195,80 @@ def test_label_occurred_is_the_label_and_not_whether_the_trade_made_money() -> N
     assert trades["label_occurred"].all()
     assert (trades["realized_pnl"] < 0).all()
     assert (trades["outcome"] == "lost").all()
+
+
+# --------------------------------------------------------------------------
+# An expectation that cannot be compared against must not exist
+# --------------------------------------------------------------------------
+
+_GOOD: dict = {
+    "n_trades": 50,
+    "flat_stake": 1.0,
+    "mean_pnl_per_stake": 0.10,
+    "std_pnl_per_stake": 0.30,
+    "brier_score": 0.20,
+    "brier_std": 0.10,
+}
+_NON_FINITE = [math.nan, math.inf, -math.inf]
+
+
+class TestAnExpectationMustBeUsable:
+    """NaN compares false with everything, so a NaN spread turns a z test into
+    "no evidence" and a check into a silent pass, and n_trades=0 divides by zero.
+    A promise that cannot be measured against is refused where it is made or loaded,
+    not discovered at 3am by a watchdog that reads green."""
+
+    @pytest.mark.parametrize("field", sorted(set(_GOOD) - {"n_trades"}))
+    @pytest.mark.parametrize("bad", _NON_FINITE)
+    def test_from_dict_rejects_a_non_finite_value(self, field: str, bad: float) -> None:
+        with pytest.raises(ValueError, match=field):
+            BacktestExpectation.from_dict({**_GOOD, field: bad})
+
+    @pytest.mark.parametrize("field", sorted(set(_GOOD) - {"n_trades"}))
+    def test_a_json_nan_is_rejected_on_load(self, field: str) -> None:
+        """json.loads accepts the bare token NaN, which is how champion.json gets one."""
+        payload = json.dumps({**_GOOD, field: math.nan})
+        assert "NaN" in payload
+        with pytest.raises(ValueError, match=field):
+            BacktestExpectation.from_dict(json.loads(payload))
+
+    @pytest.mark.parametrize("field", ["std_pnl_per_stake", "brier_std"])
+    def test_a_negative_spread_is_rejected(self, field: str) -> None:
+        with pytest.raises(ValueError, match=field):
+            BacktestExpectation.from_dict({**_GOOD, field: -0.01})
+
+    @pytest.mark.parametrize("n", [0, 1, -3])
+    def test_fewer_than_two_trades_is_rejected(self, n: int) -> None:
+        with pytest.raises(ValueError, match="n_trades"):
+            BacktestExpectation.from_dict({**_GOOD, "n_trades": n})
+
+    @pytest.mark.parametrize("stake", [0.0, -1.0])
+    def test_a_non_positive_stake_is_rejected(self, stake: float) -> None:
+        with pytest.raises(ValueError, match="flat_stake"):
+            BacktestExpectation.from_dict({**_GOOD, "flat_stake": stake})
+
+    @pytest.mark.parametrize("score", [-0.01, 1.01])
+    def test_a_brier_score_outside_zero_one_is_rejected(self, score: float) -> None:
+        with pytest.raises(ValueError, match="brier_score"):
+            BacktestExpectation.from_dict({**_GOOD, "brier_score": score})
+
+    def test_the_constructor_enforces_the_same_rules(self) -> None:
+        with pytest.raises(ValueError, match="std_pnl_per_stake"):
+            BacktestExpectation(**{**_GOOD, "std_pnl_per_stake": math.nan})
+        with pytest.raises(ValueError, match="n_trades"):
+            BacktestExpectation(**{**_GOOD, "n_trades": 0})
+
+    def test_zero_spread_and_a_non_positive_mean_are_still_valid_records(self) -> None:
+        """A backtest can be flat or lose money; the watchdog reports that, not this."""
+        flat = BacktestExpectation.from_dict({**_GOOD, "std_pnl_per_stake": 0.0, "brier_std": 0.0})
+        losing = BacktestExpectation.from_dict({**_GOOD, "mean_pnl_per_stake": -0.05})
+        assert flat.std_pnl_per_stake == 0.0
+        assert losing.mean_pnl_per_stake == -0.05
+
+    def test_an_expectation_with_no_brier_is_valid(self) -> None:
+        exp = BacktestExpectation.from_dict({**_GOOD, "brier_score": None, "brier_std": None})
+        assert exp.brier_score is None and exp.brier_std is None
+
+    def test_a_valid_record_round_trips(self) -> None:
+        exp = BacktestExpectation.from_dict(_GOOD)
+        assert BacktestExpectation.from_dict(exp.to_dict()) == exp

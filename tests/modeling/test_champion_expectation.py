@@ -99,3 +99,29 @@ def test_the_gate_still_hard_blocks_with_an_expectation(tmp_path: Path) -> None:
             plugin_family="test",
             expectation=_expectation(),
         )
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [
+        {"std_pnl_per_stake": float("nan")},
+        {"brier_std": float("nan")},
+        {"brier_score": float("nan")},
+        {"mean_pnl_per_stake": float("inf")},
+        {"std_pnl_per_stake": -0.1},
+        {"n_trades": 0},
+        {"n_trades": 1},
+    ],
+)
+def test_an_unusable_expectation_makes_the_champion_unloadable(
+    tmp_path: Path, broken: dict
+) -> None:
+    """champion.json is hand-editable and json.loads accepts NaN: loading must refuse it."""
+    _publish(tmp_path, expectation=_expectation())
+    path = tmp_path / "champion.json"
+    data = json.loads(path.read_text())
+    data["backtest_expectation"] = {**data["backtest_expectation"], **broken}
+    path.write_text(json.dumps(data))
+
+    with pytest.raises(ValueError):
+        ChampionManifest.load(path)

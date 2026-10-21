@@ -460,8 +460,15 @@ pmlab monitor: INSUFFICIENT  (champion e2e-lgbm, as of 2026-12-31T00:00:00Z)
 [exit code: 30]
 ```
 
-A *present but malformed* record is different: it raises (exit 64), so it can never read as "unknown"
-and quietly weaken the watchdog.
+A *present but unusable* record is different: it raises (exit 64), so it can never read as "unknown"
+and quietly weaken the watchdog. `BacktestExpectation` refuses to be built, or loaded from
+`champion.json`, with a non-finite number, a negative spread, a stake of zero or less, a Brier score
+outside [0, 1], or fewer than two trades. The non-finite case matters most: `NaN` is a legal token for
+Python's `json.loads` and compares false with everything, so an unchecked `NaN` spread would not fail the
+z test, it would switch the check off and let a badly degraded champion exit 0. As a second line of
+defence `health_report` reports a check whose expectation (cause `invalid_expectation`) or live
+statistic (cause `invalid_statistic`, for example a variance that overflowed) is not finite as
+`insufficient` with the offending number named, never as `ok`.
 
 ---
 

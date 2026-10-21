@@ -612,6 +612,39 @@ class TestUsageErrors:
         world.patch_champion(backtest_expectation={"n_trades": 5})
         assert runner.invoke(app, world.args()).exit_code == EXIT_USAGE
 
+    @pytest.mark.parametrize(
+        ("broken", "named", "damage"),
+        [
+            # Live data is terrible on exactly the axis whose expectation is corrupt,
+            # so a check that quietly reads "ok" is the only thing that can exit 0.
+            ({"std_pnl_per_stake": float("nan")}, "std_pnl_per_stake", {"pnl": -1.0}),
+            ({"mean_pnl_per_stake": float("inf")}, "mean_pnl_per_stake", {"pnl": -1.0}),
+            ({"std_pnl_per_stake": -0.1}, "std_pnl_per_stake", {"pnl": -1.0}),
+            ({"brier_std": float("nan")}, "brier_std", {"brier": 0.60}),
+            ({"brier_score": float("nan")}, "brier_score", {"brier": 0.60}),
+            ({"n_trades": 0}, "n_trades", {}),
+        ],
+    )
+    def test_an_unusable_expectation_is_exit_64_never_a_silent_green(
+        self,
+        tmp_path: Path,
+        forecaster: LGBMForecaster,
+        broken: dict[str, Any],
+        named: str,
+        damage: dict[str, float],
+    ) -> None:
+        """NaN in champion.json used to disable the check it fed and exit 0 (or crash 70)."""
+        world = _make_world(tmp_path, forecaster, trades=_trades(60, **damage))
+        data = json.loads(world.champion.read_text())
+        data["backtest_expectation"] = {**data["backtest_expectation"], **broken}
+        world.champion.write_text(json.dumps(data))
+
+        result = runner.invoke(app, world.args("--no-prediction"))
+
+        assert result.exit_code == EXIT_USAGE, (result.exit_code, result.stdout, result.stderr)
+        assert named in result.stderr
+        assert result.stdout == ""
+
     def test_missing_trades(self, world: World) -> None:
         world.trades.unlink()
         result = runner.invoke(app, world.args())

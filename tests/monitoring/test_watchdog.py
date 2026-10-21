@@ -1256,3 +1256,83 @@ class TestNoSideTradesAreLeftOutOfThePnlComparison:
     def test_the_exclusion_is_listed_in_the_rendered_summary(self) -> None:
         report = _report(trades=_trades(10, direction="no", settlement_version=1))
         assert "10 on the NO side" in report.render()
+
+
+# --------------------------------------------------------------------------
+# A corrupt expectation or statistic can never read as healthy
+# --------------------------------------------------------------------------
+
+
+def _unvalidated(**overrides: object) -> BacktestExpectation:
+    """An expectation that skipped validation, as a mutated or duck-typed one would."""
+    expectation = _expectation()
+    for name, value in overrides.items():
+        object.__setattr__(expectation, name, value)
+    return expectation
+
+
+# Live data bad enough to alert under any sane expectation.
+_TERRIBLE = {"brier": 0.60, "pnl": -1.0}
+
+
+class TestADefenceAgainstNonFiniteNumbers:
+    """Defence in depth. `BacktestExpectation` refuses these values, so this is what
+    happens if one gets past it: the check says it could not measure, never "ok"."""
+
+    @pytest.mark.parametrize(
+        "field", ["std_pnl_per_stake", "mean_pnl_per_stake", "brier_score", "brier_std"]
+    )
+    @pytest.mark.parametrize("bad", [math.nan, math.inf])
+    def test_a_non_finite_expectation_is_insufficient_never_ok(
+        self, field: str, bad: float
+    ) -> None:
+        champ = _champion(_unvalidated(**{field: bad}))
+        report = _report(trades=_trades(60, **_TERRIBLE), champion=champ)
+        for name in ("calibration", "pnl"):
+            check = _check(report, name)
+            assert check.status != "ok", (name, check.reasons)
+        affected = "pnl" if field in ("std_pnl_per_stake", "mean_pnl_per_stake") else "calibration"
+        check = _check(report, affected)
+        assert check.status == "insufficient"
+        assert check.cause == "invalid_expectation"
+        assert field in " ".join(check.reasons)
+
+    def test_a_nan_pnl_spread_with_terrible_live_data_is_not_silent(self) -> None:
+        champ = _champion(_unvalidated(std_pnl_per_stake=math.nan))
+        report = _report(trades=_trades(60, pnl=-1.0), champion=champ)
+        assert report.status != "ok"
+        assert report.exit_code == EXIT_INSUFFICIENT
+
+    def test_a_nan_brier_score_is_not_silent(self) -> None:
+        champ = _champion(_unvalidated(brier_score=math.nan))
+        report = _report(trades=_trades(60, brier=0.60), champion=champ)
+        assert _check(report, "calibration").status == "insufficient"
+
+    @pytest.mark.parametrize("n", [0, 1, -5])
+    def test_too_few_backtest_trades_is_insufficient_and_never_a_crash(self, n: int) -> None:
+        champ = _champion(_unvalidated(n_trades=n))
+        report = _report(trades=_trades(60), champion=champ)
+        assert _check(report, "calibration").cause == "invalid_expectation"
+        assert _check(report, "pnl").cause == "invalid_expectation"
+
+    def test_a_negative_spread_is_insufficient(self) -> None:
+        champ = _champion(_unvalidated(std_pnl_per_stake=-0.3, brier_std=-0.1))
+        report = _report(trades=_trades(60), champion=champ)
+        assert _check(report, "pnl").cause == "invalid_expectation"
+        assert _check(report, "calibration").cause == "invalid_expectation"
+
+    def test_the_insufficient_policy_still_applies(self) -> None:
+        champ = _champion(_unvalidated(std_pnl_per_stake=math.nan))
+        config = WatchdogConfig(insufficient="warn")
+        assert _report(champion=champ, config=config).exit_code == EXIT_WARN
+
+    def test_a_live_statistic_that_overflows_is_insufficient_not_ok(self) -> None:
+        """Finite inputs can still give an infinite variance."""
+        trades = _trades(60, pnl=0.0, pnl_sd=1e308)
+        check = _check(_report(trades=trades), "pnl")
+        assert check.status == "insufficient"
+        assert check.cause == "invalid_statistic"
+        assert "std_live" in " ".join(check.reasons) or "variance" in " ".join(check.reasons)
+
+    def test_a_healthy_report_is_unchanged_by_the_guards(self) -> None:
+        assert _report().status == "ok"
