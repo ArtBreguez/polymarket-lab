@@ -1090,7 +1090,8 @@ def _pnl_check(
             [
                 f"backtest mean PnL per stake is {expectation.mean_pnl_per_stake:+.3f} over "
                 f"{expectation.n_trades} trades: a shortfall needs a positive expectation to "
-                "be measured against"
+                "be measured against, so this check will stay insufficient on every run until "
+                "the champion is re-published on a backtest that earned money"
             ],
             metrics,
         )

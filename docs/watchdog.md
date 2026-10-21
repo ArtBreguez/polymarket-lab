@@ -404,8 +404,12 @@ mean PnL/stake -0.222 vs backtest +0.158 (shortfall 240%, z=4.3, n=114); alert n
 ```
 
 The test is **one-sided**: only a shortfall can warn. Beating the backtest is never a problem, and a
-watchdog that pages on good luck gets muted. A non-positive backtest mean cannot anchor a shortfall,
-so that case is `insufficient` (`invalid_expectation`).
+watchdog that pages on good luck gets muted. A non-positive backtest mean cannot anchor a shortfall
+(there is no "half of what was promised" of a promise of nothing), so that case is `insufficient`
+(`invalid_expectation`) **on every run, permanently**: exit 30 does not clear by itself and the
+reason says so, `... this check will stay insufficient on every run until the champion is
+re-published on a backtest that earned money`. Drift and calibration are still judged. It is kept
+rather than waved through because a PnL check that quietly never runs must not look like health.
 
 ---
 

@@ -1722,3 +1722,45 @@ class TestForecastsThatAreNotProbabilities:
 
     def test_the_note_does_not_make_a_healthy_run_noisy(self) -> None:
         assert _report(trades=self._with_bad()).render() == ""
+
+
+# --------------------------------------------------------------------------
+# A backtest that did not make money
+# --------------------------------------------------------------------------
+
+
+class TestAnExpectationThatDidNotEarn:
+    """A shortfall is `(backtest - live) / backtest`: it needs a positive backtest.
+
+    So a champion promoted on a zero or negative mean has a PnL check that cannot
+    ever run, and exit 30 on every run is permanent until it is re-published. That is
+    kept (it must not read healthy), but the output has to say why it will not clear.
+    """
+
+    @pytest.mark.parametrize("mean", [0.0, -0.012])
+    def test_the_check_stays_insufficient(self, mean: float) -> None:
+        champ = _champion(_expectation(mean_pnl_per_stake=mean))
+        check = _check(_report(champion=champ), "pnl")
+        assert check.status == "insufficient"
+        assert check.cause == "invalid_expectation"
+
+    @pytest.mark.parametrize("mean", [0.0, -0.012])
+    def test_the_reason_says_it_is_permanent_and_how_to_clear_it(self, mean: float) -> None:
+        champ = _champion(_expectation(mean_pnl_per_stake=mean))
+        reason = _check(_report(champion=champ), "pnl").reasons[0]
+        assert f"{mean:+.3f}" in reason
+        assert "2000 trades" in reason
+        assert "will stay insufficient" in reason
+        assert "re-publish" in reason
+
+    def test_the_exit_code_is_30_and_the_other_checks_still_run(self) -> None:
+        champ = _champion(_expectation(mean_pnl_per_stake=-0.01))
+        report = _report(champion=champ, trades=_trades(60, brier=0.60))
+        assert report.exit_code == EXIT_ALERT  # calibration is still judged, and it alerts
+        quiet = _report(champion=champ)
+        assert quiet.exit_code == EXIT_INSUFFICIENT
+        assert _check(quiet, "calibration").status == "ok"
+        assert _check(quiet, "drift").status == "ok"
+
+    def test_a_positive_mean_is_unaffected(self) -> None:
+        assert _check(_report(), "pnl").status == "ok"

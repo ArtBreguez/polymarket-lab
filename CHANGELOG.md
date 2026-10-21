@@ -105,6 +105,10 @@ cron: `pmlab monitor ... || notify`.
   the champion's allowed segments [...]` instead of burying it in an exclusion tally,
   and `allowed_segments` is in the metrics. A champion whose gate allows no segment at
   all (an empty allowlist means *none*, as in `PaperBroker`) is malformed and exits 64.
+- **A zero or negative backtest mean keeps the PnL check `insufficient` for good**, and
+  the reason now says so (`... will stay insufficient on every run until the champion is
+  re-published on a backtest that earned money`) instead of leaving a cron job to wonder
+  why exit 30 never clears. Drift and calibration are still judged.
 - **A `model_prob` that is not a probability is bad data, not a Brier alert.** NaN,
   infinite or outside [0, 1] is left out of calibration, counted in
   `n_invalid_forecast`, and named in the reasons; scored, it would page as a
