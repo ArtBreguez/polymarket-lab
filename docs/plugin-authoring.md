@@ -74,7 +74,7 @@ row-building method you have to write. Required output keys:
 {
     "market_id": str,
     "decision_horizon": str,
-    "decision_date": str,       # YYYY-MM-DD, what the backtest orders and splits on
+    "decision_date": str,       # YYYY-MM-DD (UTC date of the decision), what the backtest orders and splits on
     "outcome_label": str,       # the bin THIS row describes
     "winning_label": str,       # the bin that won
     "market_price": float,      # the YES price of outcome_label, observed before the decision
@@ -167,7 +167,9 @@ on the same side.
 
 `WeatherTmaxPlugin.build_training_rows(spec, horizon, decision_time=...)` is the reference
 (`decision_time` is required; there is no way to check a price against a decision that
-has no time). It reads each bin's price from `spec.metadata["outcome_schema"]`, where
+has no time). `decision_ts` is that instant in UTC and `decision_date` is the **UTC** date:
+`2026-05-10T23:30:00-05:00` is `2026-05-11T04:30:00Z`, so its `decision_date` is
+`2026-05-11`, not the `2026-05-10` it is where you are. It reads each bin's price from `spec.metadata["outcome_schema"]`, where
 `discover_markets` put the Gamma `outcomePrices` and stamped when it saw them
 (`price_observed_at`, `price_source = "discovery"`).
 
@@ -246,7 +248,9 @@ checked against in `market_close_ts`.
 
 The deprecated `build_training_row` is the single winning-bin row, kept so existing callers
 do not break; it emits a `DeprecationWarning`, and a panel made of it is biased the way
-described above.
+described above. Called without a `decision_time` (as it always could be) its row has no
+`decision_date`, so `build_panel` **rejects** it (`PanelSchemaError`) until you add one, and
+then builds an untimed panel with a warning.
 
 ## Optional: `is_truth_final(spec, **kwargs) -> bool`
 Return `True` when the truth from `fetch_truth()` is **final** (not preliminary).

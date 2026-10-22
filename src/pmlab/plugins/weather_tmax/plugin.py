@@ -237,6 +237,11 @@ class WeatherTmaxPlugin(MarketPlugin):
             horizon: Decision point identifier.
             decision_time: **Required.** When the decision is taken (ISO-8601 or a
                 ``datetime``; naive is UTC). No price observed at or after it is used.
+                The row's ``decision_ts`` is this instant in UTC and its ``decision_date``
+                is the **UTC** date, not the date where you are: a decision at
+                ``2026-05-10T23:30:00-05:00`` is ``2026-05-11T04:30:00Z``, so its
+                ``decision_date`` is ``2026-05-11``. The backtest orders and splits on
+                ``decision_date``, so decide in UTC days consistently.
             exclusions: Optional mapping the exclusion counts are added to, so a caller
                 can total them over many markets. Without one, a market's exclusions are
                 logged at WARNING instead of lost.
@@ -273,6 +278,12 @@ class WeatherTmaxPlugin(MarketPlugin):
         panel and not of the model. The row is now at least self-consistent: the winning
         bin's *own* price, not the market's highest. ``decision_time`` is optional here, as
         it always was, and without it nothing checks the price against a decision.
+
+        Without a ``decision_time`` the row has no ``decision_date`` (nor ``decision_ts`` or
+        ``price_ts``), so **``build_panel`` rejects it** (``PanelSchemaError``: a required
+        column is missing) until the caller adds one, and then builds an untimed panel with
+        a warning. Pass ``decision_time`` to get the timed row, with the same exclusions as
+        :meth:`build_training_rows`, or better, use that method.
         """
         warnings.warn(
             "WeatherTmaxPlugin.build_training_row emits only the winning bin, which biases "

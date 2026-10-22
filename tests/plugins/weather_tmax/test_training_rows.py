@@ -295,6 +295,17 @@ class TestLegacySingularRow:
         assert row is not None
         assert "decision_ts" not in row and "decision_date" not in row
 
+    def test_a_row_without_a_decision_time_is_rejected_by_build_panel(self) -> None:
+        # Documented on build_training_row: no decision_time, no decision_date, so build_panel
+        # refuses the row (the caller must add one). Change this test and the docstring together.
+        from pmlab.data import PanelSchemaError, build_panel
+
+        with pytest.warns(DeprecationWarning):
+            row = _plugin().build_training_row(_spec(), "morning_of")
+        assert row is not None
+        with pytest.raises(PanelSchemaError, match="decision_date"):
+            build_panel([row])
+
     def test_a_row_without_a_decision_is_untimed_not_half_timed(self) -> None:
         # price_ts with no decision_ts is half a timing schema, which check_price_timing
         # refuses: such a row is untimed, and says so by carrying neither.

@@ -115,7 +115,8 @@ class MarketPlugin(ABC):
         singular form keeps working: one row, or none when that returns None. Override
         this for a market with several bins. Then every row must carry:
 
-            - ``market_id``, ``decision_date`` (YYYY-MM-DD), ``decision_horizon``
+            - ``market_id``, ``decision_date`` (YYYY-MM-DD, the UTC date of the decision),
+              ``decision_horizon``
             - ``outcome_label`` (the bin this row is) and ``winning_label``
             - ``market_price`` that bin's YES price, observed strictly before the decision
             - feature columns (``feature_*``)

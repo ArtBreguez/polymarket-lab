@@ -108,6 +108,11 @@ stays inside 4 standard deviations of zero on all three seeds.
   the winning bin's row at that bin's own price (it used to carry the market maximum), and a
   panel made of it is still biased. It no longer substitutes 0.5 and returns `None` when the
   winning bin has no usable price. Its `decision_time` is optional, as before.
+- `decision_date` is the **UTC** date of the decision, now stated on `build_training_rows`
+  and in the plugin guide (`2026-05-10T23:30:00-05:00` is `2026-05-11T04:30:00Z`, so its
+  `decision_date` is `2026-05-11`). The deprecated `build_training_row` called without a
+  `decision_time` yields a row `build_panel` rejects (no `decision_date`); this is documented
+  on it and pinned by a test.
 - `metadata["market_price"]` on a weather spec stays, as the highest *known* bin price, and is
   `None` when none is known. It is for display; it is never a row's price.
 - Feature columns no longer overwrite a row's `market_id`, `outcome_label`, `market_price` and
