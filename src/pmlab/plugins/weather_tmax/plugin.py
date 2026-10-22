@@ -36,6 +36,7 @@ PRICE_INVALID = "price_invalid"  # not a number, not finite, or outside [0, 1]
 PRICE_DEGENERATE = "price_degenerate"  # exactly 0 or 1: a settlement, not a quote to trade at
 PRICE_UNTIMED = "price_untimed"  # no readable observation time: cannot be shown to be in time
 PRICE_AFTER_CUTOFF = "price_after_cutoff"  # observed at or after the decision
+PRICE_STALE = "price_stale"  # observed longer before the decision than max_price_age allows
 DECISION_AFTER_CLOSE = "decision_after_close"  # decided at or after the market ended
 MARKET_CLOSE_UNKNOWN = "market_close_unknown"  # no readable end: cannot show the market was open
 MARKET_UNRESOLVED = "market_unresolved"  # no truth yet
@@ -47,6 +48,7 @@ EXCLUSION_REASONS = (
     PRICE_DEGENERATE,
     PRICE_UNTIMED,
     PRICE_AFTER_CUTOFF,
+    PRICE_STALE,
     DECISION_AFTER_CLOSE,
     MARKET_CLOSE_UNKNOWN,
     MARKET_UNRESOLVED,
@@ -238,9 +240,16 @@ class WeatherTmaxPlugin(MarketPlugin):
             exclusions: Optional mapping the exclusion counts are added to, so a caller
                 can total them over many markets. Without one, a market's exclusions are
                 logged at WARNING instead of lost.
+            max_price_age: Optional (a ``timedelta``, or a positive number of seconds).
+                A bin whose price was observed *longer* before the decision than this is
+                excluded and counted as ``price_stale``; a price exactly this old is kept.
+                Default ``None``: a price of any age is used, as before. The discovery
+                price is reused for every later decision, so a price seen a week before
+                is a week-old quote; this is the knob that says how old is too old.
 
         Raises:
-            ValueError: ``decision_time`` is missing or not a timestamp.
+            ValueError: ``decision_time`` is missing or not a timestamp, or
+                ``max_price_age`` is not a positive, finite duration.
         """
         raw_time = kwargs.get("decision_time")
         if raw_time is None:
@@ -251,7 +260,8 @@ class WeatherTmaxPlugin(MarketPlugin):
         decision = _as_utc(raw_time)
         if decision is None:
             raise ValueError(f"decision_time is not an ISO-8601 timestamp: {raw_time!r}")
-        return self._bin_rows(spec, horizon, decision, kwargs.get("exclusions"))
+        max_age = _as_max_age(kwargs.get("max_price_age"))
+        return self._bin_rows(spec, horizon, decision, kwargs.get("exclusions"), max_age)
 
     def build_training_row(
         self, spec: MarketSpec, horizon: str, **kwargs: Any
@@ -274,7 +284,12 @@ class WeatherTmaxPlugin(MarketPlugin):
         decision = None if raw_time is None else _as_utc(raw_time)
         if raw_time is not None and decision is None:
             raise ValueError(f"decision_time is not an ISO-8601 timestamp: {raw_time!r}")
-        rows = self._bin_rows(spec, horizon, decision, kwargs.get("exclusions"))
+        max_age = _as_max_age(kwargs.get("max_price_age"))
+        if max_age is not None and decision is None:
+            raise ValueError(
+                "max_price_age is measured back from a decision_time, which is missing"
+            )
+        rows = self._bin_rows(spec, horizon, decision, kwargs.get("exclusions"), max_age)
         return next((r for r in rows if r["outcome_label"] == r["winning_label"]), None)
 
     def _bin_rows(
@@ -283,10 +298,11 @@ class WeatherTmaxPlugin(MarketPlugin):
         horizon: str,
         decision: datetime | None,
         exclusions: MutableMapping[str, int] | None,
+        max_age: timedelta | None = None,
     ) -> list[dict[str, Any]]:
         """The rows of :meth:`build_training_rows`; with no *decision* nothing is time-checked."""
         counts: Counter[str] = Counter()
-        rows = self._collect_bin_rows(spec, horizon, decision, counts)
+        rows = self._collect_bin_rows(spec, horizon, decision, counts, max_age)
         if exclusions is not None:
             for reason, n in counts.items():
                 exclusions[reason] = exclusions.get(reason, 0) + n
@@ -299,7 +315,12 @@ class WeatherTmaxPlugin(MarketPlugin):
         return rows
 
     def _collect_bin_rows(
-        self, spec: MarketSpec, horizon: str, decision: datetime | None, counts: Counter[str]
+        self,
+        spec: MarketSpec,
+        horizon: str,
+        decision: datetime | None,
+        counts: Counter[str],
+        max_age: timedelta | None = None,
     ) -> list[dict[str, Any]]:
         # Before any lookup: a decision taken once the market had ended is no decision at all,
         # whatever prices happen to predate it (a market discovered after it resolved has
@@ -341,6 +362,8 @@ class WeatherTmaxPlugin(MarketPlugin):
                     reason = PRICE_UNTIMED
                 elif observed >= decision:
                     reason = PRICE_AFTER_CUTOFF
+                elif max_age is not None and observed < decision - max_age:
+                    reason = PRICE_STALE
             if reason is not None:
                 counts[reason] += 1
                 continue
@@ -576,6 +599,26 @@ def _as_utc(value: Any) -> datetime | None:
     else:
         return None
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+def _as_max_age(value: Any) -> timedelta | None:
+    """*value* as a positive timedelta (a timedelta, or a count of seconds); None stays None."""
+    if value is None:
+        return None
+    if isinstance(value, timedelta):
+        age = value
+    elif isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        try:
+            age = timedelta(seconds=value)
+        except OverflowError:
+            raise ValueError(
+                f"max_price_age is too large to be a duration, got {value!r}"
+            ) from None
+    else:
+        raise ValueError(f"max_price_age must be a timedelta or a number of seconds, got {value!r}")
+    if age <= timedelta(0):
+        raise ValueError(f"max_price_age must be positive, got {value!r}")
+    return age
 
 
 def _end_instant(value: Any) -> datetime | None:

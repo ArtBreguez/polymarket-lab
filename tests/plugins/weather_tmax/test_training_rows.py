@@ -6,7 +6,7 @@ import logging
 import math
 import random
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -517,3 +517,109 @@ class TestTimingColumnsComeInPairs:
             for row in rows:
                 assert row is not None
                 assert ("price_ts" in row) == ("decision_ts" in row)
+
+
+class TestMaxPriceAge:
+    """A discovery price is reused for any later decision; ``max_price_age`` bounds how stale (review, M4).
+
+    DECISION is 2026-05-10T08:00:00Z, so a price observed at 07:30 is 30 minutes old.
+    """
+
+    HALF_HOUR = timedelta(minutes=30)
+
+    def test_by_default_a_price_of_any_age_is_used(self) -> None:
+        old = _spec(observed="2026-04-10T07:30:00+00:00")  # a month old
+        assert len(_rows(old)) == 3
+
+    def test_a_price_within_the_age_is_kept(self) -> None:
+        assert len(_rows(max_price_age=timedelta(hours=1))) == 3
+
+    def test_a_price_older_than_the_age_is_excluded_and_counted_per_bin(self) -> None:
+        counts: Counter[str] = Counter()
+        rows = _rows(max_price_age=timedelta(minutes=10), exclusions=counts)
+        assert rows == []
+        assert counts == {"price_stale": 3, "market_no_usable_price": 1}
+
+    def test_a_price_exactly_as_old_as_the_age_is_kept(self) -> None:
+        assert len(_rows(max_price_age=self.HALF_HOUR)) == 3  # 07:30 vs 08:00
+
+    def test_a_price_one_microsecond_older_than_the_age_is_excluded(self) -> None:
+        counts: Counter[str] = Counter()
+        rows = _rows(max_price_age=self.HALF_HOUR - timedelta(microseconds=1), exclusions=counts)
+        assert rows == [] and counts["price_stale"] == 3
+
+    def test_the_age_counts_back_from_the_decision_not_forward(self) -> None:
+        # A price from yesterday is stale at a 1-hour limit; one from 5 minutes ago is not.
+        stale = _spec(observed="2026-05-09T07:30:00+00:00")
+        fresh = _spec(observed="2026-05-10T07:55:00+00:00")
+        assert _rows(stale, max_price_age=timedelta(hours=1)) == []
+        assert len(_rows(fresh, max_price_age=timedelta(hours=1))) == 3
+
+    def test_a_number_is_a_count_of_seconds(self) -> None:
+        assert len(_rows(max_price_age=1800)) == 3
+        assert len(_rows(max_price_age=1800.0)) == 3
+        assert _rows(max_price_age=1799) == []
+
+    def test_each_bin_is_judged_on_its_own_observation_time(self) -> None:
+        spec = _spec(schema_extra={1: {"observed_at": "2026-05-08T07:30:00Z"}})
+        counts: Counter[str] = Counter()
+        rows = _rows(spec, max_price_age=timedelta(hours=1), exclusions=counts)
+        assert [r["outcome_label"] for r in rows] == ["cold", "hot"]
+        assert counts == {"price_stale": 1}
+
+    def test_a_late_price_is_late_not_stale(self) -> None:
+        # Precedence: seen after the decision is the graver defect and keeps its own reason.
+        counts: Counter[str] = Counter()
+        _rows(_spec(observed=AFTER), max_price_age=timedelta(minutes=1), exclusions=counts)
+        assert counts["price_after_cutoff"] == 3 and "price_stale" not in counts
+
+    def test_an_untimed_price_is_untimed_not_stale(self) -> None:
+        counts: Counter[str] = Counter()
+        _rows(_spec(observed=None), max_price_age=timedelta(minutes=1), exclusions=counts)
+        assert counts["price_untimed"] == 3 and "price_stale" not in counts
+
+    def test_a_missing_price_is_missing_not_stale(self) -> None:
+        counts: Counter[str] = Counter()
+        _rows(_spec(prices=(None, 0.5, 0.3)), max_price_age=timedelta(hours=1), exclusions=counts)
+        assert counts == {"price_missing": 1}
+
+    def test_the_age_is_the_same_on_every_row_of_the_panel(self) -> None:
+        # The survivors are exactly the bins within the limit, none exempted by position.
+        spec = _spec(
+            schema_extra={
+                0: {"observed_at": "2026-05-10T07:59:00Z"},
+                1: {"observed_at": "2026-05-10T07:00:00Z"},
+                2: {"observed_at": "2026-05-10T07:29:59Z"},
+            }
+        )
+        rows = _rows(spec, max_price_age=self.HALF_HOUR)
+        assert [r["outcome_label"] for r in rows] == ["cold"]
+
+    @pytest.mark.parametrize("bad", [0, 0.0, -1, timedelta(0), timedelta(seconds=-5), True, "1h"])
+    def test_an_age_that_is_not_a_positive_duration_is_refused(self, bad: Any) -> None:
+        with pytest.raises(ValueError, match="max_price_age"):
+            _rows(max_price_age=bad)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_a_non_finite_age_is_refused(self, bad: float) -> None:
+        with pytest.raises(ValueError, match="max_price_age"):
+            _rows(max_price_age=bad)
+
+    def test_an_age_too_large_to_be_a_duration_is_refused_cleanly(self) -> None:
+        with pytest.raises(ValueError, match="max_price_age"):
+            _rows(max_price_age=1e30)
+
+    def test_none_is_the_default(self) -> None:
+        assert len(_rows(max_price_age=None)) == 3
+
+    def test_the_deprecated_singular_row_honours_it_with_a_decision(self) -> None:
+        with pytest.warns(DeprecationWarning):
+            row = _plugin().build_training_row(
+                _spec(), "morning_of", decision_time=DECISION, max_price_age=timedelta(minutes=1)
+            )
+        assert row is None
+
+    def test_the_deprecated_singular_row_refuses_an_age_it_cannot_apply(self) -> None:
+        # No decision, so no way to age a price: ignoring the argument would fail open.
+        with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="decision_time"):
+            _plugin().build_training_row(_spec(), "morning_of", max_price_age=60)

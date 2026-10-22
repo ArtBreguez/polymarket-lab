@@ -87,6 +87,13 @@ stays inside 4 standard deviations of zero on all three seeds.
   carries no timing columns); each is now documented as such. `pmlab monitor` never builds a
   panel, so its quiet-on-green output is untouched (pinned by a test that fails if `build_panel`
   is referenced from `pmlab.cli` or `pmlab.monitoring`, and by a healthy run with it disabled).
+- **`max_price_age` bounds how stale a discovery price may be** (found in review). The discovery
+  price is reused for any later decision, so a week-old quote was a training row like any other.
+  `build_training_rows(..., max_price_age=timedelta(hours=6))` (or a positive number of seconds)
+  leaves out, and counts as `price_stale`, any bin whose price was observed longer before the
+  decision than that; a price exactly that old is kept. Default `None` is the previous behaviour.
+  It is a plugin argument only: no command builds a weather panel, so there is no CLI option.
+  The deprecated singular form takes it only with a `decision_time` and raises without one.
 - **`build_panel` takes lists of rows** (the output of `build_training_rows`, per market) as
   well as single rows and `None`.
 - **`rolling_origin_eval` ignores the panel's index.** `top_prob` read the chosen rows back by

@@ -200,8 +200,9 @@ print(exclusions)   # e.g. Counter({'price_missing': 3, 'price_after_cutoff': 12
 
 A bin is left out, and counted under its reason, when its price is `price_missing`,
 `price_invalid` (not a number in [0, 1]), `price_degenerate` (exactly 0 or 1, which is what
-a settled market shows), `price_untimed` (no readable observation time) or
-`price_after_cutoff`. A market is left out entirely when the decision came at or after it
+a settled market shows), `price_untimed` (no readable observation time),
+`price_after_cutoff` or, if you ask for it, `price_stale` (below). A market is left out
+entirely when the decision came at or after it
 ended (`decision_after_close`, below) or its end cannot be read (`market_close_unknown`),
 when it is `market_unresolved`, its truth is in no bin (`market_truth_unbinned`), or no bin is
 usable (`market_no_usable_price`). Without an `exclusions` mapping the counts are logged at WARNING
@@ -212,6 +213,23 @@ chooses among the bins that were priced.
 decision has prices that are not decision-time prices, and every bin of it is excluded as
 `price_after_cutoff`. Capture the specs at the decision, store them, and build the rows when
 the market resolves.
+
+**A discovery price is reused for every later decision**, so a price seen a week before a
+decision is a week-old quote of a market that has moved. By default that is accepted (the
+only price the plugin has; the row's `price_ts` says how old it is). To bound it, pass
+`max_price_age` (a `timedelta`, or a positive number of seconds) to `build_training_rows`: a
+bin whose price was observed *longer* before the decision than that is left out and counted as
+`price_stale`; a price exactly that old is kept. `None` (the default) keeps the old behaviour.
+It is a plugin argument only: no `pmlab` command builds a weather panel, so there is no CLI
+option. The deprecated `build_training_row` takes it too, but only with a `decision_time`
+(there is nothing to measure the age from otherwise, and it raises rather than ignore it).
+
+```python
+rows = plugin.build_training_rows(
+    spec, "morning_of", decision_time="2026-06-05T08:00:00Z",
+    max_price_age=timedelta(hours=6), exclusions=exclusions,
+)
+```
 
 A market ends at its `close_time` (Gamma's `endDate`) or at the end of its `target_date` when
 that is an ISO date, whichever is first; a date-only `close_time` ends with its day. A
