@@ -78,6 +78,15 @@ stays inside 4 standard deviations of zero on all three seeds.
   **neither** column remains the documented unchecked case. The weather plugin's rows carry the
   pair or neither: a row built without a `decision_time` (the deprecated singular form) no
   longer carries a lone `price_ts`.
+- **`build_panel` warns once when prices are untimed** (found in review). `market_price` drives
+  every backtest trade, and a panel with neither `price_ts` nor `decision_ts` has nothing that
+  says it was known by the decision. `build_panel` still builds it, and now logs a single
+  WARNING per call (logger `pmlab.data.panel_builder`; `logging`, never stdout) naming the risk.
+  Untimed today: plugins written before the check, `sports_f1`, and `build_panel_from_snapshots`
+  (its `market_price` is a snapshot feature taken before the decision by `as_of`, but its panel
+  carries no timing columns); each is now documented as such. `pmlab monitor` never builds a
+  panel, so its quiet-on-green output is untouched (pinned by a test that fails if `build_panel`
+  is referenced from `pmlab.cli` or `pmlab.monitoring`, and by a healthy run with it disabled).
 - **`build_panel` takes lists of rows** (the output of `build_training_rows`, per market) as
   well as single rows and `None`.
 - **`rolling_origin_eval` ignores the panel's index.** `top_prob` read the chosen rows back by

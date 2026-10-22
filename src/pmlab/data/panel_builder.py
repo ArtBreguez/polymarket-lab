@@ -16,6 +16,7 @@ exactly those rows, and :func:`build_panel` takes them as they come.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterable
 from typing import Any
@@ -25,6 +26,8 @@ import pandas as pd
 from pmlab.data.leakage import check_no_leakage, check_price_timing
 
 __all__ = ["PanelSchemaError", "build_panel"]
+
+_logger = logging.getLogger(__name__)
 
 _REQUIRED = ["market_id", "decision_date", "outcome_label", "winning_label", "market_price"]
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -62,6 +65,12 @@ def build_panel(
         check_leakage: If True, run :func:`check_no_leakage` on the assembled
             panel and raise ``LeakageError`` if any feature leaks the label.
         max_auc: Threshold forwarded to the leakage check.
+
+    A panel whose rows carry neither ``price_ts`` nor ``decision_ts`` is built, but logs a
+    single WARNING (logger ``pmlab.data.panel_builder``, once per call): its ``market_price``
+    cannot be checked against the decision it informs. That is the case for every plugin
+    written before the check existed, for the ``sports_f1`` plugin, and for
+    :func:`build_panel_from_snapshots`. Silence it by stamping the rows, or filter the logger.
 
     Returns:
         A schema-validated panel DataFrame with float feature columns.
@@ -127,7 +136,19 @@ def build_panel(
 
     # Not behind `check_leakage`: it costs nothing, fires only on plugins that stamp their
     # prices, and a post-decision price is a defect rather than a judgement call.
-    check_price_timing(df)
+    timing = check_price_timing(df)
+    if timing.n_checked == 0:
+        # `market_price` drives every trade the backtest takes; with no price_ts/decision_ts
+        # nothing says it was known by then. One warning per panel, through logging: a CLI
+        # that never builds a panel (pmlab monitor) cannot reach it, and stdout stays clean.
+        _logger.warning(
+            "build_panel: %d rows carry a market_price but no price_ts/decision_ts, so "
+            "nothing checks that each price was observed before the decision it informs: "
+            "lookahead in the prices would go undetected. Stamp every row with price_ts and "
+            "decision_ts (MarketPlugin.build_training_rows does). Panels from "
+            "build_panel_from_snapshots and the sports_f1 plugin are untimed.",
+            len(df),
+        )
 
     if check_leakage:
         check_no_leakage(df, max_auc=max_auc, raise_on_leak=True)

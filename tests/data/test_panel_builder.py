@@ -7,6 +7,8 @@ only deep in rolling_origin_eval) becomes a clear error at build time.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -227,3 +229,76 @@ class TestBuildPanelPartialTimingColumns:
     def test_a_price_time_without_a_decision_time_is_refused(self):
         with pytest.raises(LeakageError, match="has 'price_ts' but no 'decision_ts'"):
             build_panel([self._rows("decision_ts")])
+
+
+class TestBuildPanelUntimedWarning:
+    """A panel whose prices carry no timing cannot be checked for lookahead; say so, once (review, M3)."""
+
+    LOGGER = "pmlab.data.panel_builder"
+
+    def _timed(self, n: int = 3) -> list[dict]:
+        rows = _bin_rows("m1")[:n]
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+        return rows
+
+    def _warnings(self, caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+        return [r for r in caplog.records if r.name == self.LOGGER]
+
+    def test_untimed_prices_log_exactly_one_warning(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            build_panel(_rows(60))
+        (record,) = self._warnings(caplog)
+        assert record.levelno == logging.WARNING
+
+    def test_the_warning_names_the_risk_and_the_remedy(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            build_panel(_rows(10))
+        text = self._warnings(caplog)[0].getMessage()
+        for needle in ("market_price", "price_ts", "decision_ts", "lookahead", "10 rows"):
+            assert needle in text, needle
+
+    def test_it_is_one_per_call_not_one_per_market(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            build_panel([_bin_rows(f"m{i}") for i in range(20)])
+        assert len(self._warnings(caplog)) == 1
+
+    def test_each_call_warns_once(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            build_panel(_rows(5))
+            build_panel(_rows(5))
+        assert len(self._warnings(caplog)) == 2
+
+    def test_it_goes_to_logging_and_never_to_stdout_or_stderr(self, caplog, capsys):
+        with caplog.at_level(logging.WARNING):
+            build_panel(_rows(5))
+        out = capsys.readouterr()
+        assert (out.out, out.err) == ("", "")
+        assert len(self._warnings(caplog)) == 1
+
+    def test_a_timed_panel_says_nothing(self, caplog):
+        with caplog.at_level(logging.DEBUG):
+            build_panel([self._timed()])
+        assert self._warnings(caplog) == []
+
+    def test_a_close_column_alone_does_not_make_a_panel_timed(self, caplog):
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["market_close_ts"] = "2025-01-05T20:00:00+00:00"
+        with caplog.at_level(logging.WARNING):
+            build_panel([rows])
+        assert len(self._warnings(caplog)) == 1
+
+    def test_half_a_timing_schema_is_an_error_not_a_warning(self, caplog):
+        rows = self._timed()
+        for r in rows:
+            del r["price_ts"]
+        with caplog.at_level(logging.WARNING), pytest.raises(LeakageError):
+            build_panel([rows])
+        assert self._warnings(caplog) == []
+
+    def test_a_panel_that_fails_to_build_does_not_warn_first(self, caplog):
+        with caplog.at_level(logging.WARNING), pytest.raises(PanelSchemaError):
+            build_panel([])
+        assert self._warnings(caplog) == []

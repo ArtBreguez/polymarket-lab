@@ -131,6 +131,18 @@ Rules for the rows of one market:
    a price time with no decision to compare it to, or a decision with no price time, is not
    an untimed panel, it is a timing schema that cannot be checked. Emit both or neither.
 
+   **An untimed panel is built, with one warning.** `build_panel` logs a single WARNING (logger
+   `pmlab.data.panel_builder`, once per call, through `logging`, never to stdout) when no row
+   carries `price_ts`/`decision_ts`: `market_price` drives every trade the backtest takes and
+   nothing says it was known by the decision, so lookahead in the prices would go undetected.
+   Untimed today: every plugin written before the check, the `sports_f1` plugin (its price is
+   `metadata["market_price"]` or 0.5, and its row has no `outcome_label` or `decision_date`
+   either), and `build_panel_from_snapshots`, whose `market_price` is a snapshot feature that
+   `as_of` took before the decision but whose panel carries no `price_ts`/`decision_ts`. Filter
+   the logger to silence it; stamping the rows is the fix. `pmlab monitor` never builds a
+   panel (it reads its `--reference` directly), so the warning cannot reach its quiet-on-green
+   output; a test holds that.
+
    **And the decision was taken before the market ended.** A price observed before a
    decision is still not a decision-time price when the decision came after the market had
    resolved: the outcome was known, and so was the price that reflects it. Give each row

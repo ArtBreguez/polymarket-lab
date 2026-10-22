@@ -15,6 +15,7 @@ loading, the wiring, the streams and the exit codes.
 from __future__ import annotations
 
 import json
+import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -219,6 +220,43 @@ class TestHealthy:
         assert result.exit_code == EXIT_OK, result.stderr
         assert result.stdout == ""
         assert result.stderr == ""
+
+    def test_it_never_builds_a_panel_so_the_untimed_price_warning_cannot_reach_it(
+        self, world: World, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # build_panel warns about untimed prices; a healthy monitor run must stay silent.
+        def boom(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("pmlab monitor must not build a panel")
+
+        import pmlab
+        import pmlab.data
+        import pmlab.data.panel_builder
+
+        for module in (pmlab, pmlab.data, pmlab.data.panel_builder):
+            monkeypatch.setattr(module, "build_panel", boom)
+        with caplog.at_level(logging.DEBUG):
+            result = runner.invoke(app, world.args())
+        assert result.exit_code == EXIT_OK, result.stderr
+        assert (result.stdout, result.stderr) == ("", "")
+        assert [r for r in caplog.records if r.name.startswith("pmlab.data")] == []
+
+    def test_no_command_or_monitoring_module_references_build_panel(self) -> None:
+        # The structural form of the above: a future call from here would break quiet-on-green.
+        import ast
+
+        import pmlab
+
+        root = Path(pmlab.__file__).parent
+        offenders = []
+        for package in ("cli", "monitoring"):
+            for path in sorted((root / package).rglob("*.py")):
+                tree = ast.parse(path.read_text())
+                for node in ast.walk(tree):
+                    name = getattr(node, "id", None) or getattr(node, "attr", None)
+                    names = [a.name for a in getattr(node, "names", [])]
+                    if name == "build_panel" or "build_panel" in names:
+                        offenders.append(f"{path.relative_to(root)}:{node.lineno}")
+        assert offenders == []
 
     def test_verbose_prints_the_full_report_even_when_green(self, world: World) -> None:
         result = runner.invoke(app, world.args("--verbose"))

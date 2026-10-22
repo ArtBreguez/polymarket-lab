@@ -51,6 +51,13 @@ class TestBuildFromSnapshots:
         # NEVER the 2025-01-20 snapshot (0.95) which is post-decision.
         assert m1["feature_p"] == 0.55
 
+    def test_the_panel_is_untimed(self, store):
+        # Documented on build_panel_from_snapshots: its market_price is a snapshot feature that
+        # `as_of` took before the decision, but nothing in the panel says when, so
+        # check_price_timing cannot verify it. Change this test and the docstring together.
+        panel = build_panel_from_snapshots(store, "politics", _resolutions())
+        assert "price_ts" not in panel.columns and "decision_ts" not in panel.columns
+
     def test_attaches_truth(self, store):
         panel = build_panel_from_snapshots(store, "politics", _resolutions())
         assert set(panel["winning_label"]) == {"Yes", "No"}
