@@ -496,6 +496,14 @@ class TestDecisionAfterClose:
         assert _rows(spec, exclusions=counts) == []
         assert counts == {"market_close_unknown": 1}
 
+    def test_an_impossible_calendar_date_is_not_a_date(self) -> None:
+        counts: Counter[str] = Counter()
+        spec = _spec(observed=BEFORE, close_time="2026-02-30", target_date="2026-13-01")
+        assert _rows(spec, exclusions=counts) == []
+        assert counts == {"market_close_unknown": 1}  # neither names a day; nothing crashes
+        # and as the target date it is ignored, leaving the close to decide
+        assert len(_rows(_spec(observed=BEFORE, target_date="2026-02-30"))) == 3
+
     def test_the_check_comes_before_any_forecast_or_truth_lookup(self) -> None:
         plugin = _plugin()
         _rows(self._closed(), plugin=plugin, decision_time="2026-05-04T00:00:00Z")
