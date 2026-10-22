@@ -44,8 +44,9 @@ stays inside 4 standard deviations of zero on all three seeds.
   is required. Bins that cannot be priced get no row and are **counted** under a reason in an
   `exclusions` mapping the caller passes (logged at WARNING when it passes none):
   `price_missing`, `price_invalid`, `price_degenerate` (exactly 0 or 1, which is what a settled
-  market shows), `price_untimed`, `price_after_cutoff`, and per market `market_unresolved`,
-  `market_truth_unbinned`, `market_no_usable_price`.
+  market shows), `price_untimed`, `price_after_cutoff`, `price_stale` (only with
+  `max_price_age`), and per market `decision_after_close`, `market_close_unknown`,
+  `market_unresolved`, `market_truth_unbinned`, `market_no_usable_price`.
 - **No price is invented.** `market_price` no longer defaults to 0.5, and neither does
   `_build_spec`: an absent or unreadable Gamma price is `None` in `outcome_schema`, a short
   price list leaves the remaining bins unpriced, and one bad entry no longer discards the others.
@@ -54,9 +55,10 @@ stays inside 4 standard deviations of zero on all three seeds.
   `price_observed_at` (one reading of an injectable `clock`) and `price_source = "discovery"`
   on every spec. **The discovery-time Gamma price is the only per-bin price this plugin has**:
   the CLOB client reads the current midpoint and keeps no history, and the snapshot store holds
-  no per-bin price. A market discovered after it resolved or after the decision has the wrong
-  prices and is excluded as `price_after_cutoff`, not used. A better source can be supplied per
-  bin in `outcome_schema` (`observed_at`, `source`).
+  no per-bin price. A market discovered after the decision has the wrong prices and is excluded
+  as `price_after_cutoff`, not used; one decided on after it resolved gives no rows at all
+  (`decision_after_close`, below). A better source can be supplied per bin in `outcome_schema`
+  (`observed_at`, `source`).
 - **`check_price_timing(df)` / `PriceTimingReport`** in `pmlab.data`: raises `LeakageError` if a
   row's `price_ts` is at or after its `decision_ts`, or has none. `build_panel` runs it always
   (not only with `check_leakage=True`); a panel without the two columns is not checked.
