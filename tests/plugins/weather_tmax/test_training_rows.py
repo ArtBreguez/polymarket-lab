@@ -295,6 +295,14 @@ class TestLegacySingularRow:
         assert row is not None
         assert "decision_ts" not in row and "decision_date" not in row
 
+    def test_a_row_without_a_decision_is_untimed_not_half_timed(self) -> None:
+        # price_ts with no decision_ts is half a timing schema, which check_price_timing
+        # refuses: such a row is untimed, and says so by carrying neither.
+        with pytest.warns(DeprecationWarning):
+            row = _plugin().build_training_row(_spec(), "morning_of")
+        assert row is not None
+        assert "price_ts" not in row and "decision_ts" not in row
+
     def test_an_unparseable_decision_time_is_refused_not_ignored(self) -> None:
         with pytest.warns(DeprecationWarning), pytest.raises(ValueError, match="decision_time"):
             _plugin().build_training_row(_spec(), "morning_of", decision_time="whenever")
@@ -498,3 +506,14 @@ class TestDecisionAfterClose:
         with pytest.warns(DeprecationWarning):
             row = _plugin().build_training_row(self._closed(), "morning_of")
         assert row is not None
+
+
+class TestTimingColumnsComeInPairs:
+    def test_every_row_has_both_price_ts_and_decision_ts_or_neither(self) -> None:
+        for decision in (DECISION, None):
+            with pytest.warns(DeprecationWarning):
+                legacy = _plugin().build_training_row(_spec(), "morning_of", decision_time=decision)
+            rows = [legacy] if decision is None else _rows(decision_time=decision)
+            for row in rows:
+                assert row is not None
+                assert ("price_ts" in row) == ("decision_ts" in row)

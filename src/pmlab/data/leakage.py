@@ -167,8 +167,11 @@ def check_price_timing(
     ``close_unknown`` and not refused (a plugin that wants it refused excludes the market
     itself, as ``weather_tmax`` does). Without the column no close is checked.
 
-    The guard applies only to a frame that has *both* columns. A plugin that never
-    stamps its prices (every plugin written before this guard) is left alone.
+    The guard applies to a frame that has *both* ``price_col`` and ``cutoff_col``, and a
+    frame that has *neither* is the documented unchecked case: a plugin that never stamps
+    its prices (every plugin written before this guard) is left alone. A frame with exactly
+    one of them is neither, and is refused: a price time with no decision to compare it to,
+    or a decision with no price time, would otherwise read as an untimed panel and pass.
 
     Args:
         df: Panel containing ``price_col`` and ``cutoff_col`` (ISO-8601 or datetimes).
@@ -183,10 +186,20 @@ def check_price_timing(
 
     Raises:
         LeakageError: a price was observed at or after its decision, has no time, or the
-            decision was at or after the market's close, and ``raise_on_leak`` is True.
+            decision was at or after the market's close, and ``raise_on_leak`` is True; or,
+            whatever ``raise_on_leak`` says, the frame has exactly one of ``price_col`` and
+            ``cutoff_col`` (a half-timed panel has nothing to report on).
     """
     report = PriceTimingReport(n_rows=len(df))
-    if price_col not in df.columns or cutoff_col not in df.columns or df.empty:
+    has_price, has_cutoff = price_col in df.columns, cutoff_col in df.columns
+    if has_price != has_cutoff:
+        present, absent = (price_col, cutoff_col) if has_price else (cutoff_col, price_col)
+        raise LeakageError(
+            f"Price timing cannot be checked: the frame has {present!r} but no {absent!r}. "
+            f"Give every row both {price_col!r} and {cutoff_col!r}, or neither "
+            "(an untimed panel is not checked)."
+        )
+    if not has_price or df.empty:
         return report
 
     price_ts = pd.to_datetime(df[price_col], utc=True, errors="coerce", format="mixed")

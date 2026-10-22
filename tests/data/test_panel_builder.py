@@ -207,3 +207,23 @@ class TestBuildPanelMarketClose:
 
     def test_a_decision_before_the_close_builds(self):
         assert len(build_panel([self._timed_rows("2025-01-05T20:00:00+00:00")])) == 3
+
+
+class TestBuildPanelPartialTimingColumns:
+    """Half a timing schema must not be waved through as an untimed panel (review, M2)."""
+
+    def _rows(self, drop: str) -> list[dict]:
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+            del r[drop]
+        return rows
+
+    def test_a_decision_time_without_a_price_time_is_refused(self):
+        with pytest.raises(LeakageError, match="has 'decision_ts' but no 'price_ts'"):
+            build_panel([self._rows("price_ts")])
+
+    def test_a_price_time_without_a_decision_time_is_refused(self):
+        with pytest.raises(LeakageError, match="has 'price_ts' but no 'decision_ts'"):
+            build_panel([self._rows("decision_ts")])

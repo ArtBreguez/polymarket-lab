@@ -72,7 +72,9 @@ def build_panel(
             cannot be coerced to numeric.
         LeakageError: if ``check_leakage`` is True and leakage is detected, or, always, if
             the rows carry ``price_ts`` and ``decision_ts`` and a price was observed at or
-            after its decision (see :func:`check_price_timing`).
+            after its decision, if they carry ``market_close_ts`` and a decision was taken
+            at or after it, or if they carry only one of ``price_ts`` and ``decision_ts``
+            (see :func:`check_price_timing`).
     """
     materialized = _flatten(rows)
     if not materialized:

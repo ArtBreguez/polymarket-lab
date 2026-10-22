@@ -353,10 +353,12 @@ class WeatherTmaxPlugin(MarketPlugin):
                 "winning_label": winning_label,
                 "market_price": price,
                 "price_source": str(entry.get("source") or default_source or "unknown"),
-                "price_ts": None if observed is None else observed.isoformat(),
                 "market_close_ts": None if close is None else close.isoformat(),
             }
             if decision is not None:
+                # The pair check_price_timing needs, both or neither: a price time with no
+                # decision to compare it to is half a schema, which that guard refuses.
+                row["price_ts"] = None if observed is None else observed.isoformat()
                 row["decision_date"] = decision.date().isoformat()
                 row["decision_ts"] = decision.isoformat()
             rows.append(row)

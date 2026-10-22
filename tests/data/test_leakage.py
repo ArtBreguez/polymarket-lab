@@ -166,9 +166,9 @@ class TestCheckPriceTiming:
         report = check_price_timing(df)
         assert (report.n_rows, report.n_checked, report.late) == (6, 0, 0)
 
-    def test_a_panel_with_only_one_of_the_columns_is_not_checked(self):
-        assert check_price_timing(_timed().drop(columns=["decision_ts"])).n_checked == 0
-        assert check_price_timing(_timed().drop(columns=["price_ts"])).n_checked == 0
+    def test_a_panel_with_neither_column_is_the_documented_unchecked_case(self):
+        report = check_price_timing(_timed().drop(columns=["price_ts", "decision_ts"]))
+        assert (report.n_rows, report.n_checked) == (6, 0)
 
     def test_column_names_are_configurable(self):
         df = _timed().rename(columns={"price_ts": "quote_at", "decision_ts": "cutoff"})
@@ -258,3 +258,50 @@ class TestCheckPriceTimingMarketClose:
         with pytest.raises(LeakageError):
             check_price_timing(df, close_col="ends")
         assert check_price_timing(df).after_close == 0  # the default name is not "ends"
+
+
+# ---------------------------------------------------------------------------
+# check_price_timing, partial columns: exactly one of the pair is a schema error (review, M2)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckPriceTimingPartialColumns:
+    def test_a_decision_time_with_no_price_time_is_refused(self):
+        with pytest.raises(LeakageError, match=r"has 'decision_ts' but no 'price_ts'"):
+            check_price_timing(_timed().drop(columns=["price_ts"]))
+
+    def test_a_price_time_with_no_decision_time_is_refused(self):
+        with pytest.raises(LeakageError, match=r"has 'price_ts' but no 'decision_ts'"):
+            check_price_timing(_timed().drop(columns=["decision_ts"]))
+
+    def test_the_error_says_what_to_do(self):
+        with pytest.raises(LeakageError, match=r"both .* or neither"):
+            check_price_timing(_timed().drop(columns=["price_ts"]))
+
+    def test_it_is_refused_even_when_the_caller_asked_for_a_report(self):
+        # Late rows can be reported; a frame that cannot be checked has nothing to report.
+        with pytest.raises(LeakageError):
+            check_price_timing(_timed().drop(columns=["price_ts"]), raise_on_leak=False)
+
+    def test_an_empty_frame_with_half_the_schema_is_still_refused(self):
+        with pytest.raises(LeakageError):
+            check_price_timing(_timed(0).drop(columns=["decision_ts"]))
+
+    def test_the_names_are_the_ones_the_caller_gave(self):
+        df = _timed().rename(columns={"price_ts": "quoted", "decision_ts": "decided"})
+        with pytest.raises(LeakageError, match=r"has 'decided' but no 'quoted'"):
+            check_price_timing(
+                df.drop(columns=["quoted"]), price_col="quoted", cutoff_col="decided"
+            )
+        # and a frame that has neither of *those* names is simply not a timing panel
+        assert check_price_timing(df, price_col="a", cutoff_col="b").n_checked == 0
+
+    def test_a_close_column_does_not_make_half_a_pair_acceptable(self):
+        df = _timed(market_close_ts=_CLOSE).drop(columns=["price_ts"])
+        with pytest.raises(LeakageError, match="no 'price_ts'"):
+            check_price_timing(df)
+
+    def test_a_price_time_and_a_close_but_no_decision_time_is_refused_too(self):
+        df = _timed(market_close_ts=_CLOSE).drop(columns=["decision_ts"])
+        with pytest.raises(LeakageError, match="no 'decision_ts'"):
+            check_price_timing(df)

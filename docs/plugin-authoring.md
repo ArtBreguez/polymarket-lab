@@ -125,8 +125,11 @@ Rules for the rows of one market:
    (the rule `FeatureSnapshotStore.as_of` applies to features). Say when and where
    it came from, with `price_ts` (ISO-8601), `decision_ts` and `price_source`;
    `build_panel` then refuses a panel in which a price is at or after its decision
-   (`LeakageError`, see `check_price_timing`). A panel without these columns is not
-   checked, so a plugin that omits them is trusted, not verified.
+   (`LeakageError`, see `check_price_timing`). A panel with **neither** column is not
+   checked, so a plugin that omits them is trusted, not verified. A panel with **only one**
+   of `price_ts` and `decision_ts` is refused (`LeakageError`, whatever `raise_on_leak` says):
+   a price time with no decision to compare it to, or a decision with no price time, is not
+   an untimed panel, it is a timing schema that cannot be checked. Emit both or neither.
 
    **And the decision was taken before the market ended.** A price observed before a
    decision is still not a decision-time price when the decision came after the market had

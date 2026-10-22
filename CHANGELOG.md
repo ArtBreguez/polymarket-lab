@@ -71,6 +71,13 @@ stays inside 4 standard deviations of zero on all three seeds.
   `market_close_ts`, and `check_price_timing(close_col="market_close_ts")` refuses a row whose
   `decision_ts` is at or after it (rows with an unreadable close are counted in `close_unknown`,
   not refused), so the same rule holds for any plugin's panel through `build_panel`.
+- **`check_price_timing` no longer fails open on half a schema** (found in review). A panel with
+  `decision_ts` but no `price_ts` (or the reverse) was accepted with `n_checked = 0`, as if it
+  were an untimed panel. It now raises `LeakageError` naming the column that is there and the
+  one that is not, even with `raise_on_leak=False` (there is nothing to report on). A panel with
+  **neither** column remains the documented unchecked case. The weather plugin's rows carry the
+  pair or neither: a row built without a `decision_time` (the deprecated singular form) no
+  longer carries a lone `price_ts`.
 - **`build_panel` takes lists of rows** (the output of `build_training_rows`, per market) as
   well as single rows and `None`.
 - **`rolling_origin_eval` ignores the panel's index.** `top_prob` read the chosen rows back by
