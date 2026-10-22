@@ -45,6 +45,11 @@ def build_panel_from_snapshots(
         and the snapshot's ``feature_*`` columns. Markets with no snapshot before
         their decision date, or absent from the store, are dropped.
 
+        The panel is **untimed**: ``market_price`` is a snapshot feature, taken strictly
+        before ``decision_date`` by ``as_of``, but the panel carries no ``price_ts`` or
+        ``decision_ts``, so ``check_price_timing`` has nothing to verify and ``build_panel``
+        warns about it. One row per market, labelled with a single ``outcome_label``.
+
     Raises:
         ValueError: if ``resolutions`` is missing a required column.
     """

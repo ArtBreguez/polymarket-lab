@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
 from pmlab.plugins.weather_tmax._spec_builder import _parse_bounds, build_tmax_spec
 from pmlab.plugins.weather_tmax.plugin import WeatherTmaxPlugin
@@ -177,22 +179,47 @@ class TestBuildTrainingRow:
             ],
             close_time="2026-05-10T20:00:00Z",
             market_family="range",
-            metadata={"city": "NYC", "target_date": "2026-05-10", "market_price": 0.3},
+            metadata={
+                "city": "NYC",
+                "target_date": "2026-05-10",
+                "market_price": 0.5,  # the market's highest bin price: never a row's price
+                "outcome_schema": [
+                    {"label": "cold", "price": 0.2},
+                    {"label": "warm", "price": 0.5},
+                    {"label": "hot", "price": 0.3},
+                ],
+            },
         )
 
     def test_returns_none_if_no_truth(self) -> None:
         plugin = WeatherTmaxPlugin()
-        assert plugin.build_training_row(self._spec(), "previous_evening") is None
+        with pytest.warns(DeprecationWarning):
+            assert plugin.build_training_row(self._spec(), "previous_evening") is None
 
     def test_returns_row_with_winning_label(self) -> None:
         mock_truth = MagicMock()
         mock_truth.get_daily_max.return_value = 32.0  # falls in "hot" bin
         plugin = WeatherTmaxPlugin(truth_client=mock_truth)
-        row = plugin.build_training_row(self._spec(), "previous_evening")
+        with pytest.warns(DeprecationWarning):
+            row = plugin.build_training_row(self._spec(), "previous_evening")
         assert row is not None
         assert row["winning_label"] == "hot"
         assert row["market_id"] == "t1"
         assert "decision_horizon" in row
+        assert row["market_price"] == 0.3  # the hot bin's own price, not the market's 0.5
+
+    def test_a_market_level_price_alone_is_not_a_bin_price(self) -> None:
+        # The spec of the old test: one `market_price`, no per-bin prices. It used to be
+        # stamped on a row (and 0.5 when even that was absent); there is nothing to trade at.
+        spec = self._spec()
+        del spec.metadata["outcome_schema"]
+        mock_truth = MagicMock()
+        mock_truth.get_daily_max.return_value = 32.0
+        plugin = WeatherTmaxPlugin(truth_client=mock_truth)
+        rows = plugin.build_training_rows(
+            spec, "previous_evening", decision_time="2026-05-10T08:00:00Z"
+        )
+        assert rows == []
 
 
 class TestSpecBuilder:

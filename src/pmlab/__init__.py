@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.expectation import BacktestExpectation, GroupExpectation, SegmentExpectation
@@ -22,9 +22,11 @@ from pmlab.data import (
     LeakageError,
     LeakageReport,
     PanelSchemaError,
+    PriceTimingReport,
     build_panel,
     build_panel_from_snapshots,
     check_no_leakage,
+    check_price_timing,
 )
 from pmlab.execution.edge_signal import EdgeSignal
 from pmlab.execution.live_broker import LiveBroker, LiveBrokerError, OrderReceipt
@@ -181,6 +183,8 @@ __all__ = [
     "build_panel_from_snapshots",
     "PanelSchemaError",
     "check_no_leakage",
+    "check_price_timing",
+    "PriceTimingReport",
     "LeakageError",
     "LeakageReport",
     # Reports

@@ -86,7 +86,9 @@ def rolling_origin_eval(
     if costs is None:
         costs = CostModel() if taker_bps is None else CostModel(taker_bps=taker_bps)
 
-    panel = panel.copy()
+    # A clean index: `_top_prob_decisions` reads rows back by label, and a panel stacked
+    # market by market repeats labels (K rows each starting at 0) and would match them all.
+    panel = panel.reset_index(drop=True)
     panel["decision_date"] = panel["decision_date"].astype(str)
 
     feature_cols = [c for c in panel.columns if c.startswith("feature_")]

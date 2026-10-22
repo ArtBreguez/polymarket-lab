@@ -6,15 +6,15 @@ tested, and reproducible.
 
 This roadmap is organized by the ML lifecycle. Each stage lists what **exists
 today** (✅) and what's **planned** (▢), with the target release. Status current
-as of **v0.9.1**.
+as of **v0.9.2**.
 
 ---
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.9.1) | Biggest gap |
+| Stage | Today (v0.9.2) | Biggest gap |
 |---|---|---|
-| 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning |
+| 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning; no historical per-bin CLOB price (a weather panel's price is the discovery-time Gamma one) |
 | 2. Feature engineering | 5 transforms, per-plugin features, `build_panel`, leakage guards | No feature registry; more transforms deferred (#19) |
 | 3. Modeling | LGBM, sklearn, ensemble, conformal, calibration (binary+multiclass), tuning | ✅ core complete |
 | 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV, bootstrap stability report, **cost model** | ✅ core complete |

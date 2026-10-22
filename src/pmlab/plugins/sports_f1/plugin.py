@@ -60,6 +60,14 @@ class SportsF1Plugin(MarketPlugin):
     def build_training_row(
         self, spec: MarketSpec, horizon: str, **kwargs: Any
     ) -> dict[str, Any] | None:
+        """One row per market, with an **untimed** ``market_price``.
+
+        The price is ``metadata["market_price"]`` or the 0.5 default (its spec records no
+        prices), the row carries no ``price_ts``, ``decision_ts``, ``decision_date`` or
+        ``outcome_label``, and it is one row for a market of many outcomes. It cannot pass
+        ``build_panel`` as it stands, and nothing can verify its price against a decision.
+        See issue #28 and ``WeatherTmaxPlugin.build_training_rows`` for the per-bin form.
+        """
         features = self.fetch_features(spec, horizon)
         truth = self.fetch_truth(spec)
         if truth is None:

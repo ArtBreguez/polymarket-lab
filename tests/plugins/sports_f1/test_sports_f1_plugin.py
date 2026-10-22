@@ -110,6 +110,18 @@ class TestF1BuildTrainingRow:
         plugin = SportsF1Plugin()
         assert plugin.build_training_row(self._spec(), "pre_quali") is None
 
+    def test_the_row_is_untimed(self) -> None:
+        # Documented on SportsF1Plugin.build_training_row: nothing can verify its price against
+        # a decision. Change this test and the docstring together.
+        mock_results = MagicMock()
+        mock_results.get_winner.return_value = "Norris"
+        row = SportsF1Plugin(results_client=mock_results).build_training_row(
+            self._spec(), "pre_quali"
+        )
+        assert row is not None
+        for column in ("price_ts", "decision_ts", "decision_date", "outcome_label"):
+            assert column not in row
+
     def test_winning_label_is_string(self) -> None:
         mock_results = MagicMock()
         mock_results.get_winner.return_value = "Norris"

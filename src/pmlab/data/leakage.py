@@ -10,12 +10,19 @@ flag any that separate it suspiciously well.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-__all__ = ["LeakageError", "LeakageReport", "check_no_leakage"]
+__all__ = [
+    "LeakageError",
+    "LeakageReport",
+    "PriceTimingReport",
+    "check_no_leakage",
+    "check_price_timing",
+]
 
 _LABEL_COL = "winning_label"
 
@@ -102,5 +109,140 @@ def check_no_leakage(
             f"Potential label leakage in feature column(s): {details}. "
             f"These separate '{label_col}' above max_auc={max_auc}. If legitimate, "
             f"raise max_auc or drop the column."
+        )
+    return report
+
+
+@dataclass
+class PriceTimingReport:
+    """What :func:`check_price_timing` found.
+
+    Attributes:
+        n_rows: rows in the frame.
+        n_checked: rows the guard applied to: all of them when the frame carries both
+            timing columns, none when it carries neither.
+        late: rows whose price was observed at or after the decision.
+        untimed: rows with a decision time but no readable price time.
+        after_close: rows whose decision was taken at or after the market's close
+            (only when the frame has a close column).
+        close_unknown: rows with a decision time but no readable close, which the close
+            check cannot judge (counted, not refused).
+        late_index: index labels of the late rows.
+        untimed_index: index labels of the untimed rows.
+        after_close_index: index labels of the rows decided after the close.
+    """
+
+    n_rows: int = 0
+    n_checked: int = 0
+    late: int = 0
+    untimed: int = 0
+    after_close: int = 0
+    close_unknown: int = 0
+    late_index: list[Any] = field(default_factory=list)
+    untimed_index: list[Any] = field(default_factory=list)
+    after_close_index: list[Any] = field(default_factory=list)
+
+
+def check_price_timing(
+    df: pd.DataFrame,
+    price_col: str = "price_ts",
+    cutoff_col: str = "decision_ts",
+    close_col: str = "market_close_ts",
+    raise_on_leak: bool = True,
+) -> PriceTimingReport:
+    """Check that every price was observed strictly before the decision that uses it.
+
+    "Strictly before" is the rule :meth:`FeatureSnapshotStore.as_of` applies to features
+    (``captured_at < cutoff``), so a price and the features beside it are held to one
+    standard. Timestamps are compared in UTC, so offsets do not matter.
+
+    A row with a decision time but no readable price time cannot be shown to be in time,
+    and is reported (and raised on) like a late one.
+
+    A price observed before the decision is still no decision-time price if the decision
+    was taken after the market had closed: the outcome was known, and so was the price
+    that reflects it. When the frame has a ``close_col`` (default ``market_close_ts``),
+    a row whose decision is at or after its close is reported, and raised on, too. A row
+    whose close is missing or unreadable cannot be judged against it; it is counted in
+    ``close_unknown`` and not refused (a plugin that wants it refused excludes the market
+    itself, as ``weather_tmax`` does). Without the column no close is checked.
+
+    The guard applies to a frame that has *both* ``price_col`` and ``cutoff_col``, and a
+    frame that has *neither* is the documented unchecked case: a plugin that never stamps
+    its prices (every plugin written before this guard) is left alone. A frame with exactly
+    one of them is neither, and is refused: a price time with no decision to compare it to,
+    or a decision with no price time, would otherwise read as an untimed panel and pass.
+
+    Args:
+        df: Panel containing ``price_col`` and ``cutoff_col`` (ISO-8601 or datetimes).
+        price_col: When the row's ``market_price`` was observed.
+        cutoff_col: The decision time the row informs.
+        close_col: When the market closed (or its outcome became known), if the frame says.
+        raise_on_leak: If True (default), raise ``LeakageError`` on a late or untimed row;
+            otherwise return the report.
+
+    Returns:
+        A :class:`PriceTimingReport`.
+
+    Raises:
+        LeakageError: a price was observed at or after its decision, has no time, or the
+            decision was at or after the market's close, and ``raise_on_leak`` is True; or,
+            whatever ``raise_on_leak`` says, the frame has exactly one of ``price_col`` and
+            ``cutoff_col`` (a half-timed panel has nothing to report on).
+    """
+    report = PriceTimingReport(n_rows=len(df))
+    has_price, has_cutoff = price_col in df.columns, cutoff_col in df.columns
+    if has_price != has_cutoff:
+        present, absent = (price_col, cutoff_col) if has_price else (cutoff_col, price_col)
+        raise LeakageError(
+            f"Price timing cannot be checked: the frame has {present!r} but no {absent!r}. "
+            f"Give every row both {price_col!r} and {cutoff_col!r}, or neither "
+            "(an untimed panel is not checked)."
+        )
+    if not has_price or df.empty:
+        return report
+
+    price_ts = pd.to_datetime(df[price_col], utc=True, errors="coerce", format="mixed")
+    cutoff_ts = pd.to_datetime(df[cutoff_col], utc=True, errors="coerce", format="mixed")
+    report.n_checked = len(df)
+
+    # No decision time means no cutoff to violate; no price time means nothing to compare.
+    untimed = price_ts.isna() & cutoff_ts.notna()
+    late = (price_ts >= cutoff_ts) & price_ts.notna() & cutoff_ts.notna()
+    report.untimed = int(untimed.sum())
+    report.late = int(late.sum())
+    report.untimed_index = list(df.index[untimed.to_numpy()])
+    report.late_index = list(df.index[late.to_numpy()])
+
+    if close_col in df.columns:
+        close_ts = pd.to_datetime(df[close_col], utc=True, errors="coerce", format="mixed")
+        closed = (cutoff_ts >= close_ts) & cutoff_ts.notna() & close_ts.notna()
+        report.after_close = int(closed.sum())
+        report.after_close_index = list(df.index[closed.to_numpy()])
+        report.close_unknown = int((close_ts.isna() & cutoff_ts.notna()).sum())
+
+    if raise_on_leak and (report.late or report.untimed or report.after_close):
+        parts: list[str] = []
+        if report.late:
+            first = df.loc[report.late_index[0]]
+            parts.append(
+                f"{report.late} row(s) have a price observed at or after the decision "
+                f"(first: market_id={first.get('market_id')!r}, {price_col}={first[price_col]!r}, "
+                f"{cutoff_col}={first[cutoff_col]!r})"
+            )
+        if report.untimed:
+            parts.append(f"{report.untimed} row(s) have a decision time but no price time")
+        if report.after_close:
+            first = df.loc[report.after_close_index[0]]
+            parts.append(
+                f"{report.after_close} row(s) have a decision at or after the market's close "
+                f"(first: market_id={first.get('market_id')!r}, {cutoff_col}={first[cutoff_col]!r}, "
+                f"{close_col}={first[close_col]!r})"
+            )
+        raise LeakageError(
+            "Price timing violates point-in-time: "
+            + "; ".join(parts)
+            + ". A price must be observed strictly before the decision it informs, "
+            "and a decision must be taken before the market closes."
         )
     return report

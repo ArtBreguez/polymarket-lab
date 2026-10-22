@@ -7,11 +7,13 @@ only deep in rolling_origin_eval) becomes a clear error at build time.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from pmlab.data import PanelSchemaError, build_panel
+from pmlab.data import LeakageError, PanelSchemaError, build_panel
 
 
 def _rows(n: int = 60, seed: int = 0) -> list[dict]:
@@ -126,3 +128,177 @@ class TestBuildPanelLeakageIntegration:
             r["feature_leak"] = 1.0 if r["winning_label"] == "Yes" else 0.0
         panel = build_panel(rows)  # default: no leakage check, must not raise
         assert "feature_leak" in panel.columns
+
+
+# ---------------------------------------------------------------------------
+# Per-bin rows (issue #28): build_training_rows returns a list per market
+# ---------------------------------------------------------------------------
+
+
+def _bin_rows(market: str, date: str = "2025-01-05", winner: str = "b") -> list[dict]:
+    prices = {"a": 0.2, "b": 0.5, "c": 0.3}
+    return [
+        {
+            "market_id": market,
+            "decision_date": date,
+            "outcome_label": label,
+            "winning_label": winner,
+            "market_price": price,
+            "feature_x": 1.0,
+        }
+        for label, price in prices.items()
+    ]
+
+
+class TestBuildPanelPerBinRows:
+    def test_lists_of_rows_are_flattened_in_order(self):
+        panel = build_panel([_bin_rows("m1"), _bin_rows("m2")])
+        assert panel["market_id"].tolist() == ["m1"] * 3 + ["m2"] * 3
+        assert panel["outcome_label"].tolist() == ["a", "b", "c"] * 2
+        assert panel.index.tolist() == list(range(6))
+
+    def test_dicts_lists_and_nones_can_be_mixed(self):
+        single = _bin_rows("m3")[0]
+        panel = build_panel([None, _bin_rows("m1"), [], single, None])
+        assert len(panel) == 4
+
+    def test_a_none_inside_a_list_is_dropped(self):
+        a, b = _bin_rows("m1")[:2]
+        assert len(build_panel([[a, None, b]])) == 2
+
+    def test_a_generator_of_lists_is_accepted(self):
+        panel = build_panel(_bin_rows(f"m{i}") for i in range(4))
+        assert len(panel) == 12
+
+    def test_only_empty_lists_is_an_empty_panel_error(self):
+        with pytest.raises(PanelSchemaError, match="No rows"):
+            build_panel([[], []])
+
+    def test_a_price_after_the_decision_is_rejected_even_without_check_leakage(self):
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+        rows[1]["price_ts"] = "2025-01-05T08:00:01+00:00"
+        with pytest.raises(LeakageError, match="after the decision"):
+            build_panel([rows])
+
+    def test_timed_in_time_prices_build(self):
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+        assert len(build_panel([rows])) == 3
+
+    def test_a_panel_without_timing_columns_is_unchanged(self):
+        assert len(build_panel([_bin_rows("m1")])) == 3
+
+
+class TestBuildPanelMarketClose:
+    def _timed_rows(self, close: str) -> list[dict]:
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+            r["market_close_ts"] = close
+        return rows
+
+    def test_a_decision_after_the_market_closed_is_rejected(self):
+        with pytest.raises(LeakageError, match="close"):
+            build_panel([self._timed_rows("2025-01-05T07:30:00+00:00")])
+
+    def test_a_decision_before_the_close_builds(self):
+        assert len(build_panel([self._timed_rows("2025-01-05T20:00:00+00:00")])) == 3
+
+
+class TestBuildPanelPartialTimingColumns:
+    """Half a timing schema must not be waved through as an untimed panel (review, M2)."""
+
+    def _rows(self, drop: str) -> list[dict]:
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+            del r[drop]
+        return rows
+
+    def test_a_decision_time_without_a_price_time_is_refused(self):
+        with pytest.raises(LeakageError, match="has 'decision_ts' but no 'price_ts'"):
+            build_panel([self._rows("price_ts")])
+
+    def test_a_price_time_without_a_decision_time_is_refused(self):
+        with pytest.raises(LeakageError, match="has 'price_ts' but no 'decision_ts'"):
+            build_panel([self._rows("decision_ts")])
+
+
+class TestBuildPanelUntimedWarning:
+    """A panel whose prices carry no timing cannot be checked for lookahead; say so, once (review, M3)."""
+
+    LOGGER = "pmlab.data.panel_builder"
+
+    def _timed(self, n: int = 3) -> list[dict]:
+        rows = _bin_rows("m1")[:n]
+        for r in rows:
+            r["decision_ts"] = "2025-01-05T08:00:00+00:00"
+            r["price_ts"] = "2025-01-05T07:00:00+00:00"
+        return rows
+
+    def _warnings(self, caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+        return [r for r in caplog.records if r.name == self.LOGGER]
+
+    def test_untimed_prices_log_exactly_one_warning(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            build_panel(_rows(60))
+        (record,) = self._warnings(caplog)
+        assert record.levelno == logging.WARNING
+
+    def test_the_warning_names_the_risk_and_the_remedy(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            build_panel(_rows(10))
+        text = self._warnings(caplog)[0].getMessage()
+        for needle in ("market_price", "price_ts", "decision_ts", "lookahead", "10 rows"):
+            assert needle in text, needle
+
+    def test_it_is_one_per_call_not_one_per_market(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            build_panel([_bin_rows(f"m{i}") for i in range(20)])
+        assert len(self._warnings(caplog)) == 1
+
+    def test_each_call_warns_once(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            build_panel(_rows(5))
+            build_panel(_rows(5))
+        assert len(self._warnings(caplog)) == 2
+
+    def test_it_goes_to_logging_and_never_to_stdout_or_stderr(self, caplog, capsys):
+        with caplog.at_level(logging.WARNING):
+            build_panel(_rows(5))
+        out = capsys.readouterr()
+        assert (out.out, out.err) == ("", "")
+        assert len(self._warnings(caplog)) == 1
+
+    def test_a_timed_panel_says_nothing(self, caplog):
+        with caplog.at_level(logging.DEBUG):
+            build_panel([self._timed()])
+        assert self._warnings(caplog) == []
+
+    def test_a_close_column_alone_does_not_make_a_panel_timed(self, caplog):
+        rows = _bin_rows("m1")
+        for r in rows:
+            r["market_close_ts"] = "2025-01-05T20:00:00+00:00"
+        with caplog.at_level(logging.WARNING):
+            build_panel([rows])
+        assert len(self._warnings(caplog)) == 1
+
+    def test_half_a_timing_schema_is_an_error_not_a_warning(self, caplog):
+        rows = self._timed()
+        for r in rows:
+            del r["price_ts"]
+        with caplog.at_level(logging.WARNING), pytest.raises(LeakageError):
+            build_panel([rows])
+        assert self._warnings(caplog) == []
+
+    def test_a_panel_that_fails_to_build_does_not_warn_first(self, caplog):
+        with caplog.at_level(logging.WARNING), pytest.raises(PanelSchemaError):
+            build_panel([])
+        assert self._warnings(caplog) == []
