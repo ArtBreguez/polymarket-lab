@@ -63,7 +63,9 @@ def build_panel(
             ``MarketPlugin.build_training_rows`` (a market's rows) can be passed per market
             unchanged. ``None`` entries and empty lists are dropped.
         check_leakage: If True, run :func:`check_no_leakage` on the assembled
-            panel and raise ``LeakageError`` if any feature leaks the label.
+            panel and raise ``LeakageError`` if any feature leaks the label. On a
+            one-row-per-bin panel the label is the per-row outcome ``outcome_label ==
+            winning_label``, the one the backtest trains on (see docs/leakage.md).
         max_auc: Threshold forwarded to the leakage check.
 
     A panel whose rows carry neither ``price_ts`` nor ``decision_ts`` is built, but logs a

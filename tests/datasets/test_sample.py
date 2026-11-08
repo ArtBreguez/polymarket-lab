@@ -229,6 +229,10 @@ def test_the_whole_sample_builds_a_leak_free_panel(sample: SampleDataset, no_net
     panel = build_panel(rows)  # always runs the price-timing guard (LeakageError if late)
     won = (panel["outcome_label"] == panel["winning_label"]).astype(int)
     assert not check_no_leakage(panel.assign(won=won), label_col="won").leaked
+    # issue #35: the check scores a per-bin panel against what the model trains on, so the
+    # forecasts that came with the sample are not mistaken for leaks (and the two agree)
+    assert not check_no_leakage(panel).leaked
+    assert len(build_panel(rows, check_leakage=True)) == len(panel)
     assert len(panel) == sample.n_markets * 9
     assert panel.groupby("market_id")["outcome_label"].count().eq(9).all()
     assert (

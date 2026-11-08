@@ -75,7 +75,7 @@ resolved, which labels a panel and settles trades, and has nothing "open" to dis
 |---|---|---|
 | 0. Workspace | `WorkspaceContext` | every path comes from a workspace; two workspaces never share one |
 | 1. Discover | `load_sample`, `WeatherTmaxPlugin.discover_markets`, `is_truth_final` | the offline plugin; truth is not final the morning of |
-| 2. Panel | `build_training_rows`, `build_panel`, `check_no_leakage` | one row per bin; a price seen at the decision is excluded and counted |
+| 2. Panel | `build_training_rows`, `build_panel`, `check_no_leakage` | one row per bin, leakage-checked against "did this bin win" ([docs/leakage.md](leakage.md)); a price seen at the decision is excluded and counted |
 | 3. Tune | `TunedForecaster` | Optuna on the first 60 days only, scored walk-forward |
 | 4. Backtest | `BacktestConfig`, `run_backtest`, `capture_backtest` | live policy and costs; a reproducibility record |
 | 5. Gate | `HoldoutGateResult`, `ChampionManifest.publish`, `reproduce` | a per-city NO_GO refuses to publish; scoped GO publishes; the record re-runs |

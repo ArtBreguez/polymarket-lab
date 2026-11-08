@@ -5,6 +5,11 @@ column derived (directly or indirectly) from the resolved outcome will predict
 the label almost perfectly on historical data and then fail live — the classic
 silent trap. These guards score each ``feature_*`` column against the label and
 flag any that separate it suspiciously well.
+
+What "the label" is depends on what the model is trained on. ``rolling_origin_eval`` fits
+``outcome_label == winning_label`` per row. On a panel with one row per outcome bin that is
+a different thing from ``winning_label``, which is the same for every bin of a market, so
+:func:`check_no_leakage` scores such a panel against the per-row outcome (issue #35).
 """
 
 from __future__ import annotations
@@ -25,6 +30,10 @@ __all__ = [
 ]
 
 _LABEL_COL = "winning_label"
+_OUTCOME_COL = "outcome_label"
+_MARKET_COL = "market_id"
+_DATE_COL = "decision_date"
+_PER_ROW_TARGET = f"{_OUTCOME_COL} == {_LABEL_COL}"
 
 
 class LeakageError(Exception):
@@ -40,28 +49,59 @@ class LeakageReport:
             that a feature which perfectly predicts *either* class scores 1.0).
         leaked: feature columns whose score exceeds ``max_auc``.
         max_auc: the threshold used.
+        target: what the features were scored against: a column name, or
+            ``"outcome_label == winning_label"`` for the per-row outcome of a per-bin panel.
     """
 
     scores: dict[str, float] = field(default_factory=dict)
     leaked: list[str] = field(default_factory=list)
     max_auc: float = 0.97
+    target: str = _LABEL_COL
+
+
+def _is_per_bin(df: pd.DataFrame) -> bool:
+    """True when a market is described by several bins at one decision.
+
+    That is the shape ``MarketPlugin.build_training_rows`` returns and the one the backtest
+    chooses within (it groups by ``market_id`` and ``decision_date``): some market has more
+    than one distinct ``outcome_label`` at one decision date.
+    """
+    if _MARKET_COL not in df.columns or _OUTCOME_COL not in df.columns:
+        return False
+    keys = [c for c in (_MARKET_COL, _DATE_COL) if c in df.columns]
+    return bool((df.groupby(keys, sort=False)[_OUTCOME_COL].nunique() > 1).any())
 
 
 def check_no_leakage(
     df: pd.DataFrame,
-    label_col: str = _LABEL_COL,
+    label_col: str | None = None,
     max_auc: float = 0.97,
     raise_on_leak: bool = True,
 ) -> LeakageReport:
     """Check that no ``feature_*`` column leaks the label.
 
-    Each feature is scored by how well it alone separates the (binary) label,
+    Each feature is scored by how well it alone separates a binary target,
     measured as ``max(auc, 1 - auc)`` so leakage toward either class is caught.
     Features scoring above ``max_auc`` are considered leaking.
 
+    The target is what the model learns from. For a **per-bin panel** (a market is several
+    rows, one per outcome bin, at one decision date: what ``build_training_rows`` returns)
+    it is the per-row outcome ``outcome_label == winning_label``, exactly the label
+    ``rolling_origin_eval`` trains on. ``winning_label`` itself is the same for every bin of
+    a market, so scoring against it asks which *market* resolved to the rarest label, and
+    an honest forecast answers that well. For any other panel (one row per market) the
+    target is ``winning_label``, as it always was. ``LeakageReport.target`` says which.
+
+    A feature that is the same for every bin of a market scores 0.5 against the per-row
+    outcome, by construction: it cannot tell a market's winning bin from its losing ones.
+    It can only leak through a feature that varies across bins (a bin's distance to the
+    realised value, say), and that one is scored.
+
     Args:
-        df: Panel/trade frame containing ``feature_*`` columns and ``label_col``.
-        label_col: Name of the outcome column (default ``winning_label``).
+        df: Panel/trade frame containing ``feature_*`` columns and the label.
+        label_col: Score against this column, as given, whatever the panel's shape.
+            Default ``None``: choose the target as described above (``winning_label``,
+            or the per-row outcome for a per-bin panel).
         max_auc: Separation score above which a feature is flagged (default 0.97).
         raise_on_leak: If True (default), raise ``LeakageError`` when any feature
             leaks; otherwise return the report for inspection.
@@ -71,23 +111,31 @@ def check_no_leakage(
         found, raises instead of returning.
 
     Raises:
-        ValueError: if ``label_col`` is absent.
+        ValueError: if the label column (``label_col``, or ``winning_label`` by default)
+            is absent.
         LeakageError: if leakage is found and ``raise_on_leak`` is True.
     """
-    if label_col not in df.columns:
-        raise ValueError(f"Label column '{label_col}' not found in DataFrame")
+    column = _LABEL_COL if label_col is None else label_col
+    if column not in df.columns:
+        raise ValueError(f"Label column '{column}' not found in DataFrame")
 
     feature_cols = [c for c in df.columns if c.startswith("feature_")]
-    report = LeakageReport(max_auc=max_auc)
+    report = LeakageReport(max_auc=max_auc, target=column)
 
-    # Binary target from the label; AUC is undefined for a single class.
-    y = df[label_col]
+    # Binary target; AUC is undefined for a single class.
+    per_row = label_col is None and _is_per_bin(df)
+    if per_row:
+        y = (df[_OUTCOME_COL] == df[column]).astype(int)
+        report.target = _PER_ROW_TARGET
+    else:
+        y = df[column]
     classes = y.dropna().unique()
     if len(feature_cols) == 0 or len(classes) < 2:
         return report
 
-    # Map the label to {0, 1}: the most frequent class is 0.
-    positive = y.value_counts().index[-1]
+    # Map the target to {0, 1}: the per-row outcome is already, otherwise the most
+    # frequent class is 0.
+    positive = 1 if per_row else y.value_counts().index[-1]
     y_bin = (y == positive).astype(int).to_numpy()
 
     for col in feature_cols:
@@ -107,7 +155,7 @@ def check_no_leakage(
         details = ", ".join(f"{c} (score={report.scores[c]:.3f})" for c in report.leaked)
         raise LeakageError(
             f"Potential label leakage in feature column(s): {details}. "
-            f"These separate '{label_col}' above max_auc={max_auc}. If legitimate, "
+            f"These separate '{report.target}' above max_auc={max_auc}. If legitimate, "
             f"raise max_auc or drop the column."
         )
     return report

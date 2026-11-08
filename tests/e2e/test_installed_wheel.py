@@ -274,6 +274,56 @@ def test_registry_page_runs_as_written_and_a_rollback_loses_nothing(installed: I
     assert "legacy rollback OK" in _ok(proc)
 
 
+def test_leakage_check_accepts_a_ranged_panel_and_still_catches_a_leak(
+    installed: Installed,
+) -> None:
+    """docs/leakage.md against the wheel (issue #35), then the same claims probed directly:
+    the bundled per-bin sample passes ``build_panel(check_leakage=True)``, a planted copy of the
+    outcome is refused on that shape and on a one-row-per-market one, and an explicit label is
+    used as given."""
+    work = installed.workdir / "leakage_doc"
+    out = _ok(installed.py(WALKTHROUGH, REPO / "docs" / "leakage.md", "--cwd", work))
+    assert "FAIL" not in out
+    done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
+    assert done == total and int(done) == 4
+    assert "2700 rows, 300 markets, 9 bins each" in out
+    assert "scored against: outcome_label == winning_label" in out and "leaked: none" in out
+    assert "feature_oops (score=1.000)" in out
+    assert "won: none" in out and "'feature_fcst_tmax'" in out  # the old target still on request
+
+    probe = (
+        "import pmlab\n"
+        "from pmlab import LeakageError, build_panel, check_no_leakage\n"
+        "from pmlab.datasets import load_sample\n"
+        "s = load_sample(); r = s.plugin()\n"
+        "rows = [r.build_training_rows(sp, 'previous_evening', decision_time=f'{d}T12:00:00+00:00')\n"
+        "        for d in s.days for sp in s.plugin(d).discover_markets()]\n"
+        "panel = build_panel(rows, check_leakage=True)  # the call that raised before 0.11.2\n"
+        "assert len(panel) == 750 * 9 and 'site-packages' in pmlab.__file__\n"
+        "assert check_no_leakage(panel).target == 'outcome_label == winning_label'\n"
+        "won = (panel['outcome_label'] == panel['winning_label']).astype(float)\n"
+        "def refused(frame, **kw):\n"
+        "    try:\n"
+        "        check_no_leakage(frame, **kw)\n"
+        "    except LeakageError as e:\n"
+        "        return str(e)\n"
+        "    return None\n"
+        "bin_leak = refused(panel.assign(feature_copy=won))\n"
+        "assert bin_leak and 'feature_copy' in bin_leak, bin_leak\n"
+        "one = panel.drop_duplicates('market_id')  # one row per market: winning_label, as before\n"
+        "assert check_no_leakage(one, raise_on_leak=False).target == 'winning_label'\n"
+        "codes = {k: float(i) for i, k in enumerate(sorted(one['winning_label'].unique()))}\n"
+        "rarest = one['winning_label'].value_counts().index[-1]\n"
+        "# a feature that is 1.0 exactly on the rarest winning label, 0.0 elsewhere\n"
+        "leak = (one['winning_label'] == rarest).astype(float)\n"
+        "assert refused(one.assign(feature_copy=leak)), 'one-row-per-market leak not caught'\n"
+        "assert refused(panel.assign(won=won), label_col='won') is None\n"
+        "print('leakage probe OK', pmlab.__version__)\n"
+    )
+    ok = _ok(installed.py("-c", probe))
+    assert f"leakage probe OK {_pyproject_version()}" in ok
+
+
 def test_a_record_from_before_0_10_0_loads_and_reproduce_says_there_is_nothing_to_run(
     installed: Installed,
 ) -> None:
