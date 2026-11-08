@@ -22,11 +22,14 @@ from pmlab.modeling.base import MarketForecaster
 
 __all__ = ["SklearnForecaster"]
 
-# Named presets: string -> (class, default_kwargs)
+# Named presets: string -> (class, default_kwargs). The two ensembles draw random numbers
+# (bootstrap rows, feature subsets, subsampling): left unseeded they take the global numpy
+# state and differ from one process to the next, so a preset is seeded by default. Pass
+# `random_state=` to choose another seed (or None for the old, unseeded behaviour).
 _PRESETS: dict[str, tuple[type[ClassifierMixin], dict[str, Any]]] = {
     "logistic_regression": (LogisticRegression, {"max_iter": 1000, "C": 1.0}),
-    "random_forest": (RandomForestClassifier, {"n_estimators": 100}),
-    "gradient_boosting": (GradientBoostingClassifier, {"n_estimators": 100}),
+    "random_forest": (RandomForestClassifier, {"n_estimators": 100, "random_state": 0}),
+    "gradient_boosting": (GradientBoostingClassifier, {"n_estimators": 100, "random_state": 0}),
 }
 
 
