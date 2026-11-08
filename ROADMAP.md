@@ -6,16 +6,16 @@ tested, and reproducible.
 
 This roadmap is organized by the ML lifecycle. Each stage lists what **exists
 today** (✅) and what's **planned** (▢), with the target release. Status current
-as of **v0.9.2**.
+as of **v0.9.3**.
 
 ---
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.9.2) | Biggest gap |
+| Stage | Today (v0.9.3) | Biggest gap |
 |---|---|---|
 | 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning; no historical per-bin CLOB price (a weather panel's price is the discovery-time Gamma one) |
-| 2. Feature engineering | 5 transforms, per-plugin features, `build_panel`, leakage guards | No feature registry; more transforms deferred (#19) |
+| 2. Feature engineering | 8 transforms (incl. out-of-fold target encoding), per-plugin features, `build_panel`, leakage guards | No feature registry |
 | 3. Modeling | LGBM, sklearn, ensemble, conformal, calibration (binary+multiclass), tuning | ✅ core complete |
 | 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV, bootstrap stability report, **cost model** | ✅ core complete |
 | 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
@@ -55,8 +55,9 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
 - ✅ **Leakage guards** — `check_no_leakage`: scores each feature's separation of
   the label and raises `LeakageError` on suspicious columns. Found by dogfooding
   (a feature derived from the outcome had reported AUC 1.000 silently).
-- ▢ **More transforms** — target encoding (with CV folds), interaction terms,
-  missing-value indicators; all copy-on-write like the existing five. *(deferred)*
+- ✅ **More transforms** *(shipped in 0.9.3, #19)* — out-of-fold `TargetEncoder`
+  (time / group / k-fold, plus a fitted mapping for live rows), `add_interactions`,
+  `add_missing_indicators`; all copy-on-write like the existing five.
 
 ## v0.8.0 — Validation & model management
 

@@ -7,7 +7,20 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-__all__ = ["add_lags", "add_rolling_stats", "encode_cyclical", "encode_onehot", "clip_outliers"]
+__all__ = [
+    "add_interactions",
+    "add_lags",
+    "add_missing_indicators",
+    "add_rolling_stats",
+    "clip_outliers",
+    "encode_cyclical",
+    "encode_onehot",
+]
+
+InteractionOp = Literal["mul", "div", "add", "sub"]
+
+# Infix used in the generated column name, per op: ``{a}_x_{b}``, ``{a}_div_{b}``, ...
+_INTERACTION_INFIX: dict[str, str] = {"mul": "x", "div": "div", "add": "plus", "sub": "minus"}
 
 
 def add_lags(
@@ -48,10 +61,14 @@ def add_rolling_stats(
             for stat in stats:
                 new_col = f"{col}_roll{window}_{stat}"
                 if group_by is not None:
-                    rolled_group = out.groupby(group_by)[col].rolling(
-                        window, min_periods=min_periods
+                    # ``transform`` returns the result aligned to the input rows. The previous
+                    # ``groupby().rolling().<stat>().values`` is ordered by group, so it landed on
+                    # the wrong rows whenever the frame was not already sorted by the group key.
+                    out[new_col] = out.groupby(group_by)[col].transform(
+                        lambda s, w=window, st=stat: getattr(
+                            s.rolling(w, min_periods=min_periods), st
+                        )()
                     )
-                    out[new_col] = getattr(rolled_group, stat)().values
                 else:
                     rolled_plain = out[col].rolling(window, min_periods=min_periods)
                     out[new_col] = getattr(rolled_plain, stat)().values
@@ -103,4 +120,57 @@ def clip_outliers(
             lo = mean - zscore_threshold * std
             hi = mean + zscore_threshold * std
         out[col] = s.clip(lower=lo, upper=hi)
+    return out
+
+
+def add_missing_indicators(
+    df: pd.DataFrame,
+    cols: list[str],
+    suffix: str = "_isna",
+) -> pd.DataFrame:
+    """Add one ``int8`` 0/1 column per entry of ``cols`` flagging missing values.
+
+    ``{col}{suffix}`` is 1 where ``col`` is NaN/None/NaT and 0 elsewhere. Row-local (it looks
+    at no other row), so it cannot leak. Apply it *before* imputing the column, otherwise the
+    missingness is already gone. The input frame is never mutated.
+    """
+    out = df.copy()
+    for col in cols:
+        if col not in out.columns:
+            raise KeyError(f"Column '{col}' not found in DataFrame")
+        out[f"{col}{suffix}"] = out[col].isna().astype("int8")
+    return out
+
+
+def add_interactions(
+    df: pd.DataFrame,
+    pairs: list[tuple[str, str]],
+    op: InteractionOp = "mul",
+) -> pd.DataFrame:
+    """Add one pairwise interaction column per ``(a, b)`` in ``pairs``.
+
+    ``op`` is one of ``"mul"`` (``a * b``, column ``a_x_b``), ``"div"`` (``a / b``, ``a_div_b``),
+    ``"add"`` (``a + b``, ``a_plus_b``) or ``"sub"`` (``a - b``, ``a_minus_b``). Names follow the
+    order of the pair, so ``(a, b)`` and ``(b, a)`` are different columns. Division by zero gives
+    NaN (never ``inf``), so downstream models and scalers see a missing value rather than an
+    infinity. Row-local, so it cannot leak. The input frame is never mutated.
+    """
+    if op not in _INTERACTION_INFIX:
+        raise ValueError(f"Unknown op '{op}'; expected one of {sorted(_INTERACTION_INFIX)}")
+    out = df.copy()
+    for a, b in pairs:
+        for col in (a, b):
+            if col not in out.columns:
+                raise KeyError(f"Column '{col}' not found in DataFrame")
+        left = out[a].astype(float)
+        right = out[b].astype(float)
+        if op == "mul":
+            result = left * right
+        elif op == "add":
+            result = left + right
+        elif op == "sub":
+            result = left - right
+        else:
+            result = left / right.where(right != 0)
+        out[f"{a}_{_INTERACTION_INFIX[op]}_{b}"] = result
     return out

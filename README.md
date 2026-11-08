@@ -241,7 +241,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
       ├── fetch_truth(spec)                   ──►  float | str | None
       └── build_training_rows(spec, horizon)  ──►  list[dict]   (one row per bin)
                 │
-    [pmlab.features]  ← add_lags, rolling_stats, encode_cyclical, onehot, clip_outliers
+    [pmlab.features]  ← add_lags, rolling_stats, encode_cyclical, onehot, clip_outliers, missing_indicators, interactions, TargetEncoder
                 │
                 ▼
         rolling_origin_eval(panel, model)      ◄── LGBMForecaster
@@ -273,7 +273,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
 | Package | Responsibility |
 |---|---|
 | `pmlab.core` | `MarketSpec`, `OutcomeBin`, `Position`, `compute_edge`, `estimate_fee`, `flat_stake_size`, `kelly_fraction`, `kelly_stake_size` |
-| `pmlab.features` | `add_lags`, `add_rolling_stats`, `encode_cyclical`, `encode_onehot`, `clip_outliers` |
+| `pmlab.features` | `add_lags`, `add_rolling_stats`, `encode_cyclical`, `encode_onehot`, `clip_outliers`, `add_missing_indicators`, `add_interactions`, `TargetEncoder`, `FittedTargetEncoder` |
 | `pmlab.plugins` | `MarketPlugin` ABC, `PluginRegistry`, reference plugins |
 | `pmlab.plugins.weather_tmax` | Reference implementation — temperature markets |
 | `pmlab.plugins.sports_f1` | Categorical outcome plugin — F1 race markets |
@@ -332,7 +332,10 @@ plugin = MyPlugin(gamma_client=mock_gamma)
 `pmlab.features` provides common transforms so plugins don't reimplement them:
 
 ```python
-from pmlab import add_lags, add_rolling_stats, encode_cyclical, encode_onehot, clip_outliers
+from pmlab import (
+    add_lags, add_rolling_stats, encode_cyclical, encode_onehot, clip_outliers,
+    add_missing_indicators, add_interactions, TargetEncoder,
+)
 
 # Lag features (with optional group-by for panel data)
 df = add_lags(df, cols=["temp"], lags=[1, 3, 7], group_by="city")
@@ -348,6 +351,15 @@ df = encode_onehot(df, cols=["city"], drop_first=True)
 
 # Outlier clipping (IQR or z-score)
 df = clip_outliers(df, cols=["temp", "humidity"], method="iqr", iqr_factor=3.0)
+
+# Missing-value indicators (int8 0/1) and pairwise interactions (div by zero -> NaN)
+df = add_missing_indicators(df, cols=["humidity"])
+df = add_interactions(df, pairs=[("temp", "humidity")], op="mul")
+
+# Target encoding: out-of-fold for training rows, fitted mapping for live rows
+enc = TargetEncoder(col="city", target="outcome", time_col="date")
+X_train = enc.fit_transform(train)       # no row sees its own (or any later) target
+X_live = enc.fit(train).transform(live)  # full-train statistics for inference
 ```
 
 All transforms return a copy — originals are never mutated.
@@ -654,6 +666,9 @@ scripts/pmlab-workspace historical_real pmlab backtest --plugin weather_tmax --s
 | `encode_cyclical(series, period)` | Sin/cos encoding for periodic features |
 | `encode_onehot(df, cols, drop_first)` | One-hot encode categorical columns |
 | `clip_outliers(df, cols, method)` | Clip outliers via IQR or z-score |
+| `add_missing_indicators(df, cols, suffix)` | `int8` 0/1 missing-value flags (`{col}_isna`) |
+| `add_interactions(df, pairs, op)` | Pairwise mul/div/add/sub columns; div by zero -> NaN |
+| `TargetEncoder(col, target, ...)` | Out-of-fold target encoding (`fit_transform`) + `fit()` -> `FittedTargetEncoder.transform()` for live rows |
 
 ### Markets
 

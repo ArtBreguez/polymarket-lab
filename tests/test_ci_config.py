@@ -57,3 +57,20 @@ def test_ci_has_upload_coverage_step():
 def test_ci_triggers_on_pr():
     ci = _load_ci()
     assert "pull_request" in ci["on"]
+
+
+def test_ci_has_e2e_job_running_the_installed_wheel_tests():
+    """The wheel-install end-to-end tests run in their own job, not in the default pytest."""
+    ci = _load_ci()
+    assert "e2e" in ci["jobs"]
+    cmds = [s.get("run", "") for s in ci["jobs"]["e2e"]["steps"]]
+    assert any("pytest" in c and "-m e2e" in c for c in cmds), cmds
+
+
+def test_default_pytest_deselects_e2e():
+    import tomllib
+
+    root = Path(__file__).parent.parent
+    cfg = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"]
+    assert "not e2e" in cfg["addopts"]
+    assert any(m.startswith("e2e") for m in cfg["markers"])

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.9.2"
+__version__ = "0.9.3"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.expectation import BacktestExpectation, GroupExpectation, SegmentExpectation
@@ -33,8 +33,11 @@ from pmlab.execution.live_broker import LiveBroker, LiveBrokerError, OrderReceip
 from pmlab.execution.paper_broker import PaperBroker
 from pmlab.execution.resettle import ResettleResult, resettle_trades
 from pmlab.execution.settlement import SettlementEngine
+from pmlab.features.target_encoding import FittedTargetEncoder, TargetEncoder
 from pmlab.features.transforms import (
+    add_interactions,
     add_lags,
+    add_missing_indicators,
     add_rolling_stats,
     clip_outliers,
     encode_cyclical,
@@ -145,6 +148,10 @@ __all__ = [
     "encode_cyclical",
     "encode_onehot",
     "clip_outliers",
+    "add_missing_indicators",
+    "add_interactions",
+    "TargetEncoder",
+    "FittedTargetEncoder",
     # Markets
     "GammaClient",
     "ClobClient",
