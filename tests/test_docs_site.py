@@ -20,7 +20,7 @@ from pmlab import _deprecation
 
 REPO = Path(__file__).resolve().parents[1]
 DOCS = REPO / "docs"
-SITE_URL = "https://artbreguez.github.io/polymarket-lab/"
+SITE_URL = "https://pmlab.hiddenterps.si/"
 SNAPSHOT = REPO / "tests" / "api" / "public_api.json"
 
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pmlab"
-version = "1.0.1"
+version = "1.0.2"
 description = "A plugin-based ML framework for Polymarket prediction markets: no-lookahead backtests, a hard GO / NO_GO gate, paper trading."
 readme = "README.md"
 license = { text = "MIT" }
@@ -91,7 +91,7 @@ pmlab = "pmlab.cli.main:app"
 
 [project.urls]
 Homepage = "https://github.com/ArtBreguez/polymarket-lab"
-Documentation = "https://artbreguez.github.io/polymarket-lab/"
+Documentation = "https://pmlab.hiddenterps.si/"
 Repository = "https://github.com/ArtBreguez/polymarket-lab"
 Changelog = "https://github.com/ArtBreguez/polymarket-lab/blob/main/CHANGELOG.md"
 Issues = "https://github.com/ArtBreguez/polymarket-lab/issues"

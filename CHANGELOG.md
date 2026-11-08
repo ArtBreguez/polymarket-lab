@@ -4,6 +4,36 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.0.2] — 2026-11-08
+
+A redesign of the documentation site and its move to **https://pmlab.hiddenterps.si/**. **No behaviour
+changes and no public API changes** (`tests/api/public_api.json` is identical). It is a release because
+the `Documentation` URL in the package metadata, and the links in the README (the PyPI page), changed.
+
+### Documentation
+
+- **New look, one family with hiddenterps.si**: charcoal ground, bone ink, crimson as the signal and sage
+  for "ok", Barlow Condensed for display type, Manrope for reading and IBM Plex Mono for data, thin rules
+  and square corners. Dark by default, with a light scheme (reading surface light; header, hero, code
+  blocks and footer stay charcoal). Every page is restyled: tables, admonitions, tabs, code blocks with a
+  copy button, the API reference, search, the navigation (top tabs on desktop, a drawer on phones) and a
+  themed 404 page.
+- **A designed home page**: what pmlab is in one line, an install command with a pip / uv switch and a
+  copy button, and the four guarantees as the core message. Its visuals are drawn from real numbers, not
+  invented ones: a rolling-origin fold timeline, the per-fold Brier score, the per-city gate that says
+  NO_GO and the refusal `ChampionManifest.publish` raises, a ticker of edge signals. They come from
+  `docs/assets/data/sample-run.json`, produced by `scripts/make_site_data.py` from the bundled synthetic
+  sample; the e2e job checks the file against the built wheel (`--check`).
+- **Accessible and fast**: every text colour measured on the rendered pages is at least 4.5:1 (3:1 for
+  large text) in both schemes; 44 px tap targets in the chrome; no horizontal scroll at 360 px; motion is
+  transform and opacity only and `prefers-reduced-motion` turns it off. Fonts are self-hosted (five files,
+  about 98 kB) instead of Google Fonts, and Material's live GitHub repository facts (a request to
+  api.github.com on every page view that also shifted the header) are off.
+- `tests/test_docs_theme.py` keeps these properties: contrast of the colour tokens, the reduced-motion
+  switch, no third-party host, the font budget, the home data and every link in the templates.
+- The documentation URL is now `https://pmlab.hiddenterps.si/` in `mkdocs.yml`, the package metadata, the
+  README, `SECURITY.md` and the issue template. Past entries below keep the URL they were written with.
+
 ## [1.0.1] — 2026-11-08
 
 A documentation and repository clean-up. **No behaviour changes and no public API changes**
@@ -1443,7 +1473,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.12.1...v1.0.0
 [0.12.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.12.0...v0.12.1

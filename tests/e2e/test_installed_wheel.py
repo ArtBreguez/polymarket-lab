@@ -717,6 +717,18 @@ def test_the_sdist_carries_everything_the_docs_build_needs(docs_build: DocsBuild
         "docs/deprecation.md",
         "docs/reference/index.md",
         "scripts/griffe_deprecated.py",
+        "scripts/mkdocs_hooks.py",
+        "scripts/make_site_data.py",
+        "pyproject.toml",
+        "overrides/main.html",
+        "overrides/home.html",
+        "overrides/404.html",
+        "overrides/partials/source.html",
+        "overrides/partials/logo.html",
+        "docs/assets/stylesheets/pmlab.css",
+        "docs/assets/javascripts/pmlab.js",
+        "docs/assets/data/sample-run.json",
+        "docs/assets/fonts/manrope-latin-wght-normal.woff2",
         "src/pmlab/__init__.py",
     ):
         assert (project / needed).exists(), f"the sdist is missing {needed}"
@@ -770,3 +782,112 @@ def test_strict_mode_really_fails_on_a_broken_link(docs_build: DocsBuild) -> Non
         page.write_text(original)
     assert broken.returncode != 0
     assert "no-such-page.md" in broken.stderr + broken.stdout
+
+
+# ── the redesigned site, as a visitor gets it: the built pages, not the templates ──────────────
+SITE_URL = "https://pmlab.hiddenterps.si/"
+SITE_DATA = REPO / "scripts" / "make_site_data.py"
+
+
+def _page(docs_build: DocsBuild, name: str) -> str:
+    site = docs_build[0]["site"]
+    path = site / name if name.endswith(".html") else site / name / "index.html"
+    return path.read_text()
+
+
+def test_the_built_home_page_shows_the_real_numbers_and_the_installed_version(
+    docs_build: DocsBuild,
+) -> None:
+    paths, _ = docs_build
+    html = _page(docs_build, "index.html")
+    data = json.loads((paths["project"] / "docs/assets/data/sample-run.json").read_text())
+    assert f"pmlab {_pyproject_version()}" in html
+    assert "pip install pmlab" in html and "uv add pmlab" in html
+    assert data["gate"]["publish_refused"] in html  # the refusal is quoted, not retyped
+    assert f"<dd>{data['backtest']['trades']}</dd>" in html
+    assert html.count("<h1") == 1
+    assert f'<link rel="canonical" href="{SITE_URL}"' in html
+    text = re.sub(r"<[^>]+>", "", html)  # the code is syntax-highlighted: look at its text
+    assert "from pmlab import" in text and "rolling_origin_eval(" in text  # quickstart rendered
+    # the ticker is two copies of the signals, the second hidden from assistive technology
+    assert html.count('<li aria-hidden="true">') == len(data["signals"])
+
+
+def test_the_built_site_loads_nothing_from_a_third_party(docs_build: DocsBuild) -> None:
+    site = docs_build[0]["site"]
+    for page in site.rglob("*.html"):
+        text = page.read_text()
+        assert "fonts.googleapis.com" not in text and "fonts.gstatic.com" not in text, page
+        assert "api.github.com" not in text, page  # Material's live repository facts are off
+        for tag in re.findall(r"<(?:script|link)\b[^>]*>", text):
+            for url in re.findall(r'(?:src|href)="(https?://[^"]+)"', tag):
+                assert url.startswith(SITE_URL), f"{page.relative_to(site)}: {tag[:120]}"
+    for sheet in site.rglob("*.css"):
+        text = sheet.read_text()
+        assert "fonts.googleapis.com" not in text and "@import url(http" not in text, sheet
+
+
+def test_every_asset_a_built_page_points_at_is_in_the_site(docs_build: DocsBuild) -> None:
+    site = docs_build[0]["site"]
+    for name in (
+        "index.html",
+        "404.html",
+        "reproducibility/index.html",
+        "reference/core/index.html",
+    ):
+        page = site / name
+        base = page.parent
+        text = page.read_text()
+        refs = re.findall(
+            r'(?:src|href)="((?:\.\./|\./|/|assets/)[^"#?]+\.(?:css|js|svg|woff2|json|png))"', text
+        )
+        assert refs, name
+        for ref in refs:
+            # the 404 page is served from any depth, so Material roots its links at the site path
+            target = site / ref.lstrip("/") if ref.startswith("/") else (base / ref).resolve()
+            assert target.exists(), f"{name} -> {ref}"
+    fonts = {p.name for p in (site / "assets" / "fonts").glob("*.woff2")}
+    assert fonts == {
+        "manrope-latin-wght-normal.woff2",
+        "barlow-condensed-latin-800-normal.woff2",
+        "barlow-condensed-latin-600-normal.woff2",
+        "ibm-plex-mono-latin-400-normal.woff2",
+        "ibm-plex-mono-latin-500-normal.woff2",
+    }
+
+
+def test_the_404_page_is_the_themed_one(docs_build: DocsBuild) -> None:
+    html = _page(docs_build, "404.html")
+    assert "No route." in html and "Search the docs" in html
+    assert "pm-404" in html and "assets/stylesheets/pmlab.css" in html
+
+
+def test_the_site_is_served_from_the_new_domain(docs_build: DocsBuild) -> None:
+    site = docs_build[0]["site"]
+    sitemap = (site / "sitemap.xml").read_text()
+    assert f"<loc>{SITE_URL}</loc>" in sitemap and "artbreguez.github.io" not in sitemap
+    index = json.loads((site / "search" / "search_index.json").read_text())
+    assert len(index["docs"]) > 100, "the search index is nearly empty"
+    assert "artbreguez.github.io" not in _page(docs_build, "reproducibility")
+
+
+def test_the_home_page_numbers_are_what_the_installed_wheel_produces(installed: Installed) -> None:
+    """scripts/make_site_data.py --check: recompute the sample run with the wheel, compare the file."""
+    uv = shutil.which("uv")
+    assert uv is not None
+    _ok(
+        _run(
+            [
+                uv,
+                "pip",
+                "install",
+                "-q",
+                "--python",
+                installed.python,
+                f"pmlab[tune] @ {installed.wheel.as_uri()}",
+            ],
+            cwd=installed.workdir,
+        )
+    )
+    out = _ok(installed.py(SITE_DATA, "--check"))
+    assert "matches the library" in out

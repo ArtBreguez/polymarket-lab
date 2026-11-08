@@ -1,4 +1,4 @@
-# The pmlab documentation site: https://artbreguez.github.io/polymarket-lab/
+# The pmlab documentation site: https://pmlab.hiddenterps.si/
 #
 #   uv sync --extra docs && uv run mkdocs serve          # live preview
 #   uv run mkdocs build --strict                         # what CI runs; the site lands in site/
@@ -7,7 +7,7 @@
 # or an API entry that cannot be rendered fails the build instead of shipping.
 site_name: pmlab
 site_description: A generic, plugin-based ML framework for Polymarket prediction markets.
-site_url: https://artbreguez.github.io/polymarket-lab/
+site_url: https://pmlab.hiddenterps.si/
 repo_url: https://github.com/ArtBreguez/polymarket-lab
 repo_name: ArtBreguez/polymarket-lab
 edit_uri: edit/main/docs/
@@ -17,24 +17,50 @@ strict: true
 
 theme:
   name: material
+  custom_dir: overrides          # main.html (family strip, preloads), home.html, 404.html, source.html
+  logo: assets/img/logo.svg
+  favicon: assets/img/favicon.svg
+  # No Google Fonts: Manrope, Barlow Condensed and IBM Plex Mono are self-hosted (docs/assets/fonts,
+  # ~100 kB, OFL). Privacy (no request to a third party), no extra connection before first paint,
+  # and the metric-matched fallbacks in pmlab.css keep the swap from moving the page.
+  font: false
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
+    # Dark first, on purpose: no `media` query, so an OS preference does not override the design.
+    # Header, hero, code blocks and footer stay charcoal in the light scheme too.
+    - scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
   features:
+    - navigation.tabs
     - navigation.sections
     - navigation.top
     - navigation.footer
+    - toc.follow
     - search.suggest
+    - search.highlight
     - content.code.copy
     - content.action.edit
+
+extra_css:
+  - assets/stylesheets/pmlab.css
+extra_javascript:
+  - assets/javascripts/pmlab.js
+
+# Reads docs/assets/data/sample-run.json for the home page (see scripts/make_site_data.py).
+hooks:
+  - scripts/mkdocs_hooks.py
+
+copyright: >-
+  <a href="https://hiddenterps.si/">HiddenTerps</a> · MIT licence · research software, not financial advice
 
 validation:
   nav:
@@ -53,8 +79,7 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
-  - pymdownx.highlight:
-      anchor_linenums: true
+  - pymdownx.highlight
   - pymdownx.inlinehilite
   - pymdownx.superfences
   - pymdownx.tabbed:

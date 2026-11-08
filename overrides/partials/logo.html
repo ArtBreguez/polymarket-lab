@@ -1,0 +1,7 @@
+{#- Material's logo partial, with its size on the image tag: the header never reflows when it loads. -#}
+{% if config.theme.logo %}
+  <img src="{{ config.theme.logo | url }}" alt="pmlab" width="28" height="28">
+{% else %}
+  {% set icon = config.theme.icon.logo or "material/library" %}
+  {% include ".icons/" ~ icon ~ ".svg" %}
+{% endif %}
