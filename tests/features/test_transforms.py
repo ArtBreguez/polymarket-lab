@@ -69,6 +69,54 @@ class TestAddRollingStats:
         with pytest.raises(KeyError):
             add_rolling_stats(sample_df, ["bad_col"], [2])
 
+    def test_grouped_rolling_values_when_groups_are_interleaved(self):
+        # Rows are NOT sorted by the group key: a/b/a/b/a/b. The rolling window of each row
+        # must be computed over its own group, and the value must land on that same row.
+        df = pd.DataFrame(
+            {
+                "city": ["a", "b", "a", "b", "a", "b"],
+                "temp": [1.0, 100.0, 3.0, 300.0, 5.0, 500.0],
+            }
+        )
+        out = add_rolling_stats(df, ["temp"], [2], stats=["mean"], group_by="city")
+        expected = [1.0, 100.0, 2.0, 200.0, 4.0, 400.0]
+        assert out["temp_roll2_mean"].tolist() == pytest.approx(expected)
+
+    def test_grouped_rolling_is_independent_of_row_order_of_groups(self):
+        # Sorting by group key first must give the same per-row values as the interleaved frame.
+        df = pd.DataFrame(
+            {
+                "city": ["b", "a", "c", "a", "b", "c", "a", "c", "b"],
+                "temp": [10.0, 1.0, 7.0, 3.0, 20.0, 9.0, 5.0, 11.0, 40.0],
+            },
+            index=[10, 11, 12, 13, 14, 15, 16, 17, 18],
+        )
+        out = add_rolling_stats(df, ["temp"], [2, 3], stats=["mean", "max"], group_by="city")
+        ref = add_rolling_stats(
+            df.sort_values("city", kind="stable"),
+            ["temp"],
+            [2, 3],
+            stats=["mean", "max"],
+            group_by="city",
+        ).loc[df.index]
+        for col in ("temp_roll2_mean", "temp_roll2_max", "temp_roll3_mean", "temp_roll3_max"):
+            assert out[col].tolist() == pytest.approx(ref[col].tolist())
+
+    def test_grouped_rolling_with_duplicate_index_labels(self):
+        df = pd.DataFrame(
+            {"city": ["a", "b", "a", "b"], "temp": [1.0, 10.0, 3.0, 30.0]},
+            index=[0, 0, 1, 1],
+        )
+        out = add_rolling_stats(df, ["temp"], [2], stats=["mean"], group_by="city")
+        assert out["temp_roll2_mean"].tolist() == pytest.approx([1.0, 10.0, 2.0, 20.0])
+        assert out.index.tolist() == [0, 0, 1, 1]
+
+    def test_grouped_rolling_does_not_mutate_input(self):
+        df = pd.DataFrame({"city": ["a", "b", "a", "b"], "temp": [1.0, 10.0, 3.0, 30.0]})
+        before = df.copy()
+        add_rolling_stats(df, ["temp"], [2], group_by="city")
+        pd.testing.assert_frame_equal(df, before)
+
 
 class TestEncodeCyclical:
     def test_hour_encoding(self):

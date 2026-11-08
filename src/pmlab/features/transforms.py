@@ -48,10 +48,14 @@ def add_rolling_stats(
             for stat in stats:
                 new_col = f"{col}_roll{window}_{stat}"
                 if group_by is not None:
-                    rolled_group = out.groupby(group_by)[col].rolling(
-                        window, min_periods=min_periods
+                    # ``transform`` returns the result aligned to the input rows. The previous
+                    # ``groupby().rolling().<stat>().values`` is ordered by group, so it landed on
+                    # the wrong rows whenever the frame was not already sorted by the group key.
+                    out[new_col] = out.groupby(group_by)[col].transform(
+                        lambda s, w=window, st=stat: getattr(
+                            s.rolling(w, min_periods=min_periods), st
+                        )()
                     )
-                    out[new_col] = getattr(rolled_group, stat)().values
                 else:
                     rolled_plain = out[col].rolling(window, min_periods=min_periods)
                     out[new_col] = getattr(rolled_plain, stat)().values
