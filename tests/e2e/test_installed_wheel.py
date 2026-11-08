@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,8 @@ EXAMPLE = REPO / "examples" / "e2e_transforms.py"
 PERF_SCRIPT = REPO / "examples" / "perf_budget.py"
 DOC_RUNNER = REPO / "tests" / "e2e" / "run_doc_examples.py"
 WALKTHROUGH = REPO / "tests" / "e2e" / "run_doc_walkthrough.py"
+NOTEBOOK_RUNNER = REPO / "tests" / "e2e" / "run_notebook.py"
+TUTORIAL = REPO / "notebooks" / "tutorial.ipynb"
 OK_LINE = "pmlab e2e (as a user): OK"
 
 
@@ -55,7 +58,9 @@ def _ok(proc: subprocess.CompletedProcess[str]) -> str:
 
 
 class Installed:
-    def __init__(self, venv: Path, workdir: Path) -> None:
+    def __init__(self, venv: Path, workdir: Path, wheel: Path) -> None:
+        self.venv = venv
+        self.wheel = wheel
         self.python = venv / "bin" / "python"
         self.pmlab = venv / "bin" / "pmlab"
         self.workdir = workdir
@@ -76,7 +81,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> Installed:
     wheel = next(dist.glob("pmlab-*.whl"))
     _ok(_run([uv, "venv", "-q", venv, "--python", sys.executable], cwd=workdir))
     _ok(_run([uv, "pip", "install", "-q", "--python", venv / "bin" / "python", wheel], cwd=workdir))
-    yield Installed(venv, workdir)
+    yield Installed(venv, workdir, wheel)
     shutil.rmtree(venv, ignore_errors=True)  # a venv with lightgbm/scipy is hundreds of MB
 
 
@@ -226,6 +231,82 @@ def test_a_record_from_before_0_10_0_loads_and_reproduce_says_there_is_nothing_t
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "no reproducibility record" in proc.stdout and "0.10.0" in proc.stdout
     assert "Traceback" not in proc.stdout + proc.stderr
+
+
+def test_bundled_sample_and_tutorial_notebook_run_from_the_installed_wheel(
+    installed: Installed,
+) -> None:
+    """Issue #15, as a user: the sample ships in the wheel, loads, discovers offline, and the
+    tutorial notebook executes top to bottom in the fresh venv, from outside the repo."""
+    # 1. The data is inside the wheel and the wheel stays lean.
+    with zipfile.ZipFile(installed.wheel) as zf:
+        sizes = {i.filename: i.file_size for i in zf.infolist()}
+    data = [n for n in sizes if n.startswith("pmlab/datasets/data/")]
+    assert sorted(data) == [
+        "pmlab/datasets/data/weather_tmax_sample.json.gz",
+        "pmlab/datasets/data/weather_tmax_sample.sha256",
+    ]
+    assert sum(sizes[n] for n in data) < 200_000
+    assert installed.wheel.stat().st_size < 3_000_000
+
+    # 2. The documented quick start, as written, then the loader from the installed package.
+    doc = _ok(
+        installed.py(WALKTHROUGH, REPO / "docs" / "tutorial.md", "--cwd", installed.workdir / "doc")
+    )
+    assert "FAIL" not in doc and "SampleDataset(750 markets, 5 cities" in doc
+    assert "Highest temperature in Madrid on 2025-04-02?" in doc
+    probe = _ok(
+        installed.py(
+            "-c",
+            "import pmlab.datasets as d; s = d.load_sample(); print(d.__file__); "
+            "print(len(s.plugin(s.days[3]).discover_markets()), s.meta['synthetic'])",
+        )
+    )
+    location, counts = probe.strip().splitlines()
+    assert "site-packages" in location and REPO not in Path(location).parents
+    assert counts == "5 True"
+
+    # 3. The notebook, from the installed wheel (+ the `tune` extra and the notebook executor).
+    uv = shutil.which("uv")
+    assert uv is not None
+    _ok(
+        _run(
+            [
+                uv,
+                "pip",
+                "install",
+                "-q",
+                "--python",
+                installed.python,
+                f"pmlab[tune] @ {installed.wheel.as_uri()}",
+                "nbclient",
+                "nbformat",
+                "ipykernel",
+            ],
+            cwd=installed.workdir,
+        )
+    )
+    executed = installed.workdir / "tutorial.executed.ipynb"
+    out = _ok(
+        installed.py(
+            NOTEBOOK_RUNNER, TUTORIAL, "--cwd", installed.workdir / "kernel", "--out", executed
+        )
+    )
+    assert "NOTEBOOK OK: 17 code cells" in out
+
+    cells = json.loads(executed.read_text())["cells"]
+    shown = "\n".join(
+        "".join(o.get("text", "")) if o["output_type"] == "stream" else ""
+        for c in cells
+        if c["cell_type"] == "code"
+        for o in c["outputs"]
+    )
+    assert f"pmlab {_pyproject_version()}" in shown  # the installed version, not a checkout's
+    assert (
+        "decision: NO_GO" in shown and "refused: Cannot publish champion with NO_GO gate" in shown
+    )
+    assert "GO on [" in shown and "Lisbon" not in shown.split("recorded:")[1].split("\n")[0]
+    assert "reproduced |" in shown and "'pending': 0" in shown
 
 
 def _pyproject_version() -> str:
