@@ -650,6 +650,10 @@ with `--runs-dir`); `pmlab reproduce <run>` re-executes it and verifies the metr
 refusing a changed dataset and warning on a changed library version. See
 [docs/reproducibility.md](docs/reproducibility.md).
 
+`ModelRegistry` archives every promoted champion and rolls back to one with every field of its
+manifest intact (costs, backtest expectation, reproducibility record). See
+[docs/registry.md](docs/registry.md).
+
 `pmlab monitor` is built for cron — it prints nothing and exits 0 when drift,
 live calibration and live PnL are all within bounds, and otherwise says what is
 wrong and exits non-zero (10 warn, 20 alert, 30 could not check). See

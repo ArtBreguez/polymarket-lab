@@ -222,6 +222,58 @@ def test_reproducibility_walkthrough_runs_as_written_and_reproduces(installed: I
     assert "REPRODUCED" in again.stdout
 
 
+def test_registry_page_runs_as_written_and_a_rollback_loses_nothing(installed: Installed) -> None:
+    """docs/registry.md against the wheel (issue #33): backtest -> promote-champion -> registry
+    record -> rollback, with non-default costs, an expectation and a reproducibility record, then
+    the archived version re-runs. Then an entry written by 0.10.0 (no expectation) still rolls
+    back."""
+    work = installed.workdir / "registry_doc"
+    out = _ok(installed.py(WALKTHROUGH, REPO / "docs" / "registry.md", "--cwd", work))
+    assert "FAIL" not in out and "LOST" not in out and " kept" in out
+    done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
+    assert done == total and int(done) >= 6
+    assert "REPRODUCED: 5 metrics match" in out and "NOT REPRODUCED" not in out
+
+    # What is on disk, read from this process: the promoted, the archived and the restored
+    # champion.json hold the same keys and values, bar the artifact paths.
+    version = (work / "version.txt").read_text()
+    files = {
+        "promoted": work / "champion" / "champion.json",
+        "archived": work / "registry" / version / "champion.json",
+        "restored": work / "restored" / "champion.json",
+    }
+    docs = {
+        name: {
+            k: v
+            for k, v in json.loads(p.read_text()).items()
+            if k not in {"model_path", "calibrator_path"}
+        }
+        for name, p in files.items()
+    }
+    assert docs["archived"] == docs["promoted"] and docs["restored"] == docs["promoted"]
+    restored = docs["restored"]
+    assert restored["costs"]["taker_bps"] == 45.0 and restored["costs"]["slippage_bps"] == 20.0
+    assert restored["backtest_expectation"]["n_trades"] > 1
+    assert restored["reproducibility"]["seeds"]["lightgbm"] == 7
+    assert (work / "restored" / "champion.pkl").is_file()
+
+    # An entry archived by 0.10.0 had no backtest_expectation: it loads and rolls back, and the
+    # champion comes back without an expectation rather than with a made-up one.
+    archived = files["archived"]
+    full = json.loads(archived.read_text())
+    del full["backtest_expectation"]
+    archived.write_text(json.dumps(full))
+    legacy = (
+        "import sys\n"
+        "from pmlab.modeling.registry import ModelRegistry\n"
+        "m = ModelRegistry(sys.argv[1]).rollback(sys.argv[2], sys.argv[3])\n"
+        "assert m.expectation is None and m.costs is not None and m.reproducibility is not None\n"
+        "print('legacy rollback OK')\n"
+    )
+    proc = installed.py("-c", legacy, work / "registry", version, work / "legacy_restored")
+    assert "legacy rollback OK" in _ok(proc)
+
+
 def test_a_record_from_before_0_10_0_loads_and_reproduce_says_there_is_nothing_to_run(
     installed: Installed,
 ) -> None:

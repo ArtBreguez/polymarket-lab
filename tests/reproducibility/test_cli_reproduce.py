@@ -231,6 +231,27 @@ def test_reproduce_a_registry_version(run):
     assert "REPRODUCED" in result.output
 
 
+def test_a_promoted_champion_survives_the_registry_intact(run):
+    """`promote-champion` records costs, the expectation and the record; the registry keeps them."""
+    from pmlab.modeling.champion import ChampionManifest
+    from pmlab.modeling.registry import ModelRegistry
+    from tests.modeling.manifest_helpers import assert_manifest_survived, assert_same_champion_json
+
+    out = run["dir"] / "champion"
+    assert _promote(run, out).exit_code == 0
+    promoted = ChampionManifest.load(out / "champion.json")
+    assert promoted.costs is not None and promoted.reproducibility is not None
+    assert promoted.expectation is not None and promoted.expectation.policy is not None
+
+    registry = ModelRegistry(run["dir"] / "registry")
+    version = registry.record(promoted)
+    restored = registry.rollback(version, run["dir"] / "restored")
+
+    assert_manifest_survived(promoted, registry.get(version))
+    assert_manifest_survived(promoted, restored)
+    assert_same_champion_json(out / "champion.json", run["dir"] / "restored" / "champion.json")
+
+
 def test_promote_champion_takes_the_record_from_its_own_option(run):
     bare = run["dir"] / "record.json"
     bare.write_text(json.dumps(json.loads(run["metrics"].read_text())["reproducibility"]))

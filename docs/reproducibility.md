@@ -188,7 +188,8 @@ strict.
 (`"reproducibility"`), taken from the `--expectation` file (which `pmlab backtest --output`
 wrote) or from `--reproducibility FILE`. Through the API:
 `ChampionManifest.publish(..., reproducibility=record)`. `ModelRegistry.record()` archives it with the
-version and `rollback()` restores it. Old manifests without the key load as before
+version and `rollback()` restores it, as it does every other field of the manifest
+([docs/registry.md](registry.md)). Old manifests without the key load as before
 (`manifest.reproducibility is None`).
 
 ```python
