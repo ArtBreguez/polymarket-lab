@@ -85,11 +85,20 @@ class TestTheFalsePositive:
         report = check_no_leakage(_panel())
         assert report.target == "outcome_label == winning_label"
 
-    def test_a_feature_the_same_for_every_bin_scores_one_half(self):
+    def test_a_feature_the_same_for_every_bin_cannot_tell_the_winner_by_its_value_alone(self):
         # The model learns per row; a feature identical across a market's bins cannot tell
-        # its winning bin from its losing ones. That is by construction, not an accident.
-        report = check_no_leakage(_panel())
-        assert report.scores["feature_fcst"] == pytest.approx(0.5)
+        # its winning bin from its losing ones by its raw value. Unrelated to the bins it
+        # scores one half; a forecast is measured against the bins instead (issue #39), and
+        # stays well under the threshold.
+        df = _panel()
+        per_market = np.random.default_rng(7).normal(size=df["market_id"].nunique())
+        df["feature_noise"] = df["market_id"].map(
+            dict(zip(df["market_id"].unique(), per_market, strict=True))
+        )
+        report = check_no_leakage(df)
+        assert report.scores["feature_noise"] < 0.6
+        assert 0.5 < report.scores["feature_fcst"] < 0.97
+        assert report.leaked == []
 
     def test_a_bin_relative_feature_is_scored_per_row(self):
         report = check_no_leakage(_panel())

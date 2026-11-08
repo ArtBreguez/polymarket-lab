@@ -52,7 +52,9 @@ print(len(panel), "rows,", panel["market_id"].nunique(), "markets, 9 bins each")
 2700 rows, 300 markets, 9 bins each
 ```
 
-The report says what was scored and how each feature did:
+The report says what was scored and how each feature did. The plugin's forecast features are the
+same for every bin of a market, so they are scored by their distance to each bin (next section);
+the market price varies across the bins and is scored as it is:
 
 ```python
 from pmlab import build_panel, check_no_leakage
@@ -71,21 +73,22 @@ panel["feature_market_price"] = panel["market_price"]  # varies across a market'
 report = check_no_leakage(panel, raise_on_leak=False)
 print("scored against:", report.target)
 for name, score in report.scores.items():
-    print(f"  {name:22s} {score:.3f}")
+    how = "distance to the bins" if name in report.bin_relative else "as is"
+    print(f"  {name:22s} {score:.3f}  ({how})")
 print("leaked:", report.leaked or "none")
 ```
 
 ```text
 scored against: outcome_label == winning_label
-  feature_climo_tmax     0.500
-  feature_cloud_cover    0.500
-  feature_dew_point      0.500
-  feature_ens_spread     0.500
-  feature_fcst_tmax      0.500
-  feature_fcst_tmin      0.500
-  feature_humidity       0.500
-  feature_wind_speed     0.500
-  feature_market_price   0.646
+  feature_climo_tmax     0.512  (distance to the bins)
+  feature_cloud_cover    0.540  (distance to the bins)
+  feature_dew_point      0.527  (distance to the bins)
+  feature_ens_spread     0.535  (distance to the bins)
+  feature_fcst_tmax      0.698  (distance to the bins)
+  feature_fcst_tmin      0.527  (distance to the bins)
+  feature_humidity       0.522  (distance to the bins)
+  feature_wind_speed     0.540  (distance to the bins)
+  feature_market_price   0.646  (as is)
 leaked: none
 ```
 
@@ -117,20 +120,138 @@ except LeakageError as err:
 LeakageError: Potential label leakage in feature column(s): feature_oops (score=1.000). These separate 'outcome_label == winning_label' above max_auc=0.97. If legitimate, raise max_auc or drop the column.
 ```
 
-## What it cannot see
+## A market-level copy of the realised value
 
-The check is univariate, and that has one consequence on this shape. A feature that is **the same
-for every bin of a market** (a forecast, the plugin's own features above) scores exactly 0.5
-against the per-row outcome, because it cannot tell a market's winning bin from its losing ones.
-It cannot leak on its own, and the check cannot tell an honest forecast from a copy of the
-realised value if both are constant across a market's bins. It becomes a leak when something
-makes it bin-relative (a bin's distance to the *realised* temperature, say), and that feature
-varies across bins, so it is scored and caught.
+A feature that is **the same for every bin of a market** (a forecast, the plugin's own features
+above) cannot separate the per-row outcome by its raw value: it scores exactly 0.5, because it
+cannot tell a market's winning bin from its losing ones. Through 0.12.0 that left a hole. A
+column holding the *realised* value on every bin row (`feature_realised_tmax`, say) is a perfect
+leak and scored 0.5 too (#39).
 
-Whether a market-level feature is honest is a question about *when* it was captured, not about
-its values. That is what `FeatureSnapshotStore.as_of` (features strictly before the cutoff) and
-the price-timing guard (`check_price_timing`, which `build_panel` always runs on stamped rows)
-enforce.
+Since 0.12.1 such a feature is also scored by where it sits relative to each bin: its distance to
+the bin, which is 0 when the value is inside the bin and otherwise the gap to the bin's nearest
+end. That distance is scored against the per-row outcome exactly like any other feature (same
+fold, same `max_auc`). A copy of the realised value is inside the winning bin and outside every
+other, so it scores about 1.0; an honest forecast is only sometimes nearest to the bin that
+wins, and scores well below (`feature_fcst_tmax`, the sample's best forecast, 0.70). The larger
+of the two scores is the feature's score, and `LeakageReport.bin_relative` lists the features
+scored this way.
+
+```python
+from pmlab import LeakageError, build_panel, check_no_leakage
+from pmlab.datasets import load_sample
+
+sample = load_sample()
+resolver = sample.plugin()
+rows = [
+    resolver.build_training_rows(spec, "previous_evening", decision_time=f"{day}T12:00:00+00:00")
+    for day in sample.days[:60]
+    for spec in sample.plugin(day).discover_markets()
+]
+panel = build_panel(rows)
+
+# A market-level copy of the realised value: the same number on every bin row of a market.
+panel["feature_realised_tmax"] = (
+    panel["winning_label"].str.extract(r"(-?\d+)", expand=False).astype(float)
+)
+try:
+    check_no_leakage(panel)
+except LeakageError as err:
+    print("LeakageError:", err)
+```
+
+```text
+LeakageError: Potential label leakage in feature column(s): feature_realised_tmax (score=1.000, by its distance to each bin). These separate 'outcome_label == winning_label' above max_auc=0.97. If legitimate, raise max_auc or drop the column.
+```
+
+**Which features.** Those that take one value across the bins of every (`market_id`,
+`decision_date`), the grouping the backtest chooses within. A feature that varies across the bins
+is scored as before, by its raw value. A frame that is not per-bin, or an explicit `label_col`,
+gets no distance score at all: that target is not "did this bin win".
+
+**Where the bins come from.** The panel carries each bin's `outcome_label`, not numeric bounds,
+so the numbers are read from the label. These forms are understood (units, `%`, currency signs
+and thousands separators are ignored, `-` and `−` both read as a minus):
+
+| Label | Read as |
+|-------|---------|
+| `18°C`, `-3°C`, `18.5` | the point 18, -3, 18.5 |
+| `28-30°C`, `28 to 30` | the range 28 to 30 |
+| `<=14°C`, `<14`, `10°C or below`, `below 10°C`, `at most 10` | everything up to that number |
+| `>=22°C`, `>22`, `38°C or above`, `38°C or higher`, `38+`, `≥38`, `at least 38` | everything from that number up |
+
+An open-ended bin needs no centre, which it does not have: the distance to `>=22°C` is 0 for any
+value from 22 up and the gap to 22 below it. A label that reads as none of these leaves its row
+out of the distance score (a panel whose labels are all names is left as it was).
+
+**Why distance to the bin, and not to its centre.** The issue that asked for this proposed
+`-|feature - bin_center|`. On bins of one width the two rank alike (`feature_fcst_tmax` scores
+0.72 on the whole sample either way). The centre needs a number for an open-ended bin, and ranks
+the wrong bin first when widths differ: a range 8 degrees across has its centre 4 degrees from
+either end, so a copy of the realised value at the edge of the range is nearer the centre of the
+1-degree bin beside it (1 degree) than the centre of its own bin (4). The distance to the bin is
+0 there. The same goes for a copy deep inside an open-ended bin, which is far from the bin's
+bound. On a panel of 1-degree bins with open tails the centre scores such a copy 0.984, and with a
+wide range among narrow bins 0.901, under the 0.97 line, where the distance scores 1.000.
+A plain containment test, "is the value inside the bin?", needs neither but is coarser: a copy
+that is a third of a bin off scores about 0.95 and escapes, where the distance scores 0.995.
+
+**How exact the copy must be.** The check measures how well a feature picks the winning bin,
+so a copy with noise is caught while the noise is small next to the bin width, and an honest
+forecast, which is wrong by more than that, is not. On the 1-degree bins of the sample:
+
+```python
+import numpy as np
+
+from pmlab import build_panel, check_no_leakage
+from pmlab.datasets import load_sample
+
+sample = load_sample()
+resolver = sample.plugin()
+rows = [
+    resolver.build_training_rows(spec, "previous_evening", decision_time=f"{day}T12:00:00+00:00")
+    for day in sample.days[:60]
+    for spec in sample.plugin(day).discover_markets()
+]
+panel = build_panel(rows)
+
+# The realised value on every bin row, plus a different error for each market.
+ids = panel["market_id"]
+exact = panel["winning_label"].str.extract(r"(-?\d+)", expand=False).astype(float)
+shift = dict(zip(ids.unique(), np.random.default_rng(0).normal(size=ids.nunique())))
+for sigma in (0.0, 0.2, 0.3, 0.5, 1.0):
+    noisy = panel.assign(feature_realised_tmax=exact + sigma * ids.map(shift))
+    score = check_no_leakage(noisy, raise_on_leak=False).scores["feature_realised_tmax"]
+    print(f"  copy + noise of {sigma:.1f} degrees: {score:.3f}")
+```
+
+```text
+  copy + noise of 0.0 degrees: 1.000
+  copy + noise of 0.2 degrees: 1.000
+  copy + noise of 0.3 degrees: 0.995
+  copy + noise of 0.5 degrees: 0.966
+  copy + noise of 1.0 degrees: 0.879
+```
+
+## What it still cannot see
+
+- **A feature not in the labels' unit.** The distance is measured in the labels' own numbers. The
+  realised temperature in Fahrenheit against bins in Celsius, or a rescaled copy, is far from
+  every bin and scores near 0.5. The check cannot guess a transformation.
+- **Labels that are not numbers.** A per-bin panel whose bins are names has nothing to measure a
+  value against; its market-level features stay at 0.5.
+- **A blend.** A feature that is only partly the realised value scores in between, and the
+  threshold decides.
+- **A forecast that is very good for coarse bins.** The score rises as the bins get wide
+  compared with the forecast's error: an honest forecast then lands in the right bin most of
+  the time. 0.97 was set with 1-degree bins in mind. If a legitimate forecast of a market with
+  wide bins is refused, the error says which feature and its score; raise `max_auc` for it
+  knowingly.
+
+Whether a market-level feature is honest is, in the end, a question about *when* it was captured,
+not about its values. That is what `FeatureSnapshotStore.as_of` (features strictly before the
+cutoff) and the price-timing guard (`check_price_timing`, which `build_panel` always runs on
+stamped rows) enforce, and the distance score is a second line behind them.
 
 ## Choosing the target yourself
 

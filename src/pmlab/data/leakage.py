@@ -10,12 +10,18 @@ What "the label" is depends on what the model is trained on. ``rolling_origin_ev
 ``outcome_label == winning_label`` per row. On a panel with one row per outcome bin that is
 a different thing from ``winning_label``, which is the same for every bin of a market, so
 :func:`check_no_leakage` scores such a panel against the per-row outcome (issue #35).
+
+A feature that is the same for every bin of a market cannot separate that outcome (it scores
+0.5 by construction), so on such a panel it is also scored by how close it sits to each bin:
+a market-level copy of the realised value is inside the winning bin and further from every
+other one (issue #39).
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -51,12 +57,16 @@ class LeakageReport:
         max_auc: the threshold used.
         target: what the features were scored against: a column name, or
             ``"outcome_label == winning_label"`` for the per-row outcome of a per-bin panel.
+        bin_relative: features that are the same for every bin of a market, which were scored
+            by their distance to each bin (their ``scores`` entry is that score). Empty unless
+            the panel is per-bin and its ``outcome_label`` values read as numbers or ranges.
     """
 
     scores: dict[str, float] = field(default_factory=dict)
     leaked: list[str] = field(default_factory=list)
     max_auc: float = 0.97
     target: str = _LABEL_COL
+    bin_relative: list[str] = field(default_factory=list)
 
 
 def _is_per_bin(df: pd.DataFrame) -> bool:
@@ -68,8 +78,98 @@ def _is_per_bin(df: pd.DataFrame) -> bool:
     """
     if _MARKET_COL not in df.columns or _OUTCOME_COL not in df.columns:
         return False
-    keys = [c for c in (_MARKET_COL, _DATE_COL) if c in df.columns]
-    return bool((df.groupby(keys, sort=False)[_OUTCOME_COL].nunique() > 1).any())
+    return bool((df.groupby(_group_keys(df), sort=False)[_OUTCOME_COL].nunique() > 1).any())
+
+
+def _group_keys(df: pd.DataFrame) -> list[str]:
+    """The columns that identify one market at one decision: what the backtest chooses within."""
+    return [c for c in (_MARKET_COL, _DATE_COL) if c in df.columns]
+
+
+_NUM = r"-?\d+(?:\.\d+)?"
+_UNIT = re.compile(r"[°º]\s*[CF]?\b|[°º%$€£,]|(?<=\d)\s*[CF]\b", re.IGNORECASE)
+_RANGE = re.compile(rf"({_NUM})\s*(?:to|–|—|-)\s*({_NUM})", re.IGNORECASE)
+_AT_LEAST = re.compile(
+    rf"(?:>=?|≥|at least|more than|over|above)\s*({_NUM})"
+    rf"|({_NUM})\s*(?:\+|or\s+(?:above|over|higher|more|greater))",
+    re.IGNORECASE,
+)
+_AT_MOST = re.compile(
+    rf"(?:<=?|≤|at most|less than|under|below)\s*({_NUM})"
+    rf"|({_NUM})\s*or\s+(?:below|under|lower|less)",
+    re.IGNORECASE,
+)
+_SINGLE = re.compile(_NUM)
+
+
+def _label_bounds(label: object) -> tuple[float, float] | None:
+    """The numbers a bin label stands for, as ``(lower, upper)``; ``None`` if it reads as neither.
+
+    ``"18°C"`` is the point 18, ``"28-30°C"`` the range 28 to 30, ``"<=14°C"`` and
+    ``"10°C or below"`` run down to ``-inf``, ``">=22°C"`` and ``"38°C or above"`` up to ``inf``.
+    Units, ``%`` and currency signs are ignored. The ends count as inside the bin, because
+    only a distance to the bin is measured from them.
+    """
+    text = _UNIT.sub("", str(label).replace("\u2212", "-")).strip()
+    if m := _RANGE.fullmatch(text):
+        a, b = float(m.group(1)), float(m.group(2))
+        return min(a, b), max(a, b)
+    if m := _AT_LEAST.fullmatch(text):
+        return float(m.group(1) or m.group(2)), float("inf")
+    if m := _AT_MOST.fullmatch(text):
+        return float("-inf"), float(m.group(1) or m.group(2))
+    if _SINGLE.fullmatch(text):
+        return float(text), float(text)
+    return None
+
+
+def _bin_bounds(labels: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row ``(lower, upper)`` of each row's bin; NaN where the label does not read as numbers."""
+    parsed = {label: _label_bounds(label) for label in labels.dropna().unique()}
+    lower = labels.map({k: (v[0] if v else np.nan) for k, v in parsed.items()})
+    upper = labels.map({k: (v[1] if v else np.nan) for k, v in parsed.items()})
+    return lower.to_numpy(dtype=float, na_value=np.nan), upper.to_numpy(
+        dtype=float, na_value=np.nan
+    )
+
+
+class _Bins(NamedTuple):
+    """Each row's bin as numbers, and which market-at-a-decision the row belongs to."""
+
+    lower: np.ndarray
+    upper: np.ndarray
+    groups: np.ndarray
+
+
+def _bins_of(df: pd.DataFrame) -> _Bins:
+    lower, upper = _bin_bounds(df[_OUTCOME_COL])
+    return _Bins(lower, upper, df.groupby(_group_keys(df), sort=False).ngroup().to_numpy())
+
+
+def _is_market_level(x: np.ndarray, groups: np.ndarray) -> bool:
+    """True when the feature takes one value across the bins of every market-at-a-decision."""
+    by_group = pd.Series(x).groupby(groups)
+    spread = by_group.transform("max") - by_group.transform("min")
+    return bool((spread.fillna(0.0) == 0.0).all())
+
+
+def _bin_relative_score(
+    x: np.ndarray, y: np.ndarray, lower: np.ndarray, upper: np.ndarray
+) -> float | None:
+    """How well a market-level feature's distance to each bin separates the winning bin.
+
+    The distance is 0 inside the bin and grows with the gap to its nearest end, so an open-ended
+    bin (``-inf`` / ``inf`` bound) and bins of different widths need no centre. A copy of the
+    realised value is inside the winning bin and outside every other; an honest forecast is
+    only sometimes nearest to it. Folded like the plain score, so it is in ``[0.5, 1.0]``;
+    ``None`` when there is nothing to measure (no readable label, or one class left).
+    """
+    ok = ~np.isnan(x) & ~np.isnan(lower)
+    if ok.sum() < 2 or len(np.unique(y[ok])) < 2:
+        return None
+    distance = np.maximum(np.maximum(lower[ok] - x[ok], x[ok] - upper[ok]), 0.0)
+    auc = roc_auc_score(y[ok], -distance)
+    return float(max(auc, 1.0 - auc))
 
 
 def check_no_leakage(
@@ -93,9 +193,15 @@ def check_no_leakage(
     target is ``winning_label``, as it always was. ``LeakageReport.target`` says which.
 
     A feature that is the same for every bin of a market scores 0.5 against the per-row
-    outcome, by construction: it cannot tell a market's winning bin from its losing ones.
-    It can only leak through a feature that varies across bins (a bin's distance to the
-    realised value, say), and that one is scored.
+    outcome, by construction: it cannot tell a market's winning bin from its losing ones. So
+    that a market-level copy of the realised value does not hide there, such a feature is also
+    scored by its distance to each bin (0 inside the bin), read from the numbers or ranges in
+    ``outcome_label`` (``"18°C"``, ``"28-30°C"``, ``"<=14°C"``, ``"38°C or above"``). A copy
+    is inside the winning bin and outside every other, and scores about 1.0; an honest
+    forecast is only sometimes nearest to it. The feature's score is the larger of the two,
+    and it is listed in ``LeakageReport.bin_relative``. Labels that are not numbers leave
+    the feature at 0.5, as before. The feature must be in the labels' unit to be measured
+    against them.
 
     Args:
         df: Panel/trade frame containing ``feature_*`` columns and the label.
@@ -138,6 +244,8 @@ def check_no_leakage(
     positive = 1 if per_row else y.value_counts().index[-1]
     y_bin = (y == positive).astype(int).to_numpy()
 
+    bins = _bins_of(df) if per_row else None  # what a market-level feature is measured against
+
     for col in feature_cols:
         x = pd.to_numeric(df[col], errors="coerce").to_numpy()
         mask = ~np.isnan(x)
@@ -147,12 +255,21 @@ def check_no_leakage(
             continue
         auc = roc_auc_score(y_bin[mask], x[mask])
         score = float(max(auc, 1.0 - auc))
+        if bins is not None and _is_market_level(x, bins.groups):
+            near = _bin_relative_score(x, y_bin, bins.lower, bins.upper)
+            if near is not None:
+                score = max(score, near)
+                report.bin_relative.append(col)
         report.scores[col] = score
         if score > max_auc:
             report.leaked.append(col)
 
     if report.leaked and raise_on_leak:
-        details = ", ".join(f"{c} (score={report.scores[c]:.3f})" for c in report.leaked)
+        details = ", ".join(
+            f"{c} (score={report.scores[c]:.3f}"
+            + (", by its distance to each bin)" if c in report.bin_relative else ")")
+            for c in report.leaked
+        )
         raise LeakageError(
             f"Potential label leakage in feature column(s): {details}. "
             f"These separate '{report.target}' above max_auc={max_auc}. If legitimate, "
