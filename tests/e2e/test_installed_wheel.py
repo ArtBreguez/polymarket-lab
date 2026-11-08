@@ -324,6 +324,80 @@ def test_leakage_check_accepts_a_ranged_panel_and_still_catches_a_leak(
     assert f"leakage probe OK {_pyproject_version()}" in ok
 
 
+def test_tuning_page_runs_as_written_and_a_tuned_run_records_its_objective(
+    installed: Installed,
+) -> None:
+    """docs/tuning.md against the wheel (issue #36): the page's crafted panel ranks two models
+    differently under the historical and the live rule, ``TunedForecaster(policy=...)`` follows
+    the rule it is given, and the tuned backtest's record carries the objective and the sampler
+    seed and reproduces with ``pmlab reproduce`` from another directory."""
+    uv = shutil.which("uv")
+    assert uv is not None
+    _ok(  # Optuna is the `tune` extra: the page says to install it, so the test does
+        _run(
+            [uv, "pip", "install", "-q", "--python", installed.python]
+            + [f"pmlab[tune] @ {installed.wheel.as_uri()}"],
+            cwd=installed.workdir,
+        )
+    )
+    work = installed.workdir / "tuning_doc"
+    out = _ok(installed.py(WALKTHROUGH, REPO / "docs" / "tuning.md", "--cwd", work))
+    assert "FAIL" not in out
+    done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
+    assert done == total and int(done) == 4
+    # The mismatch, from the backtest itself: the two rules rank A and B in opposite orders.
+    assert "historical (top-prob)    A: +32.6   B: -64.0" in out
+    assert "live, min_edge=0.20      A: no trades   B: +23.9" in out
+    assert "live, min_edge=0.05      A: +25.4   B: -12.7" in out
+    # ...and the tuner follows the rule it is given.
+    assert "historical : {'col': 'feature_p_a'}" in out
+    assert "live  0.20 : {'col': 'feature_p_b'}" in out
+    assert "live  0.05 : {'col': 'feature_p_a'}" in out
+    assert "REPRODUCED: 5 metrics match" in out
+
+    record = json.loads((work / "metrics.json").read_text())["reproducibility"]
+    assert record["environment"]["pmlab"] == _pyproject_version()
+    assert record["environment"]["optuna"] is not None
+    assert record["seeds"] == {"python_random": 11, "numpy": 11, "lightgbm": 11, "optuna": 3}
+    tuning = record["config"]["tuning"]
+    assert tuning["policy"] == {
+        "selection": "best_edge",
+        "directions": ["yes", "no"],
+        "min_edge": 0.05,
+    }
+    assert tuning["costs"]["slippage_bps"] == 50.0 and tuning["metric"] == "total_pnl"
+    assert record["config"]["policy"] == tuning["policy"]
+
+    # From another directory, in another process: the recorded panel path is absolute.
+    again = _run([installed.pmlab, "reproduce", work / "metrics.json"], cwd=installed.workdir)
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert "REPRODUCED" in again.stdout and "optuna" in again.stdout
+
+    probe = (
+        "import pmlab\n"
+        "from pmlab import CostModel, TradePolicy, TunedForecaster\n"
+        "assert 'site-packages' in pmlab.__file__\n"
+        "build, space = (lambda p: None), (lambda t: {})\n"
+        "t = TunedForecaster(build, space)  # nothing passed: the historical objective\n"
+        "assert t.policy is None and t.taker_bps == 30.0 and t.costs == CostModel()\n"
+        "assert t.tuning_config()['policy'] == TradePolicy.top_bin_yes().to_dict()\n"
+        "for bad in ({'policy': 'live'}, {'costs': {'taker_bps': 30.0}}):\n"
+        "    try:\n"
+        "        TunedForecaster(build, space, **bad)\n"
+        "    except TypeError:\n"
+        "        continue\n"
+        "    raise AssertionError(bad)\n"
+        "try:\n"
+        "    TunedForecaster(build, space, costs=CostModel(), taker_bps=30.0)\n"
+        "except ValueError as e:\n"
+        "    assert 'taker_bps or costs' in str(e)\n"
+        "else:\n"
+        "    raise AssertionError('two sources of the fee')\n"
+        "print('tuning probe OK', pmlab.__version__)\n"
+    )
+    assert f"tuning probe OK {_pyproject_version()}" in _ok(installed.py("-c", probe))
+
+
 def test_a_record_from_before_0_10_0_loads_and_reproduce_says_there_is_nothing_to_run(
     installed: Installed,
 ) -> None:
