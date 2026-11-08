@@ -2,6 +2,59 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.1] — 2026-11-08
+
+### Fixed — the leakage check catches a market-level copy of the realised value
+
+Closes #39. Since 0.11.2 a per-bin panel is scored against the per-row outcome
+(`outcome_label == winning_label`). A feature that is the same for every bin of a market scores
+exactly 0.5 against that by construction, so a column holding the realised value on every bin row
+(`feature_realised_tmax`) was a perfect leak the check could not see; 0.11.2 documented it as a
+known limit. It is caught now. Documented in [docs/leakage.md](docs/leakage.md).
+
+- **A market-level feature is also scored by its distance to each bin.** On a per-bin panel, a
+  numeric feature that takes one value across the bins of every (`market_id`, `decision_date`) is
+  scored by `-distance(feature, bin)` against the per-row outcome, with the same fold and the same
+  `max_auc`: the distance is 0 inside the bin and the gap to the nearest end outside it. A copy of
+  the realised value is inside the winning bin and outside every other, and scores 1.000; the
+  feature's score is the larger of that and the raw score. Features that vary across bins, one-row
+  panels and an explicit `label_col` are scored exactly as before.
+- **The panel has no numeric bin bounds, so they are read from `outcome_label`.** The issue assumed
+  the panel carried them; a per-bin row has the label only (`MarketSpec.outcome_bins` holds the
+  bounds, and the row dict does not). Reading the label works on panels already built and saved,
+  and does not change the row schema, so no fingerprint or stored panel moves; emitting
+  `bin_lower` / `bin_upper` from the plugin would have. The reader (private, in
+  `pmlab.data.leakage`, so `data/` does not import a plugin) understands `18°C`, `-3°C`,
+  `28-30°C`, `<=14°C`, `10°C or below`, `below 10`, `>=22°C`, `38°C or above`, `38+`, `≥38`,
+  `at least 38`; a label it cannot read leaves its row out, and a panel of names is left as it was.
+- **Distance to the bin's interval, not to its centre.** Evaluated against the issue's
+  `-|feature - bin_center|` and a containment test (is the value inside the bin?), on the whole
+  sample and on mixed-width layouts. On 1-degree bins distance and centre rank alike
+  (`feature_fcst_tmax` 0.725 vs 0.724), but the centre needs a made-up centre for an open-ended bin
+  (a copy deep inside a tail is far from the tail's bound: 0.984 on plain 1-degree bins with tails,
+  against 1.000) and ranks a narrow neighbour first when a range is wide (0.901 with mixed widths,
+  under the 0.97 line, so the copy escapes; swapping the centre in turns the copy tests red);
+  containment lets a copy that is a third of a bin off through
+  (0.946 vs 0.995 at 0.3 degrees of noise). Open-ended bins (`<=14°C`, `38°C or above`, in six
+  wordings) have an infinite bound, so no centre is needed.
+- **No false positive on honest data.** The bundled sample's eight forecast features are scored
+  0.51 to 0.70 (`feature_fcst_tmax`, the best forecast, 0.698 on the 60-day panel; 0.725 on the
+  whole sample) against 0.97, and `check_no_leakage(panel)` and `build_panel(rows,
+  check_leakage=True)` both pass on it. Features in another unit (a percentage, a four-digit
+  liquidity) score 0.50 to 0.51.
+- **How exact a copy must be**: noise of 0.2 degrees on 1-degree bins is still 1.000, 0.3 is 0.995,
+  0.5 is 0.966 (under the line), 1.0 is 0.879. The page has the runnable sweep.
+- **`LeakageReport.bin_relative`** (new, default `[]`) lists the features scored this way, and the
+  error says so: `feature_realised_tmax (score=1.000, by its distance to each bin)`. The `scores`
+  entry of such a feature is no longer always 0.5: that is the visible change.
+- **Upgrading**: nothing to change. A forecast that is very good for coarse bins can now score
+  close to the line (an honest forecast of a market with 8-degree bins scored 0.93 in the tests);
+  if a legitimate one is refused, the error names it and `max_auc` is the knob. The page lists
+  what the check still cannot see (a copy in another unit, bins that are names, a blend).
+- Mutation-checked: skipping the distance score (25 tests red), a centre instead of the interval,
+  an open-ended bound read as a point, and ignoring the decision date when deciding that a
+  feature is market-level each turn tests red.
+
 ## [0.12.0] — 2026-11-08
 
 ### Added — `TunedForecaster` can tune for the trade policy you actually trade
