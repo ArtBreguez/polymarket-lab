@@ -48,13 +48,14 @@ calibration loop takes about 63 ms:
 | `rolling_origin_live_policy` | 0.68 | 10.8 | 10.7 to 10.9 |
 | `build_panel` | 0.28 | 4.3 | 4.3 to 4.4 |
 
-On the GitHub-hosted runner (`ubuntu-latest`, the `perf` job; calibration loop about 65 ms):
+On the GitHub-hosted runner (`ubuntu-latest`, the `perf` job; calibration loop 65 to 77 ms), two
+runs on two different machines read:
 
 | workload | seconds | units | budget (units) | 2x rows |
 |---|---|---|---|---|
-| `rolling_origin_top_prob` | 0.39 | 5.9 | 15 | 1.64x |
-| `rolling_origin_live_policy` | 0.59 | 9.0 | 25 | 1.86x |
-| `build_panel` | 0.22 | 3.5 | 10 | 2.02x |
+| `rolling_origin_top_prob` | 0.39 to 0.47 | 5.9 to 6.1 | 15 | 1.64x to 1.70x |
+| `rolling_origin_live_policy` | 0.59 to 0.86 | 9.0 to 11.2 | 25 | 1.86x to 1.93x |
+| `build_panel` | 0.22 to 0.26 | 3.3 to 3.5 | 10 | 1.92x to 2.02x |
 
 ## Scaling guard
 
