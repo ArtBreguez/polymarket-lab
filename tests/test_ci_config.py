@@ -74,3 +74,46 @@ def test_default_pytest_deselects_e2e():
     cfg = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["pytest"]["ini_options"]
     assert "not e2e" in cfg["addopts"]
     assert any(m.startswith("e2e") for m in cfg["markers"])
+
+
+def _pyproject() -> dict:
+    import tomllib
+
+    return tomllib.loads((Path(__file__).parent.parent / "pyproject.toml").read_text())
+
+
+def test_coverage_gate_is_at_least_90_and_is_the_single_source_of_truth():
+    """The gate lives in pyproject; CI must not carry a second, lower (or any) copy of it."""
+    import re
+
+    gate = _pyproject()["tool"]["coverage"]["report"]["fail_under"]
+    assert gate >= 90
+    ci = _load_ci()
+    cmds = [s.get("run", "") for s in ci["jobs"]["test"]["steps"]]
+    pytest_cmd = next(c for c in cmds if "--cov" in c)
+    overrides = [int(x) for x in re.findall(r"--cov-fail-under=(\d+)", pytest_cmd)]
+    assert all(o >= gate for o in overrides), (overrides, gate)
+    assert "--cov-fail-under=70" not in pytest_cmd
+
+
+def test_ci_coverage_step_fails_the_job_when_the_gate_is_missed():
+    """No `|| true`/continue-on-error on the step that runs pytest with coverage."""
+    steps = _load_ci()["jobs"]["test"]["steps"]
+    step = next(s for s in steps if "--cov" in s.get("run", ""))
+    assert not step.get("continue-on-error")
+    assert "|| true" not in step["run"] and "--no-cov" not in step["run"]
+
+
+def test_ci_has_perf_job_running_the_budget_guard_without_coverage_tracing():
+    ci = _load_ci()
+    assert "perf" in ci["jobs"]
+    cmds = [s.get("run", "") for s in ci["jobs"]["perf"]["steps"]]
+    perf_cmd = next(c for c in cmds if "pytest" in c and "-m perf" in c)
+    assert "--cov" not in perf_cmd, "tracing would make every wall time meaningless"
+    assert not ci["jobs"]["perf"]["steps"][-1].get("continue-on-error")
+
+
+def test_default_pytest_deselects_perf():
+    cfg = _pyproject()["tool"]["pytest"]["ini_options"]
+    assert "not perf" in cfg["addopts"]
+    assert any(m.startswith("perf") for m in cfg["markers"])
