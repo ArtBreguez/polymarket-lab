@@ -75,6 +75,15 @@ release. What is scripted should use `--json` (`monitor`) or the files below.
 ### Environment variables
 
 `PMLAB_ARTIFACTS_DIR`, `PMLAB_CACHE_DIR`, `PMLAB_CACHE_TTL`, `PMLAB_DATA_DIR`,
+**Exit codes.** A command that cannot do what its name says must not exit 0. One command changed on
+those grounds: `settle-trades` settles nothing (settlement needs a plugin wired to real data, which a
+bare command cannot build) yet always exited 0, so `pmlab record-trades ... && pmlab settle-trades ...`
+looked healthy while every trade stayed open ([#43](https://github.com/ArtBreguez/polymarket-lab/issues/43)).
+From **1.1.0** it exits **1**, says on stderr what it cannot do and prints the `SettlementEngine` call
+that does settle. Its options are unchanged (see the table above). This is a change of behaviour of a
+frozen command, made in a minor release on purpose because the old status was the defect: a script that
+relied on that 0 now stops at that step, which is where it was not settling anything.
+
 `PMLAB_DUCKDB_PATH`, `PMLAB_LOG_LEVEL`, `PMLAB_PARQUET_DIR`, `PMLAB_WORKSPACE` and
 `PMLAB_WORKSPACE_NAME` (the one `scripts/pmlab-workspace` exports; `PMLAB_WORKSPACE` wins when
 both are set). Their names, and what each one means, are frozen. The Polymarket credentials

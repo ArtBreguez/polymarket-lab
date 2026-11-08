@@ -19,7 +19,7 @@ is for people and may change in any release.
 | `resettle` | Recomputes the PnL of settled trades that an older release booked wrongly (NO trades). `--dry-run` shows what it would change. | a trades file |
 | `report` | Self-contained HTML report from a paper-trades file. | a trades file |
 | `monitor` | The watchdog: drift, live calibration and live PnL against the champion's own backtest. **Silent and exit 0 when healthy**; otherwise it says what is wrong and exits 10 (warn), 20 (alert) or 30 (could not check); 64 is bad input and 70 an internal error. Built for cron. See [Watchdog](watchdog.md). | a champion and trades |
-| `settle-trades` | **A placeholder.** It prints how to settle with `SettlementEngine` from Python and settles nothing. Settlement needs a plugin wired to real data, which a bare command cannot construct. | |
+| `settle-trades` | **A placeholder that refuses.** It settles nothing and **exits 1**, saying on stderr what it cannot do and printing the `SettlementEngine` call that does settle, with this workspace's trade log in it. Settlement needs a plugin wired to real data, which a bare command cannot construct. Before 1.1.0 it exited 0, so a cron line `record-trades && settle-trades` looked healthy while every trade stayed open. | |
 
 Anything that has to know about a market family (`--plugin weather_tmax`) builds that family's plugin
 by name. `weather_tmax` ships ready to use and `sports_f1` is a skeleton; your own family is found

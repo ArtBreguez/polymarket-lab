@@ -492,13 +492,41 @@ def settle_trades_cmd(
         "artifacts", "--artifacts-dir", "-a", envvar="PMLAB_ARTIFACTS_DIR"
     ),
 ) -> None:
-    """Settle open paper trades against resolved market truth."""
-    rprint(f"[bold]settle-trades[/bold] plugin={plugin} workspace={workspace}")
-    rprint("[dim]Settlement requires a plugin instance with real data connections.[/dim]")
-    rprint("[dim]Use your plugin's workspace script or call SettlementEngine directly.[/dim]")
-    rprint(
-        '[dim]Example: scripts/pmlab-workspace ops_daily python -c "from pmlab import SettlementEngine; ..."[/dim]'
-    )
+    """Refuse, and say how to settle: this command cannot settle trades (exits 1).
+
+    Settling needs a plugin instance wired to real data, which a bare command cannot build from
+    a name, so the trades are settled from Python with `SettlementEngine`. The command exists so
+    that a pipeline which still calls it fails loudly instead of looking healthy (issue #43).
+    """
+    from pmlab.config import PmlabSettings
+
+    settings = PmlabSettings()
+    settings.artifacts_dir = Path(artifacts_dir)
+    settings.workspace = workspace
+
+    lines = [
+        f"pmlab settle-trades: error: this command cannot settle trades (--plugin {plugin}, "
+        f"workspace {workspace}); nothing was settled.",
+        "",
+        "Settling needs a plugin instance wired to real data: one that can say when a market's",
+        "truth is final and which bin won. A command line cannot build that from a name.",
+        "Nothing was read and nothing was written: the open trades are still open.",
+        "",
+        "Settle from Python instead, with your plugin instance and the MarketSpec of each market",
+        "you traded:",
+        "",
+        "    from pathlib import Path",
+        "    from pmlab import SettlementEngine",
+        "",
+        f'    engine = SettlementEngine(plugin, Path("{settings.trades_path}"))',
+        "    summary = engine.settle_all(specs)",
+        "",
+        "A trade stays open until plugin.is_truth_final(spec) is True for its market.",
+        "Details: https://pmlab.hiddenterps.si/cli/",
+    ]
+    for line in lines:
+        typer.echo(line, err=True)
+    raise typer.Exit(1)
 
 
 @app.command("backtest")

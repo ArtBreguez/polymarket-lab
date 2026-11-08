@@ -115,7 +115,7 @@ that CI executes.
 | `pmlab record-trades` | Paper-trade the scan's signals that clear `--min-edge` |
 | `pmlab status` · `report` · `resettle` | Inspect paper trades, render an HTML report, repair old settlements |
 | `pmlab monitor` | The watchdog: drift, live calibration and live PnL; silent when healthy |
-| `pmlab settle-trades` | A placeholder: prints how to settle with `SettlementEngine`; it settles nothing |
+| `pmlab settle-trades` | A placeholder that exits 1: it settles nothing and prints the `SettlementEngine` call that does |
 | `pmlab version` | Print the version |
 
 `pmlab --help` and `pmlab <command> --help` list every option. [Command line reference](https://pmlab.hiddenterps.si/cli/)

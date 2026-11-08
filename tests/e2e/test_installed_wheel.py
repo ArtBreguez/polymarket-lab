@@ -972,3 +972,101 @@ def test_a_backtest_never_trains_on_a_label_from_the_future(installed: Installed
     assert "Steps evaluated" in _ok(backtest)
     reproduced = _ok(_run([installed.pmlab, "reproduce", metrics], cwd=work))
     assert "REPRODUCED" in reproduced and "NOT REPRODUCED" not in reproduced
+
+
+_SETTLE_PROBE = """
+import json, sys
+from pathlib import Path
+from typing import Any
+
+from pmlab import MarketPlugin, MarketSpec, OutcomeBin
+
+message, log = Path(sys.argv[1]).read_text(), Path(sys.argv[2])
+lines = message.splitlines()
+start = next(i for i, ln in enumerate(lines) if ln.strip() == "from pathlib import Path")
+block = []
+for ln in lines[start:]:
+    if ln.strip() and not ln.startswith("    "):
+        break
+    block.append(ln)
+code = "\\n".join(ln[4:] for ln in block)  # the message's own call, as printed, dedented
+
+
+class Truth(MarketPlugin):
+    family = "fake"
+    final = True
+
+    def discover_markets(self, **kw: Any) -> list[MarketSpec]:
+        return []
+
+    def fetch_features(self, spec: MarketSpec, horizon: str, **kw: Any) -> dict[str, float]:
+        return {}
+
+    def fetch_truth(self, spec: MarketSpec, **kw: Any) -> str | None:
+        return "YES"
+
+    def build_training_row(self, spec: MarketSpec, horizon: str, **kw: Any) -> dict | None:
+        return None
+
+    def is_truth_final(self, spec: MarketSpec, **kw: Any) -> bool:
+        return self.final
+
+
+spec = MarketSpec(
+    market_id="m1", slug="s", question="q",
+    outcome_bins=[OutcomeBin(label="YES"), OutcomeBin(label="NO")],
+    close_time="2024-01-15T20:00:00Z", market_family="binary",
+    metadata={"city": "Chicago", "target_date": "2024-01-15"},
+)
+trade = {
+    "recorded_at": "2024-01-14T10:00:00+00:00", "city_or_segment": "Chicago",
+    "target_date": "2024-01-15", "outcome_label": "YES", "direction": "yes",
+    "gamma_price": 0.6, "edge_after_fee": 0.12, "horizon": "morning_of",
+    "flat_stake": 1.0, "size": 1.666667, "fee_paid": 0.003, "outcome": None, "realized_pnl": None,
+}
+
+log.parent.mkdir(parents=True, exist_ok=True)
+log.write_text(json.dumps({"trades": [trade]}))
+not_final = Truth()
+not_final.final = False
+exec(code, {"plugin": not_final, "specs": [spec]})
+assert json.loads(log.read_text())["trades"][0]["realized_pnl"] is None, "settled before final"
+exec(code, {"plugin": Truth(), "specs": [spec]})
+settled = json.loads(log.read_text())["trades"][0]
+assert settled["outcome"] == "won" and settled["realized_pnl"] is not None, settled
+print("settle-trades call OK, pnl", round(settled["realized_pnl"], 4))
+"""
+
+
+def test_settle_trades_refuses_and_the_call_it_prints_settles(installed: Installed) -> None:
+    """Issue #43, from the installed wheel: the command exits 1 on stderr with nothing on stdout,
+    leaves the workspace untouched, and the Python it prints (run as printed) settles a trade."""
+    work = installed.workdir / "settle_trades"
+    work.mkdir()
+    artifacts = work / "artifacts"
+    proc = _run(
+        [installed.pmlab, "settle-trades", "--plugin", "weather_tmax", "-a", artifacts, "-w", "ws"],
+        cwd=work,
+    )
+    assert proc.returncode == 1, (proc.returncode, proc.stdout, proc.stderr)
+    assert proc.stdout == ""
+    assert "cannot settle trades" in proc.stderr and "nothing was settled" in proc.stderr
+    assert "SettlementEngine(plugin," in proc.stderr and ".settle_all(specs)" in proc.stderr
+    log = artifacts / "workspaces" / "ws" / "signals" / "v2" / "forward_paper_trades.json"
+    assert str(log) in proc.stderr
+    assert not artifacts.exists()  # the command writes nothing, not even the directory
+
+    # a pipeline that chains it now stops at it
+    chained = _run(
+        ["bash", "-c", f"{installed.pmlab} settle-trades -p weather_tmax -a {artifacts} && echo went-on"],
+        cwd=work,
+    )  # fmt: skip
+    assert chained.returncode == 1 and "went-on" not in chained.stdout
+
+    message = work / "message.txt"
+    message.write_text(proc.stderr)
+    probe = work / "probe.py"
+    probe.write_text(_SETTLE_PROBE)
+    out = _ok(installed.py(probe, message, log))
+    assert "settle-trades call OK" in out
+
