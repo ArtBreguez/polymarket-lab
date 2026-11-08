@@ -1762,4 +1762,4 @@ class TestExports:
     def test_version_is_bumped(self):
         import pmlab
 
-        assert pmlab.__version__ == "0.11.2"
+        assert pmlab.__version__ == "0.12.0"
