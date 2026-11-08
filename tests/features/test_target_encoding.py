@@ -469,3 +469,30 @@ class TestExports:
             assert name in pmlab.features.__all__
             assert name in pmlab.__all__
             assert getattr(pmlab, name) is getattr(pmlab.features, name)
+
+
+class TestOutputColumnName:
+    """The panel convention (``feature_*``) needs a name that is not ``{col}{suffix}``."""
+
+    @pytest.mark.parametrize("cv", CVS)
+    def test_output_col_overrides_the_default_name_on_both_paths(self, cv):
+        df = make_df()
+        enc = make_encoder(cv, output_col="feature_cat_te")
+        trained = enc.fit_transform(df)
+        assert "feature_cat_te" in trained.columns and "cat_te" not in trained.columns
+        live = enc.fit(df).transform(pd.DataFrame({"cat": ["A"]}))
+        assert list(live.columns) == ["cat", "feature_cat_te"]
+
+    def test_output_col_does_not_change_the_values(self):
+        df = make_df()
+        a = make_encoder("time").fit_transform(df)["cat_te"]
+        b = make_encoder("time", output_col="x").fit_transform(df)["x"]
+        np.testing.assert_array_equal(a.to_numpy(), b.to_numpy())
+
+    def test_default_name_is_unchanged(self):
+        enc = make_encoder("time", suffix="_enc")
+        assert enc.fit(make_df()).output_col == "cat_enc"
+
+    def test_empty_output_col_is_rejected(self):
+        with pytest.raises(ValueError, match="output_col"):
+            make_encoder("time", output_col="")

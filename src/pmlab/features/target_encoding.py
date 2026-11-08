@@ -126,8 +126,12 @@ class TargetEncoder:
     """Configuration of a leakage-safe target encoding of one categorical column.
 
     See the module docstring for the leakage contract. ``col`` is encoded into
-    ``f"{col}{suffix}"`` using ``target``. ``n_folds`` is capped by the number of distinct
-    timestamps / groups / rows, so a tiny frame degrades to fewer folds rather than failing.
+    ``output_col`` (default ``f"{col}{suffix}"``) using ``target``. Give ``output_col`` a
+    ``feature_`` prefix to have ``rolling_origin_eval`` pick the column up as a feature; the
+    same name is used on the training path and on the fitted (live) path.
+
+    ``n_folds`` is capped by the number of distinct timestamps / groups / rows, so a tiny
+    frame degrades to fewer folds rather than failing.
     """
 
     col: str
@@ -139,8 +143,11 @@ class TargetEncoder:
     group_col: str | None = None
     seed: int = 0
     suffix: str = "_te"
+    output_col: str | None = None
 
     def __post_init__(self) -> None:
+        if self.output_col is not None and not self.output_col:
+            raise ValueError("output_col must be a non-empty column name (or None)")
         if self.cv not in _CV_SCHEMES:
             raise ValueError(f"Unknown cv '{self.cv}'; expected one of {list(_CV_SCHEMES)}")
         if self.n_folds < 2:
@@ -156,8 +163,9 @@ class TargetEncoder:
             raise ValueError('cv="group" needs group_col')
 
     @property
-    def output_col(self) -> str:
-        return f"{self.col}{self.suffix}"
+    def encoded_col(self) -> str:
+        """Name of the column that holds the encoding: ``output_col``, else ``col + suffix``."""
+        return self.output_col if self.output_col is not None else f"{self.col}{self.suffix}"
 
     def assign_folds(self, df: pd.DataFrame) -> npt.NDArray[np.int64]:
         """Fold id (0..K-1) of every row of ``df``, positionally. Deterministic given ``seed``."""
@@ -217,7 +225,7 @@ class TargetEncoder:
             prior, mapping, nan_value = _smoothed_stats(cat[fit_rows], y[fit_rows], self.smoothing)
             encoded[in_fold] = _encode(cat[in_fold], prior, mapping, nan_value)
         out = df.copy()
-        out[self.output_col] = encoded
+        out[self.encoded_col] = encoded
         return out
 
     def fit(self, df: pd.DataFrame) -> FittedTargetEncoder:
@@ -230,7 +238,7 @@ class TargetEncoder:
             raise ValueError(f"no rows with a non-missing target '{self.target}' to fit on")
         return FittedTargetEncoder(
             col=self.col,
-            output_col=self.output_col,
+            output_col=self.encoded_col,
             smoothing=self.smoothing,
             prior=prior,
             nan_value=nan_value,
