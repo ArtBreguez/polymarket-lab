@@ -82,6 +82,9 @@ uv run pytest
 # Run tests with coverage
 uv run pytest --cov=src/pmlab --cov-report=term-missing
 
+# Performance budget of the hot paths (opt-in, ~1 min, run it alone; see docs/performance.md)
+uv run pytest -m perf
+
 # End-to-end: build the wheel, install it in a fresh venv, run the public API (needs uv + network)
 uv run pytest -m e2e
 
@@ -122,7 +125,12 @@ Every new module gets tests BEFORE implementation:
 3. Refactor → run → confirm still GREEN
 4. Commit
 
-Coverage gate: 70% minimum (enforced in pyproject.toml).
+Coverage gate: 90% minimum (`fail_under` in pyproject.toml, the single source of truth; CI
+runs `pytest --cov` without an override, so a miss fails the job).
+
+Performance budget: `rolling_origin_eval` and `build_panel` are timed against a budget in
+calibration units by `uv run pytest -m perf` (own CI job, deselected by default). A slowdown
+that is intended means updating the budget on purpose: see `docs/performance.md`.
 
 ---
 
