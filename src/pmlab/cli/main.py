@@ -9,11 +9,14 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from rich import print as rprint
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 
 if TYPE_CHECKING:
     from pmlab.core.costs import CostModel
     from pmlab.core.policy import TradePolicy
+    from pmlab.reproducibility import BacktestConfig, ReproducibilityRecord
 
 app = typer.Typer(
     name="pmlab",
@@ -79,6 +82,62 @@ def _describe_policy(policy: TradePolicy) -> str:
         return "top-bin-yes (YES on the most probable bin, every market, no threshold)"
     sides = "+".join(d.upper() for d in policy.directions)
     return f"live (best edge >= {policy.min_edge:g}, {sides})"
+
+
+def _say(message: str, style: str = "") -> None:
+    """Print one line verbatim: no markup parsing, no wrapping (so it can be grepped)."""
+    console.print(Text(message, style=style), soft_wrap=True)
+
+
+def _num(x: object) -> str:
+    return "null" if x is None else (f"{x:.10g}" if isinstance(x, float) else str(x))
+
+
+def _load_reproducibility(path: str) -> ReproducibilityRecord:
+    """The record in a JSON file (under 'reproducibility', or bare), or a clean exit 1."""
+    from pmlab.reproducibility import ReproduceError, load_record
+
+    try:
+        return load_record(path)
+    except ReproduceError as e:
+        rprint(f"[red]{escape(str(e))}[/red]")
+        raise typer.Exit(1) from e
+
+
+def _describe_reproducibility(record: ReproducibilityRecord | None) -> str:
+    if record is None:
+        return "not recorded (champion.json will not be re-runnable with `pmlab reproduce`)"
+    seeds = ", ".join(f"{k}={v}" for k, v in record.seeds.items())
+    return (
+        f"recorded (seeds {seeds}; data {record.data.content_sha256[:12]}, "
+        f"{record.data.n_rows} rows; pmlab {record.environment.get('pmlab')})"
+    )
+
+
+def _parse_model_params(items: list[str]) -> dict[str, object]:
+    """``--lgbm-param KEY=VALUE`` (VALUE as JSON, else a plain string) -> dict, or exit 1."""
+    params: dict[str, object] = {}
+    for item in items:
+        key, sep, raw = item.partition("=")
+        if not sep or not key.strip():
+            rprint(f"[red]Not a valid --lgbm-param {escape(repr(item))}: expected KEY=VALUE.[/red]")
+            raise typer.Exit(1)
+        try:
+            params[key.strip()] = json.loads(raw)
+        except ValueError:
+            params[key.strip()] = raw
+    return params
+
+
+def _flat_params(config: BacktestConfig, seed: int) -> dict[str, object]:
+    """The resolved config as flat tracker params (the nested dicts get dotted names)."""
+    flat: dict[str, object] = {"seed": seed}
+    for key, value in config.to_dict().items():
+        if isinstance(value, dict):
+            flat.update({f"{key}.{k}": v for k, v in value.items()})
+        else:
+            flat[key] = value
+    return flat
 
 
 @app.command("version")
@@ -474,7 +533,41 @@ def backtest_cmd(
             "then uses as its own default."
         ),
     ),
-    output: str | None = typer.Option(None, "--output", "-o", help="Save metrics JSON to path"),
+    seed: int = typer.Option(
+        0,  # pmlab.reproducibility.DEFAULT_SEED, not imported here: the CLI stays light to start
+        "--seed",
+        help=(
+            "Seed of every random generator the run draws from (python, numpy, LightGBM). "
+            "Recorded, so `pmlab reproduce` re-runs with the same one. Default 0."
+        ),
+    ),
+    lgbm_param: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--lgbm-param",
+            help=(
+                "LightGBM parameter as KEY=VALUE (VALUE is JSON: 0.7, 25, true), repeatable, "
+                "e.g. --lgbm-param bagging_fraction=0.7. Recorded in full with the run. A seed "
+                "is set with --seed, not here."
+            ),
+        ),
+    ] = None,
+    runs_dir: str | None = typer.Option(
+        None,
+        "--runs-dir",
+        help=(
+            "Also log the run (params, metrics, reproducibility record) as a LocalJSONTracker "
+            "run under this directory, experiment = the plugin. Re-run it with "
+            "`pmlab reproduce <run id> --runs-dir <dir>`."
+        ),
+    ),
+    run_name: str = typer.Option("backtest", "--run-name", help="Name of the tracked run"),
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Save metrics JSON (with the reproducibility record) to path",
+    ),
 ) -> None:
     """Run walk-forward backtest on a historical panel."""
     if stride < 10:
@@ -505,27 +598,43 @@ def backtest_cmd(
         rprint(f"[red]Unknown --policy {policy_name!r}: choose 'live' or 'top-bin-yes'.[/red]")
         raise typer.Exit(1)
 
-    import pandas as pd
-
-    from pmlab.backtest.rolling_origin import rolling_origin_eval
     from pmlab.core.costs import CostModel
-    from pmlab.modeling.lgbm_baseline import LGBMForecaster
+    from pmlab.reproducibility import (
+        BacktestConfig,
+        capture_backtest,
+        load_panel,
+        resolve_seeds,
+        run_backtest,
+    )
 
     panel_file = Path(panel_path)
     if not panel_file.exists():
         rprint(f"[red]Panel file not found: {panel_path}[/red]")
         raise typer.Exit(1)
 
+    try:
+        config = BacktestConfig.resolve(
+            plugin=plugin,
+            model=model,
+            model_params=_parse_model_params(lgbm_param or []),
+            stride=stride,
+            min_train_rows=min_train_rows,
+            flat_stake=flat_stake,
+            costs=costs or CostModel(),
+            policy=trade_policy,
+        )
+    except ValueError as e:
+        rprint(f"[red]{escape(str(e))}[/red]")
+        raise typer.Exit(1) from e
+
     rprint(f"[bold]Backtest[/bold] plugin={plugin} model={model} stride={stride}")
     rprint(f"Loading panel from [cyan]{panel_path}[/cyan]...")
 
-    if panel_path.endswith(".parquet"):
-        panel = pd.read_parquet(panel_file)
-    elif panel_path.endswith(".csv"):
-        panel = pd.read_csv(panel_file)
-    else:
-        rprint("[red]Panel must be .parquet or .csv[/red]")
-        raise typer.Exit(1)
+    try:
+        panel = load_panel(panel_file)
+    except ValueError as e:
+        rprint(f"[red]{e}[/red]")
+        raise typer.Exit(1) from e
 
     rprint(
         f"Panel: {len(panel)} rows, {panel['decision_date'].nunique()} dates, {panel['market_id'].nunique()} markets"
@@ -533,27 +642,19 @@ def backtest_cmd(
 
     rprint(f"Policy: {_describe_policy(trade_policy)}")
 
-    forecaster = LGBMForecaster()
+    seeds = resolve_seeds(seed)
     with console.status("Running walk-forward backtest..."):
-        result = rolling_origin_eval(
-            panel,
-            forecaster,
-            min_train_rows=min_train_rows,
-            stride=stride,
-            flat_stake=flat_stake,
-            costs=costs,
-            policy=trade_policy,
-        )
+        outcome = run_backtest(panel, config, seeds)
 
-    trades = result.trades
+    trades = outcome.trades
     if trades.empty:
         hint = " or lowering --min-edge" if trade_policy.selection == "best_edge" else ""
         rprint(f"[yellow]No trades produced. Try reducing stride or min_train_rows{hint}.[/yellow]")
         raise typer.Exit(0)
 
-    total_pnl = trades["realized_pnl"].sum()
-    hit_rate = (trades["realized_pnl"] > 0).mean()
-    avg_edge = trades["edge"].mean()
+    total_pnl = outcome.metrics["total_pnl"]
+    hit_rate = outcome.metrics["hit_rate"]
+    avg_edge = outcome.metrics["avg_edge"]
     pnl_color = "green" if total_pnl >= 0 else "red"
 
     table = Table(title="Backtest Results")
@@ -562,16 +663,32 @@ def backtest_cmd(
     table.add_row("Total trades", str(len(trades)))
     sides = trades["direction"].value_counts()
     table.add_row("YES / NO trades", f"{int(sides.get('yes', 0))} / {int(sides.get('no', 0))}")
-    table.add_row("Steps evaluated", str(len(result.steps)))
+    table.add_row("Steps evaluated", str(len(outcome.steps)))
     table.add_row("Total PnL", f"[{pnl_color}]${total_pnl:+.2f}[/{pnl_color}]")
     table.add_row("Hit rate", f"{hit_rate:.1%}")
     table.add_row("Avg edge", f"{avg_edge:.4f}")
     console.print(table)
 
+    # What a re-run is checked against, and everything needed to re-run it.
+    repro = capture_backtest(
+        panel, config, seeds, outcome.metrics, source=str(panel_file.resolve())
+    )
+    rerun = "pmlab reproduce <run>"
+
+    if runs_dir:
+        from pmlab.tracking import LocalJSONTracker
+
+        with LocalJSONTracker(runs_dir).run(experiment=plugin, run_name=run_name) as tracked:
+            tracked.log_params(_flat_params(config, seed))
+            tracked.log_metrics(outcome.metrics)
+            tracked.log_reproducibility(repro)
+        _say(f"Run {tracked.run_id} logged under {runs_dir}", "dim")
+        rerun = f"pmlab reproduce {tracked.run_id} --runs-dir {runs_dir}"
+
     if output:
         metrics: dict[str, object] = {
             "total_trades": len(trades),
-            "steps": len(result.steps),
+            "steps": len(outcome.steps),
             "total_pnl": float(total_pnl),
             "hit_rate": float(hit_rate),
             "avg_edge": float(avg_edge),
@@ -580,6 +697,9 @@ def backtest_cmd(
             "costs": (costs or CostModel()).to_dict(),
             # The decision rule these numbers were produced under.
             "policy": trade_policy.to_dict(),
+            # Seeds, library versions, resolved config and data fingerprint: what
+            # `pmlab reproduce` re-executes, and `promote-champion` records in champion.json.
+            "reproducibility": repro.to_dict(),
         }
         if len(trades) >= 2:
             # What `promote-champion --expectation` records in champion.json, so the
@@ -591,6 +711,9 @@ def backtest_cmd(
             ).to_dict()
         Path(output).write_text(json.dumps(metrics, indent=2))
         rprint(f"[dim]Metrics saved to {output}[/dim]")
+        if not runs_dir:
+            rerun = f"pmlab reproduce {output}"
+    _say(f"Seed {seed}, data {repro.data.content_sha256[:12]}. Re-run and verify: {rerun}", "dim")
 
 
 @app.command("promote-champion")
@@ -617,6 +740,16 @@ def promote_champion_cmd(
             _COSTS_HELP + "Recorded in champion.json as the friction the gate was computed "
             "under. Default: the costs the --expectation file was computed under, if it has "
             "them. Must agree with them if both exist."
+        ),
+    ),
+    reproducibility_path: str | None = typer.Option(
+        None,
+        "--reproducibility",
+        help=(
+            "JSON holding the backtest's reproducibility record (the 'reproducibility' key "
+            "`pmlab backtest --output` writes, or a bare record), recorded in champion.json so "
+            "`pmlab reproduce champion.json` can re-run the backtest behind the promotion. "
+            "Default: the one in the --expectation file, if it has one."
         ),
     ),
 ) -> None:
@@ -654,6 +787,9 @@ def promote_champion_cmd(
 
     costs = _load_costs(costs_path)
     expectation = None
+    reproducibility = None
+    if reproducibility_path is not None:
+        reproducibility = _load_reproducibility(reproducibility_path)
     if expectation_path is not None:
         from pmlab.backtest.expectation import BacktestExpectation
 
@@ -667,6 +803,8 @@ def promote_champion_cmd(
         except (ValueError, KeyError, TypeError, AttributeError) as e:
             rprint(f"[red]Not a valid backtest expectation ({expectation_path}): {e}[/red]")
             raise typer.Exit(1) from e
+        if reproducibility is None and isinstance(raw, dict) and raw.get("reproducibility"):
+            reproducibility = _load_reproducibility(expectation_path)
         # `backtest --output` records the costs its numbers are net of. The champion
         # must be published under those same costs, not whatever is remembered later.
         if isinstance(raw, dict) and raw.get("costs") is not None:
@@ -693,6 +831,7 @@ def promote_champion_cmd(
             model_name=model_name,
             costs=costs,
             expectation=expectation,
+            reproducibility=reproducibility,
         )
         rprint("[green]Champion published![/green]")
         rprint(f"  Model: {manifest.model_path}")
@@ -701,9 +840,121 @@ def promote_champion_cmd(
         rprint(f"  Costs: {costs.to_dict() if costs is not None else 'not recorded'}")
         policy = expectation.policy if expectation is not None else None
         rprint(f"  Policy: {_describe_policy(policy) if policy is not None else 'not recorded'}")
+        rprint(f"  Reproducibility: {_describe_reproducibility(reproducibility)}")
     except ValueError as e:
         rprint(f"[red]{e}[/red]")
         raise typer.Exit(1) from e
+
+
+@app.command("reproduce")
+def reproduce_cmd(
+    run: str = typer.Argument(
+        ...,
+        help=(
+            "The run to re-execute: a path to its record (a tracker run file, champion.json, "
+            "the metrics file `pmlab backtest --output` wrote), a directory holding "
+            "champion.json, a run id (or prefix) under --runs-dir, or a registry version id "
+            "with --registry-dir."
+        ),
+    ),
+    runs_dir: str = typer.Option("runs", "--runs-dir", help="Where tracked runs are looked up"),
+    registry_dir: str | None = typer.Option(
+        None, "--registry-dir", help="ModelRegistry directory, to reproduce an archived version"
+    ),
+    panel_path: str | None = typer.Option(
+        None,
+        "--panel",
+        help="The panel to run on, if it moved since the run. Its content hash is still checked.",
+    ),
+    allow_data_mismatch: bool = typer.Option(
+        False,
+        "--allow-data-mismatch",
+        help=(
+            "Run even if the panel's content differs from the recorded run's. The result can "
+            "then never be reported as reproduced."
+        ),
+    ),
+    rtol: float = typer.Option(
+        1e-9, "--rtol", min=0.0, help="Relative tolerance for float metrics (counts are exact)"
+    ),
+    atol: float = typer.Option(
+        1e-12, "--atol", min=0.0, help="Absolute tolerance for float metrics"
+    ),
+) -> None:
+    """Re-execute a recorded run and verify it gives the same metrics.
+
+    Exit status: 0 reproduced, 1 ran but did not reproduce, 2 could not run (no record, data
+    changed, panel missing). A different library version is a warning with a diff, not a
+    verdict: only the metrics decide.
+    """
+    from pmlab.reproducibility import ReproduceError, load_record, reproduce
+
+    try:
+        record = load_record(run, runs_dir=runs_dir, registry_dir=registry_dir)
+        _say(
+            f"Reproducing {run}: {record.kind}, plugin={record.config.get('plugin')}, "
+            f"seeds {record.seeds}, recorded {record.created_at[:19]}",
+            "bold",
+        )
+        with console.status("Re-running..."):
+            report = reproduce(
+                record,
+                panel_path=panel_path,
+                allow_data_mismatch=allow_data_mismatch,
+                rtol=rtol,
+                atol=atol,
+            )
+    except ReproduceError as e:
+        _say(f"Cannot reproduce: {e}", "red")
+        raise typer.Exit(2) from e
+
+    if report.data_match:
+        _say(
+            f"Data: matches the record ({record.data.n_rows} rows, "
+            f"sha256 {record.data.content_sha256[:12]})",
+            "green",
+        )
+    for note in report.notes:
+        _say(note, "yellow")
+
+    if report.drift:
+        _say(
+            f"Version drift: {len(report.drift)} version(s) differ from the record. A different "
+            "version can change a result without a change in the code.",
+            "yellow",
+        )
+        drift = Table(title="Version drift")
+        for column in ("Library", "Recorded", "Now"):
+            drift.add_column(column)
+        for d in report.drift:
+            drift.add_row(d.name, str(d.recorded), str(d.current))
+        console.print(drift)
+
+    table = Table(title="Reproduction")
+    for column in ("Metric", "Recorded", "Re-run", "|diff|", "Match"):
+        table.add_column(column)
+    for c in report.comparisons:
+        table.add_row(
+            c.name, _num(c.recorded), _num(c.reproduced), _num(c.abs_diff), "yes" if c.ok else "NO"
+        )
+    console.print(table)
+
+    if report.reproduced:
+        _say(
+            f"REPRODUCED: {len(report.comparisons)} metrics match "
+            f"(rtol={report.rtol:g}, atol={report.atol:g}; counts exact).",
+            "bold green",
+        )
+        return
+    failed = [c.name for c in report.comparisons if not c.ok]
+    reason = f"metrics that differ: {', '.join(failed)}" if failed else "the data differs"
+    _say(f"NOT REPRODUCED: {reason}.", "bold red")
+    if report.drift:
+        _say(
+            "Library versions differ from the record (see Version drift above): look there first.",
+            "red",
+        )
+    raise typer.Exit(1)
 
 
 @app.command("monitor")
