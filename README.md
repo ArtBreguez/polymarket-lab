@@ -283,7 +283,8 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
 | `pmlab.modeling` | `MarketForecaster` ABC, `LGBMForecaster`, `SklearnForecaster`, `EnsembleForecaster`, `ConformalForecaster`, `CalibratedForecaster`, `TunedForecaster`, `IsotonicCalibrator`, `SigmoidCalibrator`, `MulticlassCalibrator`, `ChampionManifest`, `brier_decomposition`, `multiclass_brier`, `reliability_data` |
 | `pmlab.execution` | `EdgeSignal`, `PaperBroker`, `SettlementEngine`, `LiveBroker` |
 | `pmlab.reports` | `generate_report` — self-contained HTML report |
-| `pmlab.tracking` | `LocalJSONTracker`, `MLflowTracker` (extra), `ExperimentTracker` — log params/metrics/gate per run |
+| `pmlab.tracking` | `LocalJSONTracker`, `MLflowTracker` (extra), `ExperimentTracker` — log params/metrics/gate/reproducibility per run |
+| `pmlab.reproducibility` | `ReproducibilityRecord`, `BacktestConfig`, `run_backtest`, `capture_backtest`, `reproduce`, `load_record`, `fingerprint_panel` — seeds, versions, config, data hash; re-run and verify |
 | `pmlab.workspace` | `WorkspaceContext` — multi-workspace path isolation |
 
 ---
@@ -617,6 +618,7 @@ pmlab backtest --plugin weather_tmax --stride 30           # walk-forward backte
 # --policy top-bin-yes reproduces the old YES-only backtest; --min-edge matches record-trades
 pmlab promote-champion model.pkl --gate-path gate.json \   # promote if gate is GO
                --plugin weather_tmax
+pmlab reproduce metrics.json                               # re-run a recorded backtest, verify the same metrics
 # --costs costs.json on backtest / promote-champion / record-trades: one cost model
 # end to end (see docs/costs.md)
 pmlab monitor --reference panel.parquet --snapshots snaps/ # watchdog: silent when healthy
@@ -626,6 +628,12 @@ pmlab monitor --reference panel.parquet --snapshots snaps/ # watchdog: silent wh
 side, YES or NO, taken when the after-fee edge clears `--min-edge` (default 0.20, the same
 default as `record-trades`). The threshold is recorded in `champion.json`, and
 `record-trades` uses it by default. See [docs/watchdog.md](docs/watchdog.md#the-backtest-expectation).
+
+`pmlab backtest` records its seeds, library versions, resolved config and a fingerprint of the
+data with the run (in `--output`, in `champion.json` on promotion, and in the experiment tracker
+with `--runs-dir`); `pmlab reproduce <run>` re-executes it and verifies the metrics come back,
+refusing a changed dataset and warning on a changed library version. See
+[docs/reproducibility.md](docs/reproducibility.md).
 
 `pmlab monitor` is built for cron — it prints nothing and exits 0 when drift,
 live calibration and live PnL are all within bounds, and otherwise says what is

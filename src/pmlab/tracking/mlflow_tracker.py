@@ -135,6 +135,12 @@ class _MLflowActiveRun(ActiveRun):
             self._mlflow.log_param("gate_decision", decision)
         self._mlflow.log_dict(plain, "gate.json")
 
+    def log_reproducibility(self, record: Any) -> None:
+        plain = _json_safe(_to_plain_dict(record))
+        self._record.reproducibility = plain
+        # An artifact, so it can be downloaded and handed to `pmlab reproduce` as a file.
+        self._mlflow.log_dict(plain, "reproducibility.json")
+
     def __exit__(
         self,
         exc_type: type[BaseException] | None,

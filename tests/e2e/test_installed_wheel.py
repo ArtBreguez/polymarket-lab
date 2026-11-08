@@ -23,6 +23,7 @@ REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO / "examples" / "e2e_transforms.py"
 PERF_SCRIPT = REPO / "examples" / "perf_budget.py"
 DOC_RUNNER = REPO / "tests" / "e2e" / "run_doc_examples.py"
+WALKTHROUGH = REPO / "tests" / "e2e" / "run_doc_walkthrough.py"
 OK_LINE = "pmlab e2e (as a user): OK"
 
 
@@ -177,3 +178,58 @@ def test_perf_workloads_and_the_performance_doc_run_from_the_installed_wheel(
     doc = _ok(installed.py(DOC_RUNNER, REPO / "docs" / "performance.md"))
     assert "FAIL" not in doc and "2/2 blocks ran" in doc
     assert "build_panel:" in doc and "rolling_origin_eval:" in doc
+
+
+def test_reproducibility_walkthrough_runs_as_written_and_reproduces(installed: Installed) -> None:
+    """docs/reproducibility.md, block by block, against the wheel: run -> reproduce -> failure modes.
+
+    The blocks (python and bash) share a directory and run in order, unmodified: the panel is
+    written, the backtest records its seeds/versions/config/data hash, `pmlab reproduce` brings
+    the metrics back, a changed dataset is refused (exit 2), a changed library version is
+    warned about, a missing run is a clear error, and a champion carries the record.
+    """
+    work = installed.workdir / "repro_doc"
+    out = _ok(installed.py(WALKTHROUGH, REPO / "docs" / "reproducibility.md", "--cwd", work))
+    assert "FAIL" not in out
+    done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
+    assert done == total and int(done) >= 12
+    assert out.count("REPRODUCED: 5 metrics match") == 4  # file, run id, older lightgbm, champion
+    assert out.count("NOT REPRODUCED") == 1  # --allow-data-mismatch, on edited data
+    assert out.count("exit status: 2") == 2  # the changed dataset, the unknown run id
+    assert out.count("exit status: 1") == 1 and out.count("exit status: 0") == 1
+    assert "Version drift" in out and "3.3.0" in out and "--allow-data-mismatch" in out
+    assert "gate: GO" in out
+
+    # What was recorded is what the installed wheel is: version and the library set.
+    record = json.loads((work / "metrics.json").read_text())["reproducibility"]
+    assert record["environment"]["pmlab"] == _pyproject_version()
+    assert {"python", "numpy", "pandas", "lightgbm", "scikit-learn", "optuna"} <= set(
+        record["environment"]
+    )
+    assert record["seeds"] == {"python_random": 123, "numpy": 123, "lightgbm": 123}
+    assert len(list((work / "runs" / "demo").glob("*.json"))) >= 1
+    champion = json.loads((work / "champion" / "champion.json").read_text())
+    assert champion["reproducibility"]["data"] == record["data"]
+
+    # From another directory, in another process: the recorded source path is absolute.
+    again = _run([installed.pmlab, "reproduce", work / "metrics.json"], cwd=installed.workdir)
+    assert again.returncode == 0, again.stdout + again.stderr
+    assert "REPRODUCED" in again.stdout
+
+
+def test_a_record_from_before_0_10_0_loads_and_reproduce_says_there_is_nothing_to_run(
+    installed: Installed,
+) -> None:
+    legacy = installed.workdir / "legacy_champion.json"
+    legacy.write_text(json.dumps({"model_name": "champion", "plugin_family": "demo"}))
+    proc = _run([installed.pmlab, "reproduce", legacy], cwd=installed.workdir)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "no reproducibility record" in proc.stdout and "0.10.0" in proc.stdout
+    assert "Traceback" not in proc.stdout + proc.stderr
+
+
+def _pyproject_version() -> str:
+    for line in (REPO / "pyproject.toml").read_text().splitlines():
+        if line.startswith("version = "):
+            return line.split('"')[1]
+    raise AssertionError("no version in pyproject.toml")

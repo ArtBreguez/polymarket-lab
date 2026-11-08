@@ -24,6 +24,7 @@ Use this file as the shared contract for all agents (Codex, Claude, etc).
 | `src/pmlab/data/` | FeatureSnapshotStore (point-in-time), build_panel, leakage guards |
 | `src/pmlab/modeling/` | MarketForecaster ABC, LGBMForecaster, calibration, ChampionManifest |
 | `src/pmlab/execution/` | EdgeSignal, PaperBroker, SettlementEngine |
+| `src/pmlab/reproducibility/` | ReproducibilityRecord (seeds, versions, resolved config, data fingerprint), backtest runner shared by `backtest` and `reproduce`, `pmlab reproduce` |
 | `src/pmlab/workspace/` | WorkspaceContext — multi-workspace path isolation |
 | `src/pmlab/markets/` | Polymarket Gamma API client, CLOB price client (Phase 4) |
 | `src/pmlab/cli/` | Typer CLI entry points |

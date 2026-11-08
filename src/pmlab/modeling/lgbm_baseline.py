@@ -22,14 +22,19 @@ class LGBMForecaster(MarketForecaster):
         self._model: lgb.LGBMClassifier | None = None
         self._feature_names: list[str] = []
 
+    def resolved_params(self) -> dict[str, Any]:
+        """The parameters LightGBM is actually given: the defaults, then the caller's overrides.
+
+        This is what a reproducibility record stores as the model config, so a later change of
+        a default here does not change what an old record means. The seed is part of it only
+        when the caller passed ``random_state`` (LightGBM otherwise uses its own fixed internal
+        seeds: deterministic, but not a value pmlab can record).
+        """
+        return {"objective": self.objective, "verbose": -1, **self.lgbm_params}
+
     def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fit LightGBM classifier."""
-        params: dict[str, Any] = {
-            "objective": self.objective,
-            "verbose": -1,
-            **self.lgbm_params,
-        }
-        self._model = lgb.LGBMClassifier(**params)
+        self._model = lgb.LGBMClassifier(**self.resolved_params())
         self._model.fit(X, y)
         self._feature_names = list(X.columns)
 

@@ -146,6 +146,11 @@ class ModelRegistry:
             # the friction its gate was computed under, or a rollback restores a
             # champion whose cost assumptions are unknown.
             "costs": manifest.costs.to_dict() if manifest.costs is not None else None,
+            # Likewise the record of how the backtest was run: an archived version can be
+            # re-executed with `pmlab reproduce --registry-dir ... <version_id>`.
+            "reproducibility": (
+                manifest.reproducibility.to_dict() if manifest.reproducibility is not None else None
+            ),
         }
         with open(vdir / "champion.json", "w") as f:
             json.dump(json_data, f, indent=2)
@@ -238,6 +243,9 @@ class ModelRegistry:
             "published_at": archived.published_at,
             "plugin_family": archived.plugin_family,
             "publish_gate": archived.gate.to_dict(),
+            "reproducibility": (
+                archived.reproducibility.to_dict() if archived.reproducibility is not None else None
+            ),
         }
         with open(output_dir / "champion.json", "w") as f:
             json.dump(json_data, f, indent=2)
