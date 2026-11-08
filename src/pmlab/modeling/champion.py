@@ -7,7 +7,7 @@ import warnings
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pmlab.backtest.expectation import BacktestExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult
@@ -110,22 +110,36 @@ class ChampionManifest:
             reproducibility=reproducibility,
         )
 
-        json_data = {
-            "model_name": model_name,
-            "model_path": str(model_path),
-            "calibrator_path": str(calibrator_path) if calibrator_path else None,
-            "published_at": published_at,
-            "plugin_family": plugin_family,
-            "publish_gate": gate.to_dict(),
-            "costs": costs.to_dict() if costs is not None else None,
-            "backtest_expectation": expectation.to_dict() if expectation is not None else None,
-            "reproducibility": reproducibility.to_dict() if reproducibility is not None else None,
-        }
         json_path = output_dir / "champion.json"
         with open(json_path, "w") as f:
-            json.dump(json_data, f, indent=2)
+            json.dump(manifest.to_dict(), f, indent=2)
 
         return manifest
+
+    def to_dict(self) -> dict[str, Any]:
+        """The `champion.json` payload: every field of the manifest, JSON-ready.
+
+        The one place a manifest is serialized. `publish`, `ModelRegistry.record` and
+        `ModelRegistry.rollback` all write this, so a field added to the manifest reaches every
+        copy of it, instead of being dropped by whichever writer was not updated (#33).
+        `ChampionManifest.load` is its inverse (the JSON key for `expectation` is
+        ``backtest_expectation``, and the gate is stored as ``publish_gate``).
+        """
+        return {
+            "model_name": self.model_name,
+            "model_path": str(self.model_path),
+            "calibrator_path": str(self.calibrator_path) if self.calibrator_path else None,
+            "published_at": self.published_at,
+            "plugin_family": self.plugin_family,
+            "publish_gate": self.gate.to_dict(),
+            "costs": self.costs.to_dict() if self.costs is not None else None,
+            "backtest_expectation": (
+                self.expectation.to_dict() if self.expectation is not None else None
+            ),
+            "reproducibility": (
+                self.reproducibility.to_dict() if self.reproducibility is not None else None
+            ),
+        }
 
     @classmethod
     def load(cls, json_path: Path) -> ChampionManifest:

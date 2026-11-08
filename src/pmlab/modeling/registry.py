@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TypedDict
 
@@ -135,25 +135,14 @@ class ModelRegistry:
             archived_calibrator = vdir / "calibrator.pkl"
             shutil.copy2(manifest.calibrator_path, archived_calibrator)
 
-        json_data = {
-            "model_name": manifest.model_name,
-            "model_path": str(archived_model),
-            "calibrator_path": str(archived_calibrator) if archived_calibrator else None,
-            "published_at": manifest.published_at,
-            "plugin_family": manifest.plugin_family,
-            "publish_gate": manifest.gate.to_dict(),
-            # Carried through, not recomputed: an archived version has to remember
-            # the friction its gate was computed under, or a rollback restores a
-            # champion whose cost assumptions are unknown.
-            "costs": manifest.costs.to_dict() if manifest.costs is not None else None,
-            # Likewise the record of how the backtest was run: an archived version can be
-            # re-executed with `pmlab reproduce --registry-dir ... <version_id>`.
-            "reproducibility": (
-                manifest.reproducibility.to_dict() if manifest.reproducibility is not None else None
-            ),
-        }
+        # The archived copy is the same manifest pointed at the archived artifacts. It is
+        # serialized by `ChampionManifest.to_dict`, not rebuilt key by key here: an archived
+        # version has to remember everything the champion was promoted on (the friction its
+        # gate was computed under, what the backtest promised, how to re-run it), or a
+        # rollback restores a champion that has forgotten it.
+        archived = replace(manifest, model_path=archived_model, calibrator_path=archived_calibrator)
         with open(vdir / "champion.json", "w") as f:
-            json.dump(json_data, f, indent=2)
+            json.dump(archived.to_dict(), f, indent=2)
 
         entry: _IndexEntry = {
             "version_id": version_id,
@@ -236,18 +225,8 @@ class ModelRegistry:
             live_calibrator = output_dir / "calibrator.pkl"
             shutil.copy2(archived.calibrator_path, live_calibrator)
 
-        json_data = {
-            "model_name": archived.model_name,
-            "model_path": str(live_model),
-            "calibrator_path": str(live_calibrator) if live_calibrator else None,
-            "published_at": archived.published_at,
-            "plugin_family": archived.plugin_family,
-            "publish_gate": archived.gate.to_dict(),
-            "reproducibility": (
-                archived.reproducibility.to_dict() if archived.reproducibility is not None else None
-            ),
-        }
+        live = replace(archived, model_path=live_model, calibrator_path=live_calibrator)
         with open(output_dir / "champion.json", "w") as f:
-            json.dump(json_data, f, indent=2)
+            json.dump(live.to_dict(), f, indent=2)
 
         return ChampionManifest.load(output_dir / "champion.json")
