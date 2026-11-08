@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = 1
-SHOWN_FOLDS = (0, 11, 23, 35, 47, 59)  # fold 1, 12, 24, 36, 48, 60 of 60
+SHOWN_FOLD_COUNT = 6
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
@@ -28,6 +28,18 @@ def _day(text: str) -> date:
 
 def _pct(value: float) -> float:
     return round(max(0.0, min(100.0, value)), 2)
+
+
+def shown_folds(n_folds: int) -> tuple[int, ...]:
+    """The indices of the folds the hero draws: six spread evenly, the first and last included.
+
+    The backtest's fold count is a result (it moves when the rule for what a fold may train on
+    does), so the picture is not tied to a particular one.
+    """
+    if n_folds <= SHOWN_FOLD_COUNT:
+        return tuple(range(n_folds))
+    step = (n_folds - 1) / (SHOWN_FOLD_COUNT - 1)
+    return tuple(round(k * step) for k in range(SHOWN_FOLD_COUNT))
 
 
 def home_view(data: dict[str, Any]) -> dict[str, Any]:
@@ -50,8 +62,7 @@ def home_view(data: dict[str, Any]) -> dict[str, Any]:
             "rows": folds[i]["train_rows"],
             "brier": folds[i]["brier"],
         }
-        for i in SHOWN_FOLDS
-        if i < len(folds)
+        for i in shown_folds(len(folds))
     ]
     ticks = []
     month = date(start.year, start.month, 1)

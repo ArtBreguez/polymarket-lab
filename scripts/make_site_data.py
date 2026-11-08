@@ -39,6 +39,7 @@ from pmlab import (
     capture_backtest,
     reproduce,
     resolve_seeds,
+    rolling_origin_eval,
     run_backtest,
 )
 from pmlab.datasets import load_sample
@@ -55,6 +56,45 @@ def _bin_centre(bin_: Any) -> float:
     if bin_.lower is not None and bin_.upper is not None:
         return float((bin_.lower + bin_.upper) / 2)
     return float(bin_.upper - 1.0 if bin_.upper is not None else bin_.lower + 1.0)
+
+
+class _FoldRecorder:
+    """Wraps a forecaster so each fold of ``rolling_origin_eval`` reports what it trained on.
+
+    The backtest keeps only the traded (bin, side) of every fold. To score every bin's
+    probability (the fold's Brier score) and to say which day a fold's training ends on, this
+    sits between ``rolling_origin_eval`` and the model: the training rows are the ones the
+    library chose (which labels were known at the fold's decision), not a second copy of that
+    rule written here.
+    """
+
+    def __init__(self, model: LGBMForecaster, panel: pd.DataFrame) -> None:
+        self.model = model
+        self.panel = panel
+        self.train_end = ""
+        self.folds: list[dict[str, Any]] = []
+        self.y: list[np.ndarray] = []
+        self.p: list[np.ndarray] = []
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
+        self.train_end = str(self.panel.loc[X.index, "decision_date"].max())
+        self.model.fit(X, y)
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        proba = np.asarray(self.model.predict_proba(X))
+        rows = self.panel.loc[X.index]
+        y = (rows["outcome_label"] == rows["winning_label"]).astype(int).to_numpy(float)
+        p = proba[:, 1]
+        self.y.append(y)
+        self.p.append(p)
+        self.folds.append(
+            {
+                "test": str(rows["decision_date"].iloc[0]),
+                "train_end": self.train_end,
+                "brier": round(float(np.mean((p - y) ** 2)), 4),
+            }
+        )
+        return proba
 
 
 def compute() -> dict[str, Any]:
@@ -120,33 +160,29 @@ def compute() -> dict[str, Any]:
     record = capture_backtest(backtest_panel, config, seeds, outcome.metrics, source="site data")
     trades = outcome.trades
 
-    # The backtest keeps only the traded (bin, side): refit as rolling_origin_eval does, one fit
-    # per fold, to get every bin's probability and so each fold's Brier score.
+    # The backtest keeps only the traded (bin, side). Run the same walk-forward once more, with a
+    # recorder around the model, to get every bin's probability and so each fold's Brier score.
     bt_dates = sorted(backtest_panel["decision_date"].unique())
-    model = build_forecaster(config, seeds)
-    folds: list[dict[str, Any]] = []
-    all_y: list[np.ndarray] = []
-    all_p: list[np.ndarray] = []
+    recorder = _FoldRecorder(build_forecaster(config, seeds), backtest_panel)
     with seeded(seeds):
-        for step in outcome.steps:
-            day = step["eval_date"]
-            train = backtest_panel[backtest_panel["decision_date"] < day]
-            test = backtest_panel[backtest_panel["decision_date"] == day]
-            model.fit(
-                train[features], (train["outcome_label"] == train["winning_label"]).astype(int)
-            )
-            p = model.predict_proba(test[features])[:, 1]
-            y = (test["outcome_label"] == test["winning_label"]).astype(int).to_numpy(float)
-            all_y.append(y)
-            all_p.append(p)
-            folds.append(
-                {
-                    "test": day,
-                    "train_end": bt_dates[bt_dates.index(day) - 1],
-                    "train_rows": int(step["train_rows"]),
-                    "brier": round(float(np.mean((p - y) ** 2)), 4),
-                }
-            )
+        replay = rolling_origin_eval(
+            backtest_panel, recorder,
+            min_train_rows=config.min_train_rows, stride=config.stride,
+            flat_stake=config.flat_stake, costs=costs, policy=policy,
+        )  # fmt: skip
+    assert len(replay.steps) == len(outcome.steps) and np.isclose(
+        replay.trades["realized_pnl"].sum(), trades["realized_pnl"].sum()
+    ), "the recorded replay must be the backtest it explains"
+    folds = [
+        {
+            "test": fold["test"],
+            "train_end": fold["train_end"],
+            "train_rows": int(step["train_rows"]),
+            "brier": fold["brier"],
+        }
+        for fold, step in zip(recorder.folds, replay.steps, strict=True)
+    ]
+    all_y, all_p = recorder.y, recorder.p
     pooled = brier_decomposition(np.concatenate(all_y), np.concatenate(all_p), n_bins=10)
 
     # The gate, over every city: one city loses money, so the verdict is NO_GO and publish raises.
@@ -155,7 +191,13 @@ def compute() -> dict[str, Any]:
     )
     champion = build(best)
     won = backtest_panel["outcome_label"] == backtest_panel["winning_label"]
-    champion.fit(backtest_panel[features], won.astype(int))
+    # Train on the labels known when the first live day decides: the rows decided on the last
+    # backtest day are about that live day, whose temperature is not in yet.
+    first_live = pd.Timestamp(
+        panel.loc[panel["decision_date"] == live_days[0], "decision_ts"].min()
+    )
+    known = pd.to_datetime(backtest_panel["market_close_ts"], utc=True) <= first_live
+    champion.fit(backtest_panel.loc[known, features], won[known].astype(int))
     with tempfile.TemporaryDirectory() as tmp:
         champion_dir = Path(tmp) / "champion"
         refusal = None
