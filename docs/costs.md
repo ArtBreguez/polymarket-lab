@@ -24,8 +24,7 @@ book charges for your size.
 ## Basic Usage
 
 ```python
-from pmlab import CostModel
-from pmlab.backtest.rolling_origin import rolling_origin_eval
+from pmlab import CostModel, rolling_origin_eval
 
 # Default — identical to pre-0.8.3 behaviour: 30bps taker fee, fill at the quote.
 result = rolling_origin_eval(panel, model)

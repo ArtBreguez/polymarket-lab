@@ -37,8 +37,8 @@ from pmlab import (
     add_interactions,
     add_missing_indicators,
     compute_metrics,
+    rolling_origin_eval,
 )
-from pmlab.backtest.rolling_origin import rolling_origin_eval
 
 SEED = 7
 CITIES = ["NYC", "LA", "CHI", "MIA", "SEA", "DEN"]

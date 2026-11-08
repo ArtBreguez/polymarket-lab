@@ -1,0 +1,3392 @@
+{
+  "cli": {
+    "commands": {
+      "backtest": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--plugin",
+              "-p"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "plugin",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--panel"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "panel_path",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": "lgbm_baseline",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--model",
+              "-m"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "model",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "30",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--stride"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "stride",
+            "required": false,
+            "type": "int"
+          },
+          {
+            "default": "20",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--min-train-rows"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "min_train_rows",
+            "required": false,
+            "type": "int"
+          },
+          {
+            "default": "1.0",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--flat-stake"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "flat_stake",
+            "required": false,
+            "type": "float"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--costs"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "costs_path",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "live",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--policy"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "policy_name",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--min-edge"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "min_edge",
+            "required": false,
+            "type": "float"
+          },
+          {
+            "default": "0",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--seed"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "seed",
+            "required": false,
+            "type": "int"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--lgbm-param"
+            ],
+            "kind": "option",
+            "multiple": true,
+            "name": "lgbm_param",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--runs-dir"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "runs_dir",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "backtest",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--run-name"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "run_name",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--output",
+              "-o"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "output",
+            "required": false,
+            "type": "str"
+          }
+        ]
+      },
+      "monitor": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--champion"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "champion",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--trades",
+              "-t"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "trades",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "artifacts",
+            "envvar": [
+              "PMLAB_ARTIFACTS_DIR"
+            ],
+            "flag": false,
+            "flags": [
+              "--artifacts-dir",
+              "-a"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "artifacts_dir",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "ops_daily",
+            "envvar": [
+              "PMLAB_WORKSPACE",
+              "PMLAB_WORKSPACE_NAME"
+            ],
+            "flag": false,
+            "flags": [
+              "--workspace",
+              "-w"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "workspace",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--reference"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "reference",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--snapshots"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "snapshots",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--family"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "family",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "7",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--window-days"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "window_days",
+            "required": false,
+            "type": "int"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--window-start"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "window_start",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--feature"
+            ],
+            "kind": "option",
+            "multiple": true,
+            "name": "feature",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "False",
+            "envvar": null,
+            "flag": true,
+            "flags": [
+              "--no-prediction"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "no_prediction",
+            "required": false,
+            "type": "bool"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--as-of"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "as_of",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--config"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "config",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--min-trades"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "min_trades",
+            "required": false,
+            "type": "int"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--insufficient"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "insufficient",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--skip"
+            ],
+            "kind": "option",
+            "multiple": true,
+            "name": "skip",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--json"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "json_path",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "False",
+            "envvar": null,
+            "flag": true,
+            "flags": [
+              "--verbose",
+              "-v"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "verbose",
+            "required": false,
+            "type": "bool"
+          }
+        ]
+      },
+      "promote-champion": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "model_path"
+            ],
+            "kind": "argument",
+            "multiple": false,
+            "name": "model_path",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--gate-path"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "gate_path",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--plugin",
+              "-p"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "plugin",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": "artifacts/public_models",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--output-dir"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "output_dir",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "champion",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--name"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "model_name",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--expectation"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "expectation_path",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--costs"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "costs_path",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--reproducibility"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "reproducibility_path",
+            "required": false,
+            "type": "str"
+          }
+        ]
+      },
+      "record-trades": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--plugin",
+              "-p"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "plugin",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": "ops_daily",
+            "envvar": [
+              "PMLAB_WORKSPACE",
+              "PMLAB_WORKSPACE_NAME"
+            ],
+            "flag": false,
+            "flags": [
+              "--workspace",
+              "-w"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "workspace",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "artifacts",
+            "envvar": [
+              "PMLAB_ARTIFACTS_DIR"
+            ],
+            "flag": false,
+            "flags": [
+              "--artifacts-dir",
+              "-a"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "artifacts_dir",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--min-edge"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "min_edge",
+            "required": false,
+            "type": "float"
+          },
+          {
+            "default": "1.0",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--flat-stake"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "flat_stake",
+            "required": false,
+            "type": "float"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--costs"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "costs_path",
+            "required": false,
+            "type": "str"
+          }
+        ]
+      },
+      "report": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--trades",
+              "-t"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "trades",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": "pmlab_report.html",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--output",
+              "-o"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "output",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "pmlab Paper Trading Report",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--title"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "title",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--brier"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "brier_score",
+            "required": false,
+            "type": "float"
+          }
+        ]
+      },
+      "reproduce": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "run"
+            ],
+            "kind": "argument",
+            "multiple": false,
+            "name": "run",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": "runs",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--runs-dir"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "runs_dir",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--registry-dir"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "registry_dir",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--panel"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "panel_path",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "False",
+            "envvar": null,
+            "flag": true,
+            "flags": [
+              "--allow-data-mismatch"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "allow_data_mismatch",
+            "required": false,
+            "type": "bool"
+          },
+          {
+            "default": "1e-09",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--rtol"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "rtol",
+            "required": false,
+            "type": "float[0.0..]"
+          },
+          {
+            "default": "1e-12",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--atol"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "atol",
+            "required": false,
+            "type": "float[0.0..]"
+          }
+        ]
+      },
+      "resettle": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--trades",
+              "-t"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "trades",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": "False",
+            "envvar": null,
+            "flag": true,
+            "flags": [
+              "--dry-run"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "dry_run",
+            "required": false,
+            "type": "bool"
+          },
+          {
+            "default": "10",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--show"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "show",
+            "required": false,
+            "type": "int[0..]"
+          }
+        ]
+      },
+      "scan-markets": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--plugin",
+              "-p"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "plugin",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--tag"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "tag",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--keyword"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "keyword",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "100",
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--limit"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "limit",
+            "required": false,
+            "type": "int"
+          }
+        ]
+      },
+      "settle-trades": {
+        "params": [
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--plugin",
+              "-p"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "plugin",
+            "required": true,
+            "type": "str"
+          },
+          {
+            "default": "ops_daily",
+            "envvar": [
+              "PMLAB_WORKSPACE",
+              "PMLAB_WORKSPACE_NAME"
+            ],
+            "flag": false,
+            "flags": [
+              "--workspace",
+              "-w"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "workspace",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "artifacts",
+            "envvar": [
+              "PMLAB_ARTIFACTS_DIR"
+            ],
+            "flag": false,
+            "flags": [
+              "--artifacts-dir",
+              "-a"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "artifacts_dir",
+            "required": false,
+            "type": "str"
+          }
+        ]
+      },
+      "status": {
+        "params": [
+          {
+            "default": "artifacts",
+            "envvar": [
+              "PMLAB_ARTIFACTS_DIR"
+            ],
+            "flag": false,
+            "flags": [
+              "--artifacts-dir",
+              "-a"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "artifacts_dir",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": "ops_daily",
+            "envvar": [
+              "PMLAB_WORKSPACE",
+              "PMLAB_WORKSPACE_NAME"
+            ],
+            "flag": false,
+            "flags": [
+              "--workspace",
+              "-w"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "workspace",
+            "required": false,
+            "type": "str"
+          }
+        ]
+      },
+      "version": {
+        "params": []
+      }
+    },
+    "name": "pmlab",
+    "params": []
+  },
+  "formats": {
+    "champion.json": {
+      "backtest_expectation": {
+        "brier_score": null,
+        "brier_std": null,
+        "by_direction": {
+          "*": {
+            "brier_score": null,
+            "brier_std": null,
+            "mean_pnl_per_stake": null,
+            "n_trades": null,
+            "std_pnl_per_stake": null
+          }
+        },
+        "by_segment": {
+          "*": {
+            "brier_score": null,
+            "brier_std": null,
+            "by_direction": {
+              "*": {
+                "brier_score": null,
+                "brier_std": null,
+                "mean_pnl_per_stake": null,
+                "n_trades": null,
+                "std_pnl_per_stake": null
+              }
+            },
+            "mean_pnl_per_stake": null,
+            "n_trades": null,
+            "std_pnl_per_stake": null
+          }
+        },
+        "flat_stake": null,
+        "mean_pnl_per_stake": null,
+        "n_trades": null,
+        "policy": {
+          "directions": [
+            null
+          ],
+          "min_edge": null,
+          "selection": null
+        },
+        "std_pnl_per_stake": null
+      },
+      "calibrator_path": null,
+      "costs": {
+        "depth_bps_per_unit": null,
+        "depth_reference_stake": null,
+        "slippage_bps": null,
+        "slippage_fixed": null,
+        "taker_bps": null
+      },
+      "model_name": null,
+      "model_path": null,
+      "plugin_family": null,
+      "publish_gate": {
+        "aggregate_pnl": null,
+        "aggregate_trades": null,
+        "decision": null,
+        "segment_results": [
+          {
+            "num_trades": null,
+            "passes": null,
+            "reason": null,
+            "segment": null,
+            "total_pnl": null
+          }
+        ]
+      },
+      "published_at": null,
+      "reproducibility": {
+        "config": {
+          "*": null
+        },
+        "created_at": null,
+        "data": {
+          "columns": [
+            null
+          ],
+          "content_sha256": null,
+          "n_rows": null,
+          "source": null
+        },
+        "environment": {
+          "*": null
+        },
+        "kind": null,
+        "metrics": {
+          "*": null
+        },
+        "schema_version": null,
+        "seeds": {
+          "*": null
+        }
+      }
+    },
+    "environment_variables": [
+      "PMLAB_ARTIFACTS_DIR",
+      "PMLAB_CACHE_DIR",
+      "PMLAB_CACHE_TTL",
+      "PMLAB_DATA_DIR",
+      "PMLAB_DUCKDB_PATH",
+      "PMLAB_LOG_LEVEL",
+      "PMLAB_PARQUET_DIR",
+      "PMLAB_WORKSPACE",
+      "PMLAB_WORKSPACE_NAME"
+    ],
+    "plugin_entry_point_group": "pmlab.plugins",
+    "reproducibility_record": {
+      "keys": {
+        "config": {
+          "*": null
+        },
+        "created_at": null,
+        "data": {
+          "columns": [
+            null
+          ],
+          "content_sha256": null,
+          "n_rows": null,
+          "source": null
+        },
+        "environment": {
+          "*": null
+        },
+        "kind": null,
+        "metrics": {
+          "*": null
+        },
+        "schema_version": null,
+        "seeds": {
+          "*": null
+        }
+      },
+      "schema_version": 1
+    },
+    "run_record.json": {
+      "ended_at": null,
+      "error": null,
+      "experiment": null,
+      "gate": {},
+      "metrics": {
+        "*": null
+      },
+      "params": {},
+      "reproducibility": {},
+      "run_id": null,
+      "run_name": null,
+      "started_at": null,
+      "status": null
+    }
+  },
+  "modules": {
+    "pmlab": {
+      "ALL_SEGMENTS": {
+        "kind": "constant",
+        "type": "str",
+        "value": "all"
+      },
+      "ActiveRun": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "log_gate": {
+            "kind": "method",
+            "signature": "(self, gate: Any) -> None"
+          },
+          "log_metrics": {
+            "kind": "method",
+            "signature": "(self, metrics: Any) -> None"
+          },
+          "log_params": {
+            "kind": "method",
+            "signature": "(self, params: dict[str, Any]) -> None"
+          },
+          "log_reproducibility": {
+            "kind": "method",
+            "signature": "(self, record: Any) -> None"
+          },
+          "run_id": {
+            "kind": "property"
+          }
+        },
+        "signature": "(tracker: _Persistable, record: RunRecord) -> None"
+      },
+      "AsyncClobClient": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "aclose": {
+            "async": true,
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "fetch_prices": {
+            "async": true,
+            "kind": "method",
+            "signature": "(self, token_ids: list[str]) -> dict[str, float]"
+          }
+        },
+        "signature": "(base_url: str = 'https://clob.polymarket.com', timeout: float = 15.0, concurrency: int = 10) -> None"
+      },
+      "AsyncGammaClient": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "aclose": {
+            "async": true,
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "discover_tmax_markets": {
+            "async": true,
+            "kind": "method",
+            "signature": "(self, page_size: int = 100, active: bool = True) -> list[TmaxMarketInfo]"
+          },
+          "fetch_markets": {
+            "async": true,
+            "kind": "method",
+            "signature": "(self, tag: str | None = None, keyword: str | None = None, limit: int = 100, active: bool = True, closed: bool = False) -> list[dict[str, Any]]"
+          }
+        },
+        "signature": "(base_url: str = 'https://gamma-api.polymarket.com', timeout: float = 30.0) -> None"
+      },
+      "BacktestConfig": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: Mapping[str, Any]) -> BacktestConfig"
+          },
+          "resolve": {
+            "kind": "classmethod",
+            "signature": "(cls, plugin: str, model: str = 'lgbm_baseline', model_params: Mapping[str, Any] | None = None, stride: int = 30, min_train_rows: int = 20, flat_stake: float = 1.0, costs: CostModel | None = None, policy: TradePolicy | str = 'live', min_edge: float | None = None, tuning: Mapping[str, Any] | None = None) -> BacktestConfig"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, float], policy: dict[str, Any], tuning: dict[str, Any] | None = None) -> None"
+      },
+      "BacktestExpectation": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> BacktestExpectation"
+          },
+          "from_trades": {
+            "kind": "classmethod",
+            "signature": "(cls, trades: pd.DataFrame, *, flat_stake: float = 1.0, policy: TradePolicy | None = None, min_group_trades: int = 30) -> BacktestExpectation"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(n_trades: int, flat_stake: float, mean_pnl_per_stake: float, std_pnl_per_stake: float, brier_score: float | None = None, brier_std: float | None = None, by_direction: Mapping[str, GroupExpectation] | None = None, policy: TradePolicy | None = None, by_segment: Mapping[str, SegmentExpectation | None] | None = None) -> None"
+      },
+      "BacktestMetrics": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(num_trades: int, total_pnl: float, hit_rate: float, avg_pnl_per_trade: float, avg_edge: float) -> None"
+      },
+      "BrierDecomposition": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(uncertainty: float, resolution: float, reliability: float, brier_score: float, skill_score: float, n_samples: int) -> None"
+      },
+      "CalibratedForecaster": {
+        "bases": [
+          "MarketForecaster"
+        ],
+        "kind": "class",
+        "members": {
+          "feature_names": {
+            "kind": "method",
+            "signature": "(self) -> list[str]"
+          },
+          "fit": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame, y: pd.Series) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> CalibratedForecaster"
+          },
+          "predict_proba": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame) -> np.ndarray"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          }
+        },
+        "signature": "(base: MarketForecaster, method: CalibrationMethod = 'isotonic', calib_fraction: float = 0.3, random_state: int = 0) -> None"
+      },
+      "CalibrationThresholds": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> CalibrationThresholds"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(min_trades: int = 30, brier_warn_abs: float = 0.02, brier_alert_abs: float = 0.05, brier_warn_rel: float = 0.1, brier_alert_rel: float = 0.25, z_warn: float = 2.0, z_alert: float = 3.0, n_bins: int = 10) -> None"
+      },
+      "CalibrationTracker": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "by_segment": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, CalibrationWindow]"
+          },
+          "from_path": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path | str, *, n_bins: int = 10) -> CalibrationTracker"
+          },
+          "overall": {
+            "kind": "method",
+            "signature": "(self) -> CalibrationWindow | None"
+          },
+          "rolling": {
+            "kind": "method",
+            "signature": "(self, window: int) -> list[CalibrationWindow]"
+          },
+          "squared_errors": {
+            "kind": "method",
+            "signature": "(self) -> list[float]"
+          }
+        },
+        "signature": "(trades: list[dict[str, Any]], *, n_bins: int = 10) -> None"
+      },
+      "CalibrationWindow": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> CalibrationWindow"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(n_trades: int, brier_score: float, reliability: float, resolution: float, uncertainty: float, skill_score: float, base_rate: float, mean_forecast: float, window_start: str, window_end: str, reliability_curve: tuple[dict[str, float], ...]) -> None"
+      },
+      "ChampionManifest": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "allows_segment": {
+            "kind": "method",
+            "signature": "(self, segment: str) -> bool"
+          },
+          "get_allowed_segments": {
+            "kind": "method",
+            "signature": "(self) -> set[str]"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, json_path: Path) -> ChampionManifest"
+          },
+          "load_model": {
+            "kind": "method",
+            "signature": "(self) -> MarketForecaster"
+          },
+          "publish": {
+            "kind": "classmethod",
+            "signature": "(cls, model: MarketForecaster, gate: HoldoutGateResult, output_dir: Path, plugin_family: str, model_name: str = 'champion', calibrator: IsotonicCalibrator | None = None, costs: CostModel | None = None, expectation: BacktestExpectation | None = None, reproducibility: ReproducibilityRecord | None = None) -> ChampionManifest"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(model_name: str, model_path: Path, calibrator_path: Path | None, gate: HoldoutGateResult, published_at: str, plugin_family: str, costs: CostModel | None = None, expectation: BacktestExpectation | None = None, reproducibility: ReproducibilityRecord | None = None) -> None"
+      },
+      "CheckResult": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> CheckResult"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(name: str, status: HealthStatus, reasons: tuple[str, ...], metrics: dict[str, Any], cause: str | None = None) -> None"
+      },
+      "ClobClient": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "close": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "fetch_prices": {
+            "kind": "method",
+            "signature": "(self, token_ids: list[str]) -> dict[str, float]"
+          }
+        },
+        "signature": "(base_url: str = 'https://clob.polymarket.com', timeout: float = 15.0) -> None"
+      },
+      "ConformalForecaster": {
+        "bases": [
+          "MarketForecaster"
+        ],
+        "kind": "class",
+        "members": {
+          "feature_names": {
+            "kind": "method",
+            "signature": "(self) -> list[str]"
+          },
+          "fit": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame, y: pd.Series) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> ConformalForecaster"
+          },
+          "predict_proba": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame) -> np.ndarray"
+          },
+          "predict_set": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame) -> list[set[object]]"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          }
+        },
+        "signature": "(base: MarketForecaster, alpha: float = 0.1, calib_fraction: float = 0.3, random_state: int = 0) -> None"
+      },
+      "CostModel": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "depth_penalty_bps": {
+            "kind": "method",
+            "signature": "(self, stake: float) -> float"
+          },
+          "fee": {
+            "kind": "method",
+            "signature": "(self, stake: float) -> float"
+          },
+          "fill_price": {
+            "kind": "method",
+            "signature": "(self, price: float, stake: float) -> float"
+          },
+          "frictionless": {
+            "kind": "classmethod",
+            "signature": "(cls) -> CostModel"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, float]"
+          }
+        },
+        "signature": "(taker_bps: float = 30.0, slippage_bps: float = 0.0, slippage_fixed: float = 0.0, depth_bps_per_unit: float = 0.0, depth_reference_stake: float = 1.0) -> None"
+      },
+      "DEFAULT_MIN_EDGE": {
+        "kind": "constant",
+        "type": "float",
+        "value": 0.2
+      },
+      "DataFingerprint": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: Mapping[str, Any]) -> DataFingerprint"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(content_sha256: str, n_rows: int, columns: list[str], source: str | None = None) -> None"
+      },
+      "DiskCache": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "clear": {
+            "kind": "method",
+            "signature": "(self) -> int"
+          },
+          "delete": {
+            "kind": "method",
+            "signature": "(self, key: str) -> bool"
+          },
+          "get": {
+            "kind": "method",
+            "signature": "(self, key: str, default: Any = None) -> Any"
+          },
+          "purge_expired": {
+            "kind": "method",
+            "signature": "(self) -> int"
+          },
+          "set": {
+            "kind": "method",
+            "signature": "(self, key: str, value: Any) -> None"
+          }
+        },
+        "signature": "(cache_dir: Path | str, ttl_seconds: int = 3600) -> None"
+      },
+      "DriftConfig": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> DriftConfig"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(n_bins: int = 10, min_samples: int = 300, epsilon: float = 0.0001, thresholds: DriftThresholds = <factory>, numeric: tuple[str, ...] = (), categorical: tuple[str, ...] = ()) -> None"
+      },
+      "DriftReport": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> DriftReport"
+          },
+          "max_kl": {
+            "kind": "property"
+          },
+          "max_psi": {
+            "kind": "property"
+          },
+          "n_alert": {
+            "kind": "property"
+          },
+          "n_insufficient": {
+            "kind": "property"
+          },
+          "n_ok": {
+            "kind": "property"
+          },
+          "n_warn": {
+            "kind": "property"
+          },
+          "prediction_kl": {
+            "kind": "property"
+          },
+          "prediction_psi": {
+            "kind": "property"
+          },
+          "status": {
+            "kind": "property"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(config: DriftConfig, features: tuple[FeatureDrift, ...], prediction: FeatureDrift | None, n_reference: int, n_current: int, absent_from_current: tuple[str, ...], new_in_current: tuple[str, ...], n_current_excluded_overlap: int = 0) -> None"
+      },
+      "DriftThresholds": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> DriftThresholds"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(psi_warn: float = 0.1, psi_alert: float = 0.25, kl_warn: float = 0.05, kl_alert: float = 0.125, missing_warn: float = 0.05, missing_alert: float = 0.2) -> None"
+      },
+      "EdgeSignal": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_quote": {
+            "kind": "classmethod",
+            "signature": "(cls, *, market_id: str, city_or_segment: str, target_date: str, horizon: str, outcome_label: str, yes_price: float, model_prob: float, costs: CostModel, stake: float, directions: tuple[str, ...] = ('yes', 'no'), question: str = '') -> EdgeSignal | None"
+          }
+        },
+        "signature": "(market_id: str, city_or_segment: str, target_date: str, horizon: str, outcome_label: str, direction: str, gamma_price: float, model_prob: float, best_edge: float, yes_edge: float, no_edge: float, question: str = '') -> None"
+      },
+      "EnsembleForecaster": {
+        "bases": [
+          "MarketForecaster"
+        ],
+        "kind": "class",
+        "members": {
+          "feature_names": {
+            "kind": "method",
+            "signature": "(self) -> list[str]"
+          },
+          "fit": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame, y: pd.Series) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> EnsembleForecaster"
+          },
+          "predict_proba": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame) -> np.ndarray"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          }
+        },
+        "signature": "(forecasters: Sequence[MarketForecaster], weights: Sequence[float] | None = None) -> None"
+      },
+      "ExperimentTracker": {
+        "bases": [
+          "Protocol"
+        ],
+        "kind": "class",
+        "members": {
+          "get_run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_id: str) -> RunRecord | None"
+          },
+          "list_runs": {
+            "kind": "method",
+            "signature": "(self, experiment: str) -> list[RunRecord]"
+          },
+          "run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_name: str) -> ActiveRun"
+          }
+        },
+        "signature": "(*args, **kwargs)"
+      },
+      "FeatureDrift": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> FeatureDrift"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(name: str, kind: FeatureKind, status: DriftStatus, drivers: tuple[str, ...], n_reference: int, n_current: int, n_reference_valid: int, n_current_valid: int, reference_missing_rate: float | None, current_missing_rate: float | None, missing_rate_change: float | None, psi: float | None, kl: float | None, unseen_rate: float | None, n_unseen_categories: int, unseen_categories: tuple[str, ...]) -> None"
+      },
+      "FeatureSnapshotStore": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "append": {
+            "kind": "method",
+            "signature": "(self, family: str, snapshots: list[dict[str, Any]]) -> int"
+          },
+          "as_of": {
+            "kind": "method",
+            "signature": "(self, family: str, cutoff: str) -> pd.DataFrame"
+          },
+          "load": {
+            "kind": "method",
+            "signature": "(self, family: str) -> pd.DataFrame"
+          }
+        },
+        "signature": "(root: Path | str) -> None"
+      },
+      "FittedTargetEncoder": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "transform": {
+            "kind": "method",
+            "signature": "(self, df: pd.DataFrame) -> pd.DataFrame"
+          }
+        },
+        "signature": "(col: str, output_col: str, smoothing: float, prior: float, nan_value: float, mapping: dict[Any, float]) -> None"
+      },
+      "GammaClient": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "close": {
+            "kind": "method",
+            "signature": "(self) -> None"
+          },
+          "discover_tmax_markets": {
+            "kind": "method",
+            "signature": "(self, page_size: int = 100, active: bool = True) -> list[TmaxMarketInfo]"
+          },
+          "fetch_markets": {
+            "kind": "method",
+            "signature": "(self, tag: str | None = None, keyword: str | None = None, limit: int = 100, active: bool = True, closed: bool = False) -> list[dict[str, Any]]"
+          },
+          "fetch_markets_all": {
+            "kind": "method",
+            "signature": "(self, tag: str | None = None, keyword: str | None = None, page_size: int = 100, max_results: int = 1000, active: bool = True, closed: bool = False) -> list[dict[str, Any]]"
+          }
+        },
+        "signature": "(base_url: str = 'https://gamma-api.polymarket.com', timeout: float = 30.0, cache: DiskCache | None = None) -> None"
+      },
+      "GroupExpectation": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> GroupExpectation"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(n_trades: int, mean_pnl_per_stake: float, std_pnl_per_stake: float, brier_score: float | None = None, brier_std: float | None = None) -> None"
+      },
+      "HealthReport": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "exit_code": {
+            "kind": "property"
+          },
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> HealthReport"
+          },
+          "problems": {
+            "kind": "property"
+          },
+          "render": {
+            "kind": "method",
+            "signature": "(self, *, verbose: bool = False) -> str"
+          },
+          "status": {
+            "kind": "property"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(as_of: str, champion: ChampionRef, checks: tuple[CheckResult, ...], skipped: tuple[str, ...], config: WatchdogConfig) -> None"
+      },
+      "HoldoutGateResult": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "evaluate": {
+            "kind": "classmethod",
+            "signature": "(cls, trades: pd.DataFrame, required_segments: list[str] | None = None, min_trades_per_segment: int = 40, min_pnl_per_segment: float = 0.0) -> HoldoutGateResult"
+          },
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: dict[str, Any]) -> HoldoutGateResult"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(decision: str, segment_results: list[SegmentGateResult], aggregate_pnl: float, aggregate_trades: int) -> None"
+      },
+      "IsotonicCalibrator": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "fit": {
+            "kind": "method",
+            "signature": "(self, probs: np.ndarray, labels: np.ndarray) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> IsotonicCalibrator"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          },
+          "transform": {
+            "kind": "method",
+            "signature": "(self, probs: np.ndarray) -> np.ndarray"
+          }
+        },
+        "signature": "() -> None"
+      },
+      "LGBMForecaster": {
+        "bases": [
+          "MarketForecaster"
+        ],
+        "kind": "class",
+        "members": {
+          "feature_names": {
+            "kind": "method",
+            "signature": "(self) -> list[str]"
+          },
+          "fit": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame, y: pd.Series) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> LGBMForecaster"
+          },
+          "predict_proba": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame) -> np.ndarray"
+          },
+          "resolved_params": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          }
+        },
+        "signature": "(objective: str = 'binary', **lgbm_params: Any) -> None"
+      },
+      "LeakageError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class"
+      },
+      "LeakageReport": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(scores: dict[str, float] = <factory>, leaked: list[str] = <factory>, max_auc: float = 0.97, target: str = 'winning_label', bin_relative: list[str] = <factory>) -> None"
+      },
+      "LiveBroker": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "cancel_all_orders": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          },
+          "cancel_order": {
+            "kind": "method",
+            "signature": "(self, order_id: str) -> dict[str, Any]"
+          },
+          "get_balance": {
+            "kind": "method",
+            "signature": "(self) -> float"
+          },
+          "get_open_orders": {
+            "kind": "method",
+            "signature": "(self) -> list[dict[str, Any]]"
+          },
+          "place_order": {
+            "kind": "method",
+            "signature": "(self, token_id: str, side: str, price: float, size: float, order_type: str = 'GTC') -> OrderReceipt"
+          },
+          "preflight": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(api_key: str, api_secret: str, api_passphrase: str, private_key: str = '', chain_id: int = 137, signature_type: int = 0, funder_address: str | None = None, base_url: str = 'https://clob.polymarket.com', dry_run: bool = False) -> None"
+      },
+      "LiveBrokerError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class"
+      },
+      "LocalJSONTracker": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "get_run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_id: str) -> RunRecord | None"
+          },
+          "list_runs": {
+            "kind": "method",
+            "signature": "(self, experiment: str) -> list[RunRecord]"
+          },
+          "run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_name: str) -> ActiveRun"
+          }
+        },
+        "signature": "(root: str | Path) -> None"
+      },
+      "MarketForecaster": {
+        "bases": [
+          "ABC"
+        ],
+        "kind": "class",
+        "members": {
+          "feature_names": {
+            "kind": "method",
+            "signature": "(self) -> list[str]"
+          },
+          "fit": {
+            "abstract": true,
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame, y: pd.Series) -> None"
+          },
+          "load": {
+            "abstract": true,
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> MarketForecaster"
+          },
+          "predict_proba": {
+            "abstract": true,
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame) -> np.ndarray"
+          },
+          "save": {
+            "abstract": true,
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          }
+        },
+        "signature": "()"
+      },
+      "MarketPlugin": {
+        "bases": [
+          "ABC"
+        ],
+        "kind": "class",
+        "members": {
+          "build_training_row": {
+            "abstract": true,
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, Any] | None"
+          },
+          "build_training_rows": {
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> list[dict[str, Any]]"
+          },
+          "discover_markets": {
+            "abstract": true,
+            "kind": "method",
+            "signature": "(self, **kwargs: Any) -> list[MarketSpec]"
+          },
+          "fetch_features": {
+            "abstract": true,
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, float]"
+          },
+          "fetch_truth": {
+            "abstract": true,
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, **kwargs: Any) -> float | str | None"
+          },
+          "is_truth_final": {
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, **kwargs: Any) -> bool"
+          }
+        },
+        "signature": "()"
+      },
+      "MarketSpec": {
+        "bases": [
+          "BaseModel"
+        ],
+        "kind": "class",
+        "members": {
+          "model_config": {
+            "kind": "attribute",
+            "type": "dict"
+          },
+          "resolve_winning_bin": {
+            "kind": "method",
+            "signature": "(self, realized_value: float) -> str | None"
+          }
+        },
+        "signature": "(*, market_id: str, slug: str, question: str, outcome_bins: list[OutcomeBin], close_time: str, market_family: str, tags: list[str] = <factory>, metadata: dict[str, Any] = <factory>) -> None"
+      },
+      "ModelRegistry": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "diff": {
+            "kind": "method",
+            "signature": "(self, version_a: str, version_b: str) -> dict[str, object]"
+          },
+          "get": {
+            "kind": "method",
+            "signature": "(self, version_id: str) -> ChampionManifest"
+          },
+          "list": {
+            "kind": "method",
+            "signature": "(self) -> list[RegistryEntry]"
+          },
+          "record": {
+            "kind": "method",
+            "signature": "(self, manifest: ChampionManifest) -> str"
+          },
+          "rollback": {
+            "kind": "method",
+            "signature": "(self, version_id: str, output_dir: Path | str) -> ChampionManifest"
+          }
+        },
+        "signature": "(registry_dir: Path | str) -> None"
+      },
+      "MulticlassBrier": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(brier_score: float, skill_score: float, n_samples: int, n_classes: int) -> None"
+      },
+      "MulticlassCalibrator": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "fit": {
+            "kind": "method",
+            "signature": "(self, proba: np.ndarray, labels: np.ndarray) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> MulticlassCalibrator"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          },
+          "transform": {
+            "kind": "method",
+            "signature": "(self, proba: np.ndarray) -> np.ndarray"
+          }
+        },
+        "signature": "(method: CalibrationMethod = 'isotonic') -> None"
+      },
+      "OrderReceipt": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(order_id: str, token_id: str, side: str, price: float, size: float, status: str, placed_at: str = <factory>) -> None"
+      },
+      "OutcomeBin": {
+        "bases": [
+          "BaseModel"
+        ],
+        "kind": "class",
+        "members": {
+          "contains": {
+            "kind": "method",
+            "signature": "(self, value: float) -> bool"
+          },
+          "model_config": {
+            "kind": "attribute",
+            "type": "dict"
+          }
+        },
+        "signature": "(*, label: str, lower: float | None = None, upper: float | None = None, lower_inclusive: bool = True, upper_inclusive: bool = True) -> None"
+      },
+      "PanelSchemaError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class"
+      },
+      "PaperBroker": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "load_trades": {
+            "kind": "method",
+            "signature": "(self) -> list[dict[str, Any]]"
+          },
+          "record": {
+            "kind": "method",
+            "signature": "(self, signals: list[EdgeSignal], now_utc: datetime | None = None, city_timezones: dict[str, str] | None = None) -> list[dict[str, Any]]"
+          }
+        },
+        "signature": "(trades_path: Path, allowed_segments: set[str] | None = None, flat_stake: float = 1.0, taker_bps: float | None = None, costs: CostModel | None = None) -> None"
+      },
+      "PluginRegistry": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "get": {
+            "kind": "method",
+            "signature": "(self, family: str) -> MarketPlugin"
+          },
+          "list_families": {
+            "kind": "method",
+            "signature": "(self) -> list[str]"
+          },
+          "register": {
+            "kind": "method",
+            "signature": "(self, plugin: MarketPlugin) -> None"
+          },
+          "unregister": {
+            "kind": "method",
+            "signature": "(self, family: str) -> None"
+          }
+        },
+        "signature": "() -> None"
+      },
+      "PmlabDeprecationWarning": {
+        "bases": [
+          "DeprecationWarning"
+        ],
+        "kind": "class"
+      },
+      "PmlabSettings": {
+        "bases": [
+          "BaseSettings"
+        ],
+        "kind": "class",
+        "members": {
+          "champion_json_path": {
+            "kind": "property"
+          },
+          "has_api_credentials": {
+            "kind": "property"
+          },
+          "model_config": {
+            "kind": "attribute",
+            "type": "dict"
+          },
+          "trades_path": {
+            "kind": "property"
+          },
+          "workspace_dir": {
+            "kind": "property"
+          }
+        },
+        "signature": "(*, artifacts_dir: pathlib.Path = PosixPath('artifacts'), workspace: str = 'ops_daily', cache_dir: pathlib.Path = PosixPath('.pmlab_cache'), cache_ttl: int = 3600, log_level: str = 'INFO', POLY_API_KEY: str = '', POLY_API_SECRET: str = '', POLY_API_PASSPHRASE: str = '', GAMMA_API_BASE: str = 'https://gamma-api.polymarket.com', CLOB_API_BASE: str = 'https://clob.polymarket.com') -> None"
+      },
+      "PnLThresholds": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> PnLThresholds"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(min_trades: int = 30, shortfall_warn: float = 0.5, shortfall_alert: float = 1.0, z_warn: float = 2.0, z_alert: float = 3.0, sequential: bool = True, cusum_allowance: float = 0.5, cusum_backtest_se: float = 0.5, cusum_threshold: float = 30.0, cusum_min_backtest_trades: int = 100, cusum_increment_cap: float = 5.0, mde_power: float = 0.8) -> None"
+      },
+      "Position": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(outcome_label: str, price: float, size: float, side: str) -> None"
+      },
+      "PriceTimingReport": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(n_rows: int = 0, n_checked: int = 0, late: int = 0, untimed: int = 0, after_close: int = 0, close_unknown: int = 0, late_index: list[Any] = <factory>, untimed_index: list[Any] = <factory>, after_close_index: list[Any] = <factory>) -> None"
+      },
+      "QuoteEdges": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(yes_fill: float, no_fill: float, yes_edge: float, no_edge: float, best_edge: float, direction: str) -> None"
+      },
+      "RegistryEntry": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(version_id: str, model_name: str, plugin_family: str, published_at: str, gate_decision: str, aggregate_pnl: float, aggregate_trades: int) -> None"
+      },
+      "ReproducibilityRecord": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "capture": {
+            "kind": "classmethod",
+            "signature": "(cls, kind: str, seeds: Mapping[str, int | None], config: Mapping[str, Any], data: DataFingerprint, metrics: Mapping[str, Any]) -> ReproducibilityRecord"
+          },
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: Mapping[str, Any]) -> ReproducibilityRecord"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(kind: str, seeds: dict[str, int | None], environment: dict[str, str | None], config: dict[str, Any], data: DataFingerprint, metrics: dict[str, Any], schema_version: int = 1, created_at: str = <factory>) -> None"
+      },
+      "ResettleResult": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(trades: list[dict[str, Any]], changes: list[Change] = <factory>, n_resettled: int = 0, n_changed: int = 0, n_open: int = 0, n_current: int = 0, n_unrecomputable: int = 0, unrecomputable: list[str] = <factory>, total_before: float = 0.0, total_after: float = 0.0) -> None"
+      },
+      "RollingOriginResult": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(trades: pd.DataFrame, steps: list[dict[str, Any]] = <factory>) -> None"
+      },
+      "RunRecord": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: dict[str, Any]) -> RunRecord"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(run_id: str, experiment: str, run_name: str, params: dict[str, Any] = <factory>, metrics: dict[str, Any] = <factory>, gate: dict[str, Any] = <factory>, reproducibility: dict[str, Any] = <factory>, status: str = 'running', started_at: str = '', ended_at: str | None = None, error: str | None = None) -> None"
+      },
+      "SegmentExpectation": {
+        "bases": [
+          "GroupExpectation"
+        ],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> SegmentExpectation"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(n_trades: int, mean_pnl_per_stake: float, std_pnl_per_stake: float, brier_score: float | None = None, brier_std: float | None = None, by_direction: Mapping[str, GroupExpectation] | None = None) -> None"
+      },
+      "SegmentGateResult": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(segment: str, num_trades: int, total_pnl: float, passes: bool, reason: str) -> None"
+      },
+      "SettlementEngine": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "settle_all": {
+            "kind": "method",
+            "signature": "(self, specs: list[MarketSpec], today_str: str | None = None, now_utc: datetime | None = None) -> dict[str, Any]"
+          }
+        },
+        "signature": "(plugin: MarketPlugin, trades_path: Path) -> None"
+      },
+      "SigmoidCalibrator": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "fit": {
+            "kind": "method",
+            "signature": "(self, probs: np.ndarray, labels: np.ndarray) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> SigmoidCalibrator"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          },
+          "transform": {
+            "kind": "method",
+            "signature": "(self, probs: np.ndarray) -> np.ndarray"
+          }
+        },
+        "signature": "() -> None"
+      },
+      "SklearnForecaster": {
+        "bases": [
+          "MarketForecaster"
+        ],
+        "kind": "class",
+        "members": {
+          "feature_names": {
+            "kind": "method",
+            "signature": "(self) -> list[str]"
+          },
+          "fit": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame, y: pd.Series) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> SklearnForecaster"
+          },
+          "predict_proba": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame) -> np.ndarray"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          }
+        },
+        "signature": "(estimator: str | ClassifierMixin = 'logistic_regression', **kwargs: Any) -> None"
+      },
+      "TargetEncoder": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "assign_folds": {
+            "kind": "method",
+            "signature": "(self, df: pd.DataFrame) -> npt.NDArray[np.int64]"
+          },
+          "encoded_col": {
+            "kind": "property"
+          },
+          "fit": {
+            "kind": "method",
+            "signature": "(self, df: pd.DataFrame) -> FittedTargetEncoder"
+          },
+          "fit_transform": {
+            "kind": "method",
+            "signature": "(self, df: pd.DataFrame) -> pd.DataFrame"
+          }
+        },
+        "signature": "(col: str, target: str, smoothing: float = 10.0, cv: CVScheme = 'time', n_folds: int = 5, time_col: str | None = None, group_col: str | None = None, seed: int = 0, suffix: str = '_te', output_col: str | None = None) -> None"
+      },
+      "TradePolicy": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> TradePolicy"
+          },
+          "live": {
+            "kind": "classmethod",
+            "signature": "(cls, min_edge: float = 0.2, directions: tuple[str, ...] = ('yes', 'no')) -> TradePolicy"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          },
+          "top_bin_yes": {
+            "kind": "classmethod",
+            "signature": "(cls) -> TradePolicy"
+          }
+        },
+        "signature": "(selection: Literal['top_prob', 'best_edge'] = 'best_edge', directions: tuple[str, ...] = ('yes', 'no'), min_edge: float | None = 0.2) -> None"
+      },
+      "TunedForecaster": {
+        "bases": [
+          "MarketForecaster"
+        ],
+        "kind": "class",
+        "members": {
+          "feature_names": {
+            "kind": "method",
+            "signature": "(self) -> list[str]"
+          },
+          "fit": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame, y: pd.Series) -> None"
+          },
+          "load": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path) -> TunedForecaster"
+          },
+          "predict_proba": {
+            "kind": "method",
+            "signature": "(self, X: pd.DataFrame) -> np.ndarray"
+          },
+          "save": {
+            "kind": "method",
+            "signature": "(self, path: Path) -> None"
+          },
+          "tune": {
+            "kind": "method",
+            "signature": "(self, panel: pd.DataFrame) -> TunedForecaster"
+          },
+          "tuning_config": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(build_fn: Callable[[dict[str, Any]], MarketForecaster], param_space: Callable[[optuna.Trial], dict[str, Any]], n_trials: int = 20, metric: TuneMetric = 'total_pnl', random_state: int = 0, stride: int = 10, min_train_rows: int = 20, flat_stake: float = 1.0, taker_bps: float | None = None, policy: TradePolicy | None = None, costs: CostModel | None = None) -> None"
+      },
+      "TypedCache": {
+        "bases": [
+          "DiskCache",
+          "Generic"
+        ],
+        "kind": "class",
+        "members": {
+          "clear": {
+            "kind": "method",
+            "signature": "(self) -> int"
+          },
+          "delete": {
+            "kind": "method",
+            "signature": "(self, key: str) -> bool"
+          },
+          "get": {
+            "kind": "method",
+            "signature": "(self, key: str, default: Any = None) -> Any"
+          },
+          "purge_expired": {
+            "kind": "method",
+            "signature": "(self) -> int"
+          },
+          "set": {
+            "kind": "method",
+            "signature": "(self, key: str, value: T) -> None"
+          }
+        },
+        "signature": "(cache_dir: pathlib.Path | str, ttl_seconds: int = 3600) -> None"
+      },
+      "WatchdogConfig": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> WatchdogConfig"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(drift: DriftConfig = <factory>, calibration: CalibrationThresholds = <factory>, pnl: PnLThresholds = <factory>, insufficient: InsufficientPolicy = 'separate') -> None"
+      },
+      "WatchdogInputError": {
+        "bases": [
+          "ValueError"
+        ],
+        "kind": "class"
+      },
+      "WeatherTmaxPlugin": {
+        "bases": [
+          "MarketPlugin"
+        ],
+        "kind": "class",
+        "members": {
+          "build_training_row": {
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, Any] | None"
+          },
+          "build_training_rows": {
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> list[dict[str, Any]]"
+          },
+          "discover_markets": {
+            "kind": "method",
+            "signature": "(self, **kwargs: Any) -> list[MarketSpec]"
+          },
+          "family": {
+            "kind": "attribute",
+            "type": "str",
+            "value": "weather_tmax"
+          },
+          "fetch_features": {
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, float]"
+          },
+          "fetch_truth": {
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, **kwargs: Any) -> float | None"
+          },
+          "is_truth_final": {
+            "kind": "method",
+            "signature": "(self, spec: MarketSpec, **kwargs: Any) -> bool"
+          }
+        },
+        "signature": "(gamma_client: Any | None = None, forecast_client: Any | None = None, truth_client: Any | None = None, clock: Callable[[], datetime] | None = None) -> None"
+      },
+      "WorkspaceContext": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_env": {
+            "kind": "classmethod",
+            "signature": "(cls) -> WorkspaceContext"
+          },
+          "from_name": {
+            "kind": "classmethod",
+            "signature": "(cls, name: str, repo_root: pathlib.Path) -> WorkspaceContext"
+          }
+        },
+        "signature": "(name: str, data_root: pathlib.Path, artifacts_root: pathlib.Path, parquet_root: pathlib.Path, duckdb_path: pathlib.Path) -> None"
+      },
+      "__version__": {
+        "kind": "constant",
+        "type": "str"
+      },
+      "add_interactions": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, pairs: list[tuple[str, str]], op: InteractionOp = 'mul') -> pd.DataFrame"
+      },
+      "add_lags": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], lags: list[int], group_by: str | None = None, fill_value: float = nan) -> pd.DataFrame"
+      },
+      "add_missing_indicators": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], suffix: str = '_isna') -> pd.DataFrame"
+      },
+      "add_rolling_stats": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], windows: list[int], stats: list[Literal['mean', 'std', 'min', 'max', 'median']] | None = None, group_by: str | None = None, min_periods: int = 1) -> pd.DataFrame"
+      },
+      "brier_decomposition": {
+        "kind": "function",
+        "signature": "(y_true: ArrayLike, y_prob: ArrayLike, n_bins: int = 10) -> BrierDecomposition"
+      },
+      "build_panel": {
+        "kind": "function",
+        "signature": "(rows: Iterable[dict[str, Any] | list[dict[str, Any]] | None], check_leakage: bool = False, max_auc: float = 0.97) -> pd.DataFrame"
+      },
+      "build_panel_from_snapshots": {
+        "kind": "function",
+        "signature": "(store: FeatureSnapshotStore, family: str, resolutions: pd.DataFrame, outcome_label: str = 'Yes', price_col: str | None = None) -> pd.DataFrame"
+      },
+      "capture_backtest": {
+        "kind": "function",
+        "signature": "(panel: pd.DataFrame, config: BacktestConfig, seeds: Mapping[str, int | None], metrics: Mapping[str, Any], source: str | None = None) -> ReproducibilityRecord"
+      },
+      "check_no_leakage": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, label_col: str | None = None, max_auc: float = 0.97, raise_on_leak: bool = True) -> LeakageReport"
+      },
+      "check_price_timing": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, price_col: str = 'price_ts', cutoff_col: str = 'decision_ts', close_col: str = 'market_close_ts', raise_on_leak: bool = True) -> PriceTimingReport"
+      },
+      "clip_outliers": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], method: Literal['iqr', 'zscore'] = 'iqr', iqr_factor: float = 3.0, zscore_threshold: float = 4.0) -> pd.DataFrame"
+      },
+      "compute_edge": {
+        "kind": "function",
+        "signature": "(fair_probability: float, executable_price: float, fee_estimate: float = 0.0, slippage_estimate: float = 0.0) -> float"
+      },
+      "compute_metrics": {
+        "kind": "function",
+        "signature": "(trades: pd.DataFrame) -> BacktestMetrics"
+      },
+      "datasets": {
+        "kind": "module"
+      },
+      "discover_plugins": {
+        "kind": "function",
+        "signature": "() -> PluginRegistry"
+      },
+      "drift_report": {
+        "kind": "function",
+        "signature": "(reference: Mapping[str, Any] | pd.DataFrame, current: Mapping[str, Any] | pd.DataFrame, *, features: Sequence[str] | None = None, reference_predictions: Sequence[float] | npt.ArrayLike | None = None, current_predictions: Sequence[float] | npt.ArrayLike | None = None, config: DriftConfig | None = None) -> DriftReport"
+      },
+      "drift_report_from_store": {
+        "kind": "function",
+        "signature": "(store: FeatureSnapshotStore, family: str, reference: pd.DataFrame, *, window_start: str, cutoff: str, features: Sequence[str] | None = None, predict_fn: Callable[[pd.DataFrame], Sequence[float] | npt.ArrayLike] | None = None, exclude_reference_markets: bool = True, config: DriftConfig | None = None) -> DriftReport"
+      },
+      "embargoed_split": {
+        "kind": "function",
+        "signature": "(samples: NDArray[np.int_] | np.ndarray, n_splits: int = 5, embargo: int = 0) -> Iterator[tuple[NDArray[np.int_], NDArray[np.int_]]]"
+      },
+      "encode_cyclical": {
+        "kind": "function",
+        "signature": "(series: pd.Series, period: float) -> tuple[pd.Series, pd.Series]"
+      },
+      "encode_onehot": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], drop_first: bool = True, dtype: type = <class 'float'>) -> pd.DataFrame"
+      },
+      "estimate_fee": {
+        "kind": "function",
+        "signature": "(flat_stake: float, taker_bps: float = 30.0) -> float"
+      },
+      "fingerprint_panel": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, source: str | None = None) -> DataFingerprint"
+      },
+      "flat_stake_size": {
+        "kind": "function",
+        "signature": "(flat_stake: float, entry_price: float) -> float"
+      },
+      "generate_report": {
+        "kind": "function",
+        "signature": "(trades: list[dict[str, Any]], output_path: Path | str = PosixPath('pmlab_report.html'), title: str = 'pmlab Paper Trading Report', brier_score: float | None = None) -> Path"
+      },
+      "get_settings": {
+        "kind": "function",
+        "signature": "() -> PmlabSettings"
+      },
+      "health_report": {
+        "kind": "function",
+        "signature": "(*, champion: ChampionManifest, trades: Sequence[Mapping[str, Any]], drift: DriftReport | None, as_of: str, config: WatchdogConfig | None = None, checks: Sequence[str] = ('drift', 'calibration', 'pnl')) -> HealthReport"
+      },
+      "kelly_fraction": {
+        "kind": "function",
+        "signature": "(win_prob: float, entry_price: float, fraction: float = 0.25) -> float"
+      },
+      "kelly_stake_size": {
+        "kind": "function",
+        "signature": "(win_prob: float, entry_price: float, bankroll: float, fraction: float = 0.25, max_exposure: float = 0.05) -> float"
+      },
+      "load_plugins_from_entry_points": {
+        "kind": "function",
+        "signature": "(registry: PluginRegistry | None = None) -> PluginRegistry"
+      },
+      "load_record": {
+        "kind": "function",
+        "signature": "(ref: str, runs_dir: str | Path | None = None, registry_dir: str | Path | None = None) -> ReproducibilityRecord"
+      },
+      "multiclass_brier": {
+        "kind": "function",
+        "signature": "(y_true: ArrayLike, y_prob: ArrayLike) -> MulticlassBrier"
+      },
+      "purged_kfold": {
+        "kind": "function",
+        "signature": "(samples: NDArray[np.int_] | np.ndarray, n_splits: int = 5, embargo: int = 0) -> Iterator[tuple[NDArray[np.int_], NDArray[np.int_]]]"
+      },
+      "quote_edges": {
+        "kind": "function",
+        "signature": "(model_prob: float, yes_price: float, costs: CostModel, stake: float, directions: tuple[str, ...] = ('yes', 'no')) -> QuoteEdges"
+      },
+      "reliability_data": {
+        "kind": "function",
+        "signature": "(y_true: ArrayLike, y_prob: ArrayLike, n_bins: int = 10) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]"
+      },
+      "reliability_data_multiclass": {
+        "kind": "function",
+        "signature": "(y_true: ArrayLike, y_prob: ArrayLike, n_bins: int = 10) -> list[tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]]"
+      },
+      "reproduce": {
+        "kind": "function",
+        "signature": "(record: ReproducibilityRecord, *, panel: pd.DataFrame | None = None, panel_path: str | Path | None = None, allow_data_mismatch: bool = False, rtol: float = 1e-09, atol: float = 1e-12) -> ReproduceReport"
+      },
+      "resettle_trades": {
+        "kind": "function",
+        "signature": "(trades: Sequence[Mapping[str, Any]], *, now_utc: datetime) -> ResettleResult"
+      },
+      "resolve_seeds": {
+        "kind": "function",
+        "signature": "(seed: int = 0, optuna: int | None = None) -> dict[str, int]"
+      },
+      "rolling_origin_eval": {
+        "kind": "function",
+        "signature": "(panel: pd.DataFrame, model: _ModelProtocol, min_train_rows: int = 20, stride: int = 10, flat_stake: float = 1.0, taker_bps: float | None = None, costs: CostModel | None = None, policy: TradePolicy | None = None) -> RollingOriginResult"
+      },
+      "run_backtest": {
+        "kind": "function",
+        "signature": "(panel: pd.DataFrame, config: BacktestConfig, seeds: Mapping[str, int | None]) -> BacktestOutcome"
+      },
+      "segment_allowed": {
+        "kind": "function",
+        "signature": "(segment: str, allowed: Collection[str] | None) -> bool"
+      },
+      "settle_position": {
+        "kind": "function",
+        "signature": "(position: Position, winning_label: str, fee_paid: float = 0.0) -> float"
+      }
+    },
+    "pmlab.data": {
+      "FeatureSnapshotStore": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "append": {
+            "kind": "method",
+            "signature": "(self, family: str, snapshots: list[dict[str, Any]]) -> int"
+          },
+          "as_of": {
+            "kind": "method",
+            "signature": "(self, family: str, cutoff: str) -> pd.DataFrame"
+          },
+          "load": {
+            "kind": "method",
+            "signature": "(self, family: str) -> pd.DataFrame"
+          }
+        },
+        "signature": "(root: Path | str) -> None"
+      },
+      "LeakageError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class"
+      },
+      "LeakageReport": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(scores: dict[str, float] = <factory>, leaked: list[str] = <factory>, max_auc: float = 0.97, target: str = 'winning_label', bin_relative: list[str] = <factory>) -> None"
+      },
+      "PanelSchemaError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class"
+      },
+      "PriceTimingReport": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(n_rows: int = 0, n_checked: int = 0, late: int = 0, untimed: int = 0, after_close: int = 0, close_unknown: int = 0, late_index: list[Any] = <factory>, untimed_index: list[Any] = <factory>, after_close_index: list[Any] = <factory>) -> None"
+      },
+      "build_panel": {
+        "kind": "function",
+        "signature": "(rows: Iterable[dict[str, Any] | list[dict[str, Any]] | None], check_leakage: bool = False, max_auc: float = 0.97) -> pd.DataFrame"
+      },
+      "build_panel_from_snapshots": {
+        "kind": "function",
+        "signature": "(store: FeatureSnapshotStore, family: str, resolutions: pd.DataFrame, outcome_label: str = 'Yes', price_col: str | None = None) -> pd.DataFrame"
+      },
+      "check_no_leakage": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, label_col: str | None = None, max_auc: float = 0.97, raise_on_leak: bool = True) -> LeakageReport"
+      },
+      "check_price_timing": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, price_col: str = 'price_ts', cutoff_col: str = 'decision_ts', close_col: str = 'market_close_ts', raise_on_leak: bool = True) -> PriceTimingReport"
+      }
+    },
+    "pmlab.datasets": {
+      "SAMPLE_FAMILY": {
+        "kind": "constant",
+        "type": "str",
+        "value": "weather_tmax"
+      },
+      "SAMPLE_HORIZON": {
+        "kind": "constant",
+        "type": "str",
+        "value": "previous_evening"
+      },
+      "SampleDataError": {
+        "bases": [
+          "RuntimeError"
+        ],
+        "kind": "class"
+      },
+      "SampleDataset": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "cities": {
+            "kind": "property"
+          },
+          "city_timezones": {
+            "kind": "property"
+          },
+          "first_target_date": {
+            "kind": "property"
+          },
+          "from_payload": {
+            "kind": "classmethod",
+            "signature": "(cls, payload: Mapping[str, Any]) -> SampleDataset"
+          },
+          "labels": {
+            "kind": "method",
+            "signature": "(self, market: Mapping[str, Any]) -> list[str]"
+          },
+          "last_target_date": {
+            "kind": "property"
+          },
+          "n_markets": {
+            "kind": "property"
+          },
+          "plugin": {
+            "kind": "method",
+            "signature": "(self, day: str | None = None) -> WeatherTmaxPlugin"
+          },
+          "winning_index": {
+            "kind": "method",
+            "signature": "(self, market: Mapping[str, Any]) -> int"
+          }
+        },
+        "signature": "(payload: Mapping[str, Any]) -> None"
+      },
+      "SampleForecastClient": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "get_features": {
+            "kind": "method",
+            "signature": "(self, city: str, target_date: str, horizon: str) -> dict[str, float]"
+          }
+        },
+        "signature": "(dataset: SampleDataset) -> None"
+      },
+      "SampleGammaClient": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "fetch_markets_all": {
+            "kind": "method",
+            "signature": "(self, page_size: int = 100, max_results: int = 1000, **kwargs: Any) -> list[dict[str, Any]]"
+          }
+        },
+        "signature": "(dataset: SampleDataset, day: str) -> None"
+      },
+      "SampleTruthClient": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "get_daily_max": {
+            "kind": "method",
+            "signature": "(self, city: str, date: str) -> float | None"
+          }
+        },
+        "signature": "(dataset: SampleDataset, day: str | None = None) -> None"
+      },
+      "load_sample": {
+        "kind": "function",
+        "signature": "() -> SampleDataset"
+      }
+    },
+    "pmlab.features": {
+      "FittedTargetEncoder": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "transform": {
+            "kind": "method",
+            "signature": "(self, df: pd.DataFrame) -> pd.DataFrame"
+          }
+        },
+        "signature": "(col: str, output_col: str, smoothing: float, prior: float, nan_value: float, mapping: dict[Any, float]) -> None"
+      },
+      "TargetEncoder": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "assign_folds": {
+            "kind": "method",
+            "signature": "(self, df: pd.DataFrame) -> npt.NDArray[np.int64]"
+          },
+          "encoded_col": {
+            "kind": "property"
+          },
+          "fit": {
+            "kind": "method",
+            "signature": "(self, df: pd.DataFrame) -> FittedTargetEncoder"
+          },
+          "fit_transform": {
+            "kind": "method",
+            "signature": "(self, df: pd.DataFrame) -> pd.DataFrame"
+          }
+        },
+        "signature": "(col: str, target: str, smoothing: float = 10.0, cv: CVScheme = 'time', n_folds: int = 5, time_col: str | None = None, group_col: str | None = None, seed: int = 0, suffix: str = '_te', output_col: str | None = None) -> None"
+      },
+      "add_interactions": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, pairs: list[tuple[str, str]], op: InteractionOp = 'mul') -> pd.DataFrame"
+      },
+      "add_lags": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], lags: list[int], group_by: str | None = None, fill_value: float = nan) -> pd.DataFrame"
+      },
+      "add_missing_indicators": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], suffix: str = '_isna') -> pd.DataFrame"
+      },
+      "add_rolling_stats": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], windows: list[int], stats: list[Literal['mean', 'std', 'min', 'max', 'median']] | None = None, group_by: str | None = None, min_periods: int = 1) -> pd.DataFrame"
+      },
+      "clip_outliers": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], method: Literal['iqr', 'zscore'] = 'iqr', iqr_factor: float = 3.0, zscore_threshold: float = 4.0) -> pd.DataFrame"
+      },
+      "encode_cyclical": {
+        "kind": "function",
+        "signature": "(series: pd.Series, period: float) -> tuple[pd.Series, pd.Series]"
+      },
+      "encode_onehot": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, cols: list[str], drop_first: bool = True, dtype: type = <class 'float'>) -> pd.DataFrame"
+      }
+    },
+    "pmlab.monitoring": {
+      "CalibrationThresholds": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> CalibrationThresholds"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(min_trades: int = 30, brier_warn_abs: float = 0.02, brier_alert_abs: float = 0.05, brier_warn_rel: float = 0.1, brier_alert_rel: float = 0.25, z_warn: float = 2.0, z_alert: float = 3.0, n_bins: int = 10) -> None"
+      },
+      "CalibrationTracker": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "by_segment": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, CalibrationWindow]"
+          },
+          "from_path": {
+            "kind": "classmethod",
+            "signature": "(cls, path: Path | str, *, n_bins: int = 10) -> CalibrationTracker"
+          },
+          "overall": {
+            "kind": "method",
+            "signature": "(self) -> CalibrationWindow | None"
+          },
+          "rolling": {
+            "kind": "method",
+            "signature": "(self, window: int) -> list[CalibrationWindow]"
+          },
+          "squared_errors": {
+            "kind": "method",
+            "signature": "(self) -> list[float]"
+          }
+        },
+        "signature": "(trades: list[dict[str, Any]], *, n_bins: int = 10) -> None"
+      },
+      "CalibrationWindow": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> CalibrationWindow"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(n_trades: int, brier_score: float, reliability: float, resolution: float, uncertainty: float, skill_score: float, base_rate: float, mean_forecast: float, window_start: str, window_end: str, reliability_curve: tuple[dict[str, float], ...]) -> None"
+      },
+      "CheckResult": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> CheckResult"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(name: str, status: HealthStatus, reasons: tuple[str, ...], metrics: dict[str, Any], cause: str | None = None) -> None"
+      },
+      "DriftConfig": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> DriftConfig"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(n_bins: int = 10, min_samples: int = 300, epsilon: float = 0.0001, thresholds: DriftThresholds = <factory>, numeric: tuple[str, ...] = (), categorical: tuple[str, ...] = ()) -> None"
+      },
+      "DriftReport": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> DriftReport"
+          },
+          "max_kl": {
+            "kind": "property"
+          },
+          "max_psi": {
+            "kind": "property"
+          },
+          "n_alert": {
+            "kind": "property"
+          },
+          "n_insufficient": {
+            "kind": "property"
+          },
+          "n_ok": {
+            "kind": "property"
+          },
+          "n_warn": {
+            "kind": "property"
+          },
+          "prediction_kl": {
+            "kind": "property"
+          },
+          "prediction_psi": {
+            "kind": "property"
+          },
+          "status": {
+            "kind": "property"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(config: DriftConfig, features: tuple[FeatureDrift, ...], prediction: FeatureDrift | None, n_reference: int, n_current: int, absent_from_current: tuple[str, ...], new_in_current: tuple[str, ...], n_current_excluded_overlap: int = 0) -> None"
+      },
+      "DriftThresholds": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> DriftThresholds"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(psi_warn: float = 0.1, psi_alert: float = 0.25, kl_warn: float = 0.05, kl_alert: float = 0.125, missing_warn: float = 0.05, missing_alert: float = 0.2) -> None"
+      },
+      "FeatureDrift": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: dict[str, Any]) -> FeatureDrift"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(name: str, kind: FeatureKind, status: DriftStatus, drivers: tuple[str, ...], n_reference: int, n_current: int, n_reference_valid: int, n_current_valid: int, reference_missing_rate: float | None, current_missing_rate: float | None, missing_rate_change: float | None, psi: float | None, kl: float | None, unseen_rate: float | None, n_unseen_categories: int, unseen_categories: tuple[str, ...]) -> None"
+      },
+      "HealthReport": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "exit_code": {
+            "kind": "property"
+          },
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> HealthReport"
+          },
+          "problems": {
+            "kind": "property"
+          },
+          "render": {
+            "kind": "method",
+            "signature": "(self, *, verbose: bool = False) -> str"
+          },
+          "status": {
+            "kind": "property"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(as_of: str, champion: ChampionRef, checks: tuple[CheckResult, ...], skipped: tuple[str, ...], config: WatchdogConfig) -> None"
+      },
+      "PnLThresholds": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> PnLThresholds"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(min_trades: int = 30, shortfall_warn: float = 0.5, shortfall_alert: float = 1.0, z_warn: float = 2.0, z_alert: float = 3.0, sequential: bool = True, cusum_allowance: float = 0.5, cusum_backtest_se: float = 0.5, cusum_threshold: float = 30.0, cusum_min_backtest_trades: int = 100, cusum_increment_cap: float = 5.0, mde_power: float = 0.8) -> None"
+      },
+      "WatchdogConfig": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> WatchdogConfig"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(drift: DriftConfig = <factory>, calibration: CalibrationThresholds = <factory>, pnl: PnLThresholds = <factory>, insufficient: InsufficientPolicy = 'separate') -> None"
+      },
+      "WatchdogInputError": {
+        "bases": [
+          "ValueError"
+        ],
+        "kind": "class"
+      },
+      "drift_report": {
+        "kind": "function",
+        "signature": "(reference: Mapping[str, Any] | pd.DataFrame, current: Mapping[str, Any] | pd.DataFrame, *, features: Sequence[str] | None = None, reference_predictions: Sequence[float] | npt.ArrayLike | None = None, current_predictions: Sequence[float] | npt.ArrayLike | None = None, config: DriftConfig | None = None) -> DriftReport"
+      },
+      "drift_report_from_store": {
+        "kind": "function",
+        "signature": "(store: FeatureSnapshotStore, family: str, reference: pd.DataFrame, *, window_start: str, cutoff: str, features: Sequence[str] | None = None, predict_fn: Callable[[pd.DataFrame], Sequence[float] | npt.ArrayLike] | None = None, exclude_reference_markets: bool = True, config: DriftConfig | None = None) -> DriftReport"
+      },
+      "health_report": {
+        "kind": "function",
+        "signature": "(*, champion: ChampionManifest, trades: Sequence[Mapping[str, Any]], drift: DriftReport | None, as_of: str, config: WatchdogConfig | None = None, checks: Sequence[str] = ('drift', 'calibration', 'pnl')) -> HealthReport"
+      }
+    },
+    "pmlab.reports": {
+      "generate_report": {
+        "kind": "function",
+        "signature": "(trades: list[dict[str, Any]], output_path: Path | str = PosixPath('pmlab_report.html'), title: str = 'pmlab Paper Trading Report', brier_score: float | None = None) -> Path"
+      }
+    },
+    "pmlab.reproducibility": {
+      "BacktestConfig": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: Mapping[str, Any]) -> BacktestConfig"
+          },
+          "resolve": {
+            "kind": "classmethod",
+            "signature": "(cls, plugin: str, model: str = 'lgbm_baseline', model_params: Mapping[str, Any] | None = None, stride: int = 30, min_train_rows: int = 20, flat_stake: float = 1.0, costs: CostModel | None = None, policy: TradePolicy | str = 'live', min_edge: float | None = None, tuning: Mapping[str, Any] | None = None) -> BacktestConfig"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, float], policy: dict[str, Any], tuning: dict[str, Any] | None = None) -> None"
+      },
+      "BacktestOutcome": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(trades: pd.DataFrame, steps: list[dict[str, Any]], metrics: dict[str, Any]) -> None"
+      },
+      "DEFAULT_ATOL": {
+        "kind": "constant",
+        "type": "float",
+        "value": 1e-12
+      },
+      "DEFAULT_RTOL": {
+        "kind": "constant",
+        "type": "float",
+        "value": 1e-09
+      },
+      "DEFAULT_SEED": {
+        "kind": "constant",
+        "type": "int",
+        "value": 0
+      },
+      "DataFingerprint": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: Mapping[str, Any]) -> DataFingerprint"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(content_sha256: str, n_rows: int, columns: list[str], source: str | None = None) -> None"
+      },
+      "DataMismatchError": {
+        "bases": [
+          "ReproduceError"
+        ],
+        "kind": "class",
+        "signature": "(recorded: DataFingerprint, current: DataFingerprint) -> None"
+      },
+      "EnvDrift": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(name: str, recorded: str | None, current: str | None) -> None"
+      },
+      "MetricComparison": {
+        "bases": [],
+        "kind": "class",
+        "signature": "(name: str, recorded: Any, reproduced: Any, abs_diff: float | None, ok: bool) -> None"
+      },
+      "ReproduceError": {
+        "bases": [
+          "Exception"
+        ],
+        "kind": "class"
+      },
+      "ReproduceReport": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "reproduced": {
+            "kind": "property"
+          }
+        },
+        "signature": "(record: ReproducibilityRecord, status: Literal['reproduced', 'not_reproduced'], comparisons: list[MetricComparison], drift: list[EnvDrift], data_match: bool, rtol: float, atol: float, notes: list[str] = <factory>) -> None"
+      },
+      "ReproducibilityRecord": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "capture": {
+            "kind": "classmethod",
+            "signature": "(cls, kind: str, seeds: Mapping[str, int | None], config: Mapping[str, Any], data: DataFingerprint, metrics: Mapping[str, Any]) -> ReproducibilityRecord"
+          },
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: Mapping[str, Any]) -> ReproducibilityRecord"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(kind: str, seeds: dict[str, int | None], environment: dict[str, str | None], config: dict[str, Any], data: DataFingerprint, metrics: dict[str, Any], schema_version: int = 1, created_at: str = <factory>) -> None"
+      },
+      "SCHEMA_VERSION": {
+        "kind": "constant",
+        "type": "int",
+        "value": 1
+      },
+      "backtest_metrics": {
+        "kind": "function",
+        "signature": "(result: RollingOriginResult) -> dict[str, Any]"
+      },
+      "build_forecaster": {
+        "kind": "function",
+        "signature": "(config: BacktestConfig, seeds: Mapping[str, int | None]) -> LGBMForecaster"
+      },
+      "capture_backtest": {
+        "kind": "function",
+        "signature": "(panel: pd.DataFrame, config: BacktestConfig, seeds: Mapping[str, int | None], metrics: Mapping[str, Any], source: str | None = None) -> ReproducibilityRecord"
+      },
+      "capture_environment": {
+        "kind": "function",
+        "signature": "() -> dict[str, str | None]"
+      },
+      "compare_metrics": {
+        "kind": "function",
+        "signature": "(recorded: Mapping[str, Any], reproduced: Mapping[str, Any], rtol: float = 1e-09, atol: float = 1e-12) -> list[MetricComparison]"
+      },
+      "environment_drift": {
+        "kind": "function",
+        "signature": "(recorded: Mapping[str, str | None], current: Mapping[str, str | None] | None = None) -> list[EnvDrift]"
+      },
+      "fingerprint_panel": {
+        "kind": "function",
+        "signature": "(df: pd.DataFrame, source: str | None = None) -> DataFingerprint"
+      },
+      "load_panel": {
+        "kind": "function",
+        "signature": "(path: str | Path) -> pd.DataFrame"
+      },
+      "load_record": {
+        "kind": "function",
+        "signature": "(ref: str, runs_dir: str | Path | None = None, registry_dir: str | Path | None = None) -> ReproducibilityRecord"
+      },
+      "reproduce": {
+        "kind": "function",
+        "signature": "(record: ReproducibilityRecord, *, panel: pd.DataFrame | None = None, panel_path: str | Path | None = None, allow_data_mismatch: bool = False, rtol: float = 1e-09, atol: float = 1e-12) -> ReproduceReport"
+      },
+      "resolve_seeds": {
+        "kind": "function",
+        "signature": "(seed: int = 0, optuna: int | None = None) -> dict[str, int]"
+      },
+      "run_backtest": {
+        "kind": "function",
+        "signature": "(panel: pd.DataFrame, config: BacktestConfig, seeds: Mapping[str, int | None]) -> BacktestOutcome"
+      },
+      "seed_everything": {
+        "kind": "function",
+        "signature": "(seeds: Mapping[str, int | None]) -> None"
+      },
+      "seeded": {
+        "kind": "function",
+        "signature": "(seeds: Mapping[str, int | None]) -> Iterator[None]"
+      }
+    },
+    "pmlab.tracking": {
+      "ActiveRun": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "log_gate": {
+            "kind": "method",
+            "signature": "(self, gate: Any) -> None"
+          },
+          "log_metrics": {
+            "kind": "method",
+            "signature": "(self, metrics: Any) -> None"
+          },
+          "log_params": {
+            "kind": "method",
+            "signature": "(self, params: dict[str, Any]) -> None"
+          },
+          "log_reproducibility": {
+            "kind": "method",
+            "signature": "(self, record: Any) -> None"
+          },
+          "run_id": {
+            "kind": "property"
+          }
+        },
+        "signature": "(tracker: _Persistable, record: RunRecord) -> None"
+      },
+      "ExperimentTracker": {
+        "bases": [
+          "Protocol"
+        ],
+        "kind": "class",
+        "members": {
+          "get_run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_id: str) -> RunRecord | None"
+          },
+          "list_runs": {
+            "kind": "method",
+            "signature": "(self, experiment: str) -> list[RunRecord]"
+          },
+          "run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_name: str) -> ActiveRun"
+          }
+        },
+        "signature": "(*args, **kwargs)"
+      },
+      "LocalJSONTracker": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "get_run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_id: str) -> RunRecord | None"
+          },
+          "list_runs": {
+            "kind": "method",
+            "signature": "(self, experiment: str) -> list[RunRecord]"
+          },
+          "run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_name: str) -> ActiveRun"
+          }
+        },
+        "signature": "(root: str | Path) -> None"
+      },
+      "MLflowTracker": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "get_run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_id: str) -> RunRecord | None"
+          },
+          "list_runs": {
+            "kind": "method",
+            "signature": "(self, experiment: str) -> list[RunRecord]"
+          },
+          "run": {
+            "kind": "method",
+            "signature": "(self, experiment: str, run_name: str) -> ActiveRun"
+          }
+        },
+        "signature": "(tracking_uri: str | None = None) -> None"
+      },
+      "RunRecord": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, d: dict[str, Any]) -> RunRecord"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(run_id: str, experiment: str, run_name: str, params: dict[str, Any] = <factory>, metrics: dict[str, Any] = <factory>, gate: dict[str, Any] = <factory>, reproducibility: dict[str, Any] = <factory>, status: str = 'running', started_at: str = '', ended_at: str | None = None, error: str | None = None) -> None"
+      }
+    }
+  },
+  "snapshot_version": 1
+}

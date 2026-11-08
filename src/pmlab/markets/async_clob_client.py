@@ -12,6 +12,16 @@ __all__ = ["AsyncClobClient"]
 
 
 class AsyncClobClient:
+    """Async client for CLOB midpoint prices, on ``httpx.AsyncClient``.
+
+    Use it as an ``async with`` block, or call :meth:`aclose` when done.
+
+    Args:
+        base_url: The CLOB API root.
+        timeout: Per-request timeout, in seconds.
+        concurrency: The most requests in flight at once.
+    """
+
     def __init__(
         self, base_url: str = CLOB_API_BASE, timeout: float = 15.0, concurrency: int = 10
     ) -> None:
@@ -20,6 +30,15 @@ class AsyncClobClient:
         self._sem = asyncio.Semaphore(concurrency)
 
     async def fetch_prices(self, token_ids: list[str]) -> dict[str, float]:
+        """Fetch the midpoint price of each token concurrently.
+
+        Args:
+            token_ids: CLOB token ids.
+
+        Returns:
+            ``{token_id: midpoint}``. A token whose request failed, or that has no midpoint, is
+            absent from the result rather than raising.
+        """
         if not token_ids:
             return {}
         results: dict[str, float] = {}

@@ -18,13 +18,14 @@ Thank you for your interest in contributing! This guide covers how to get starte
 git clone https://github.com/ArtBreguez/polymarket-lab
 cd polymarket-lab
 uv sync --extra dev        # installs all dev dependencies
+uv sync --extra dev --extra docs   # ... plus the docs site's (mkdocs, mkdocstrings)
 pre-commit install         # sets up lint hooks
 ```
 
 ### Verify your setup
 
 ```bash
-uv run pytest              # should pass 237+ tests
+uv run pytest              # the whole suite should pass
 uv run ruff check src/ tests/
 uv run mypy src/
 ```
@@ -78,6 +79,22 @@ Quick checklist:
 3. Add to `src/pmlab/__init__.py` if it belongs in the top-level public API
 4. Write tests in the corresponding `tests/` directory
 5. Update `CHANGELOG.md` under `## [Unreleased]`
+
+---
+
+## Changing the Public API
+
+From 1.0 the public API is frozen (see [docs/api-stability.md](docs/api-stability.md)): the names in
+`pmlab.__all__` and the documented subpackages, the `pmlab` command and its options, and the file
+formats. A test compares them with a checked-in snapshot and fails on any difference.
+
+- **Adding** a public name, option or file key: export it, give it a docstring, add it to the page
+  under `docs/reference/` (a test checks every public name has one), then
+  `uv run python scripts/api_surface.py --write` and commit the snapshot with the change.
+- **Removing or changing** one: deprecate it first (`pmlab._deprecation.deprecated`, see
+  [docs/deprecation.md](docs/deprecation.md)); it is removed no earlier than the next major release.
+- **Docs examples** import only public names (`from pmlab import ...`); a test enforces it.
+- `uv run mkdocs build --strict` must pass (CI runs it on every change to `docs/` or `src/`).
 
 ---
 

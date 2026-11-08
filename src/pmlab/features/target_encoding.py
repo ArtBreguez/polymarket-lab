@@ -7,11 +7,11 @@ model learns to read it back, and the backtest looks better than live trading wi
 API choice. This mirrors ``sklearn.preprocessing.TargetEncoder``: ``fit_transform`` and
 ``fit(...).transform(...)`` are *deliberately different computations*.
 
-* :meth:`TargetEncoder.fit_transform` encodes the **training** rows out-of-fold. Rows are split
+* `TargetEncoder.fit_transform` encodes the **training** rows out-of-fold. Rows are split
   into K folds and the rows of fold ``k`` are encoded from the targets of *other* folds only,
   so no row's encoding contains its own target. The prior is also computed out-of-fold.
-* :meth:`TargetEncoder.fit` computes the full-train statistics once and returns a
-  :class:`FittedTargetEncoder`, whose :meth:`~FittedTargetEncoder.transform` encodes **new/live**
+* `TargetEncoder.fit` computes the full-train statistics once and returns a
+  `FittedTargetEncoder`, whose `FittedTargetEncoder.transform` encodes **new/live**
   rows (inference never takes the OOF path: a live row has no fold, and its target is unknown).
 
 A frozen config object with ``fit_transform``/``fit`` keeps the two paths on one set of

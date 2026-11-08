@@ -1762,4 +1762,6 @@ class TestExports:
     def test_version_is_bumped(self):
         import pmlab
 
-        assert pmlab.__version__ == "0.12.1"
+        # At least the release that shipped this; the exact number is checked against pyproject
+        # and the changelog in tests/test_docs_site.py, so a release does not edit this test.
+        assert tuple(int(p) for p in pmlab.__version__.split(".")) >= (0, 12, 1)

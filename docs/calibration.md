@@ -97,7 +97,7 @@ Returns only non-empty bins. All three arrays have the same length.
 If your reliability diagram shows a systematic curve (overconfident or underconfident), apply `IsotonicCalibrator`:
 
 ```python
-from pmlab.modeling.calibration import IsotonicCalibrator
+from pmlab import IsotonicCalibrator
 
 cal = IsotonicCalibrator()
 cal.fit(y_true_val, raw_probs_val)

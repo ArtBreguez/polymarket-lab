@@ -11,7 +11,7 @@ A market is described by one row **per outcome bin** (the same ``market_id`` and
 ``decision_date``, a different ``outcome_label`` and ``market_price``): the backtest
 chooses between a market's bins, and a panel that shows it only the bin that won cannot
 tell a good decision from a lucky one. ``MarketPlugin.build_training_rows`` returns
-exactly those rows, and :func:`build_panel` takes them as they come.
+exactly those rows, and `build_panel` takes them as they come.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def build_panel(
             ``MarketPlugin.build_training_row`` (one row or ``None``) or
             ``MarketPlugin.build_training_rows`` (a market's rows) can be passed per market
             unchanged. ``None`` entries and empty lists are dropped.
-        check_leakage: If True, run :func:`check_no_leakage` on the assembled
+        check_leakage: If True, run `check_no_leakage` on the assembled
             panel and raise ``LeakageError`` if any feature leaks the label. On a
             one-row-per-bin panel the label is the per-row outcome ``outcome_label ==
             winning_label``, the one the backtest trains on (see docs/leakage.md).
@@ -72,7 +72,7 @@ def build_panel(
     single WARNING (logger ``pmlab.data.panel_builder``, once per call): its ``market_price``
     cannot be checked against the decision it informs. That is the case for every plugin
     written before the check existed, for the ``sports_f1`` plugin, and for
-    :func:`build_panel_from_snapshots`. Silence it by stamping the rows, or filter the logger.
+    `build_panel_from_snapshots`. Silence it by stamping the rows, or filter the logger.
 
     Returns:
         A schema-validated panel DataFrame with float feature columns.
@@ -85,7 +85,7 @@ def build_panel(
             the rows carry ``price_ts`` and ``decision_ts`` and a price was observed at or
             after its decision, if they carry ``market_close_ts`` and a decision was taken
             at or after it, or if they carry only one of ``price_ts`` and ``decision_ts``
-            (see :func:`check_price_timing`).
+            (see `check_price_timing`).
     """
     materialized = _flatten(rows)
     if not materialized:

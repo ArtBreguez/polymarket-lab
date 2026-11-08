@@ -1,6 +1,6 @@
 """No-lookahead panel assembly from point-in-time snapshots + realized truth.
 
-Closes the training loop: given a :class:`FeatureSnapshotStore` of open-market
+Closes the training loop: given a `FeatureSnapshotStore` of open-market
 feature snapshots captured over time, and a table of market resolutions
 (``market_id``, ``decision_date``, ``winning_label``), build a training panel
 where each row uses the latest snapshot captured *strictly before* that market's

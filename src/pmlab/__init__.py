@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-__version__ = "0.12.1"
+__version__ = "1.0.0"
 
 from pmlab import datasets
+from pmlab._deprecation import PmlabDeprecationWarning
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.expectation import BacktestExpectation, GroupExpectation, SegmentExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
@@ -70,6 +71,7 @@ from pmlab.modeling.diagnostics import (
 )
 from pmlab.modeling.ensemble import EnsembleForecaster
 from pmlab.modeling.lgbm_baseline import LGBMForecaster
+from pmlab.modeling.registry import ModelRegistry, RegistryEntry
 from pmlab.modeling.sklearn_forecaster import SklearnForecaster
 from pmlab.modeling.tuning import TunedForecaster
 from pmlab.monitoring.calibration_tracker import CalibrationTracker, CalibrationWindow
@@ -112,6 +114,7 @@ from pmlab.workspace.context import WorkspaceContext
 __all__ = [
     "__version__",
     "datasets",
+    "PmlabDeprecationWarning",
     # Core
     "MarketSpec",
     "OutcomeBin",
@@ -177,6 +180,8 @@ __all__ = [
     # Modeling
     "MarketForecaster",
     "ChampionManifest",
+    "ModelRegistry",
+    "RegistryEntry",
     "ReproducibilityRecord",
     "DataFingerprint",
     "BacktestConfig",

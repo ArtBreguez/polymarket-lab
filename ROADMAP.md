@@ -12,7 +12,7 @@ as of **v0.10.0**.
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.10.0) | Biggest gap |
+| Stage | Today (v1.0.0) | Biggest gap |
 |---|---|---|
 | 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning; no historical per-bin CLOB price (a weather panel's price is the discovery-time Gamma one) |
 | 2. Feature engineering | 8 transforms (incl. out-of-fold target encoding), per-plugin features, `build_panel`, leakage guards | No feature registry |
@@ -21,7 +21,7 @@ as of **v0.10.0**.
 | 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
 | 6. Execution | Paper + Live broker, settlement, one cost model shared with the backtest | No latency model; costs are an approximation, not a book walk |
 | 7. Monitoring | cost assumptions and the backtest expectation travel with the champion; live calibration on realized trades; PSI/KL drift; `pmlab monitor` watchdog with cron-friendly exit codes | The watchdog reports, nothing acts on it (no pause or retrain trigger) |
-| 8. Reproducibility & DX | CLI (11 cmds), typed, docs, seeds/versions/config/data captured per run and `pmlab reproduce`, an executed offline tutorial notebook | The tutorial runs on synthetic data, not a real market |
+| 8. Reproducibility & DX | CLI (11 cmds), typed, a frozen public API and a docs site, seeds/versions/config/data captured per run and `pmlab reproduce`, an executed offline tutorial notebook | The tutorial runs on synthetic data, not a real market |
 
 ---
 
@@ -127,8 +127,11 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
   library versions, resolved config and a data fingerprint into the run record and
   `champion.json`; `pmlab reproduce <run>` re-executes it
   ([docs/reproducibility.md](docs/reproducibility.md)).
-- ▢ **API stability** — freeze the public API, add deprecation policy, publish the
-  docs site (mkdocs-material) from `docs/`.
+- ✅ **API stability** *(shipped in 1.0.0, #17)* — the public API is frozen and checked against a
+  snapshot, a deprecation policy and helper (`PmlabDeprecationWarning`, removal only in a later
+  major), and the docs site (mkdocs-material, API reference from the docstrings) is published to
+  GitHub Pages ([docs/api-stability.md](docs/api-stability.md),
+  [docs/deprecation.md](docs/deprecation.md)).
 - ✅ **Coverage ≥ 90%** and a documented performance budget for the hot paths *(shipped in
   0.9.4, #18)* — the gate is 90% in `pyproject.toml`; `rolling_origin_eval` and `build_panel`
   have a budget asserted in CI (`pytest -m perf`, [docs/performance.md](docs/performance.md)).

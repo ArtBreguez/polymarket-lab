@@ -8,7 +8,7 @@ external weather data clients (ECMWF, Wunderground, NOAA). In production it
 is expected to be configured with API credentials via environment variables.
 For testing, all external calls can be mocked via dependency injection.
 
-Training rows are **one per temperature bin** (:meth:`WeatherTmaxPlugin.build_training_rows`),
+Training rows are **one per temperature bin** (`WeatherTmaxPlugin.build_training_rows`),
 each at that bin's own price observed before the decision. See the method for the contract.
 """
 
@@ -18,12 +18,12 @@ import json
 import logging
 import math
 import re
-import warnings
 from collections import Counter
 from collections.abc import Callable, MutableMapping
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from pmlab._deprecation import deprecated
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
 from pmlab.plugins.base import MarketPlugin
 
@@ -235,17 +235,20 @@ class WeatherTmaxPlugin(MarketPlugin):
         Args:
             spec: The market.
             horizon: Decision point identifier.
-            decision_time: **Required.** When the decision is taken (ISO-8601 or a
+
+        Keyword Args:
+            decision_time (str | datetime): **Required.** When the decision is taken (ISO-8601 or a
                 ``datetime``; naive is UTC). No price observed at or after it is used.
                 The row's ``decision_ts`` is this instant in UTC and its ``decision_date``
                 is the **UTC** date, not the date where you are: a decision at
                 ``2026-05-10T23:30:00-05:00`` is ``2026-05-11T04:30:00Z``, so its
                 ``decision_date`` is ``2026-05-11``. The backtest orders and splits on
                 ``decision_date``, so decide in UTC days consistently.
-            exclusions: Optional mapping the exclusion counts are added to, so a caller
+            exclusions (dict | None): Optional mapping the exclusion counts are added to, so a caller
                 can total them over many markets. Without one, a market's exclusions are
                 logged at WARNING instead of lost.
-            max_price_age: Optional (a ``timedelta``, or a positive number of seconds).
+            max_price_age (timedelta | float | None): Optional (a ``timedelta``, or a positive
+                number of seconds).
                 A bin whose price was observed *longer* before the decision than this is
                 excluded and counted as ``price_stale``; a price exactly this old is kept.
                 Default ``None``: a price of any age is used, as before. The discovery
@@ -268,10 +271,16 @@ class WeatherTmaxPlugin(MarketPlugin):
         max_age = _as_max_age(kwargs.get("max_price_age"))
         return self._bin_rows(spec, horizon, decision, kwargs.get("exclusions"), max_age)
 
+    @deprecated(
+        since="0.9.2",
+        removed_in="2.0.0",
+        alternative="build_training_rows (one row per bin)",
+        reason="it emits only the winning bin, which biases any backtest built from it",
+    )
     def build_training_row(
         self, spec: MarketSpec, horizon: str, **kwargs: Any
     ) -> dict[str, Any] | None:
-        """Deprecated: the one row of the bin that won. Use :meth:`build_training_rows`.
+        """The one row of the bin that won.
 
         A panel of one row per market, labelled with the winner, shows the backtest only
         winners (issue #28): every YES it takes wins, so its PnL is a property of the
@@ -283,14 +292,8 @@ class WeatherTmaxPlugin(MarketPlugin):
         ``price_ts``), so **``build_panel`` rejects it** (``PanelSchemaError``: a required
         column is missing) until the caller adds one, and then builds an untimed panel with
         a warning. Pass ``decision_time`` to get the timed row, with the same exclusions as
-        :meth:`build_training_rows`, or better, use that method.
+        `build_training_rows`, or better, use that method.
         """
-        warnings.warn(
-            "WeatherTmaxPlugin.build_training_row emits only the winning bin, which biases "
-            "any backtest built from it; use build_training_rows (one row per bin) instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         raw_time = kwargs.get("decision_time")
         decision = None if raw_time is None else _as_utc(raw_time)
         if raw_time is not None and decision is None:
@@ -311,7 +314,7 @@ class WeatherTmaxPlugin(MarketPlugin):
         exclusions: MutableMapping[str, int] | None,
         max_age: timedelta | None = None,
     ) -> list[dict[str, Any]]:
-        """The rows of :meth:`build_training_rows`; with no *decision* nothing is time-checked."""
+        """The rows of `build_training_rows`; with no *decision* nothing is time-checked."""
         counts: Counter[str] = Counter()
         rows = self._collect_bin_rows(spec, horizon, decision, counts, max_age)
         if exclusions is not None:

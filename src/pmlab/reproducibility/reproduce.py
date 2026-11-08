@@ -4,12 +4,12 @@ The verdict is about the *metrics*. A re-run reproduces when every recorded metr
 (counts exactly; floats within a documented tolerance) on the same data. Everything else is
 evidence for the reader:
 
-* **different data** (content hash) — refused, :class:`DataMismatchError`, unless the caller
+* **different data** (content hash) — refused, `DataMismatchError`, unless the caller
   allows it; a run on other data can never be called a reproduction.
 * **different library versions** — never a verdict by itself. They are listed (``report.drift``)
   next to the outcome: a run that reproduces despite drift is reproduced; one that does not,
   with drift listed, tells you where to look first.
-* **nothing to re-run** (no record, unknown kind, missing panel) — :class:`ReproduceError`,
+* **nothing to re-run** (no record, unknown kind, missing panel) — `ReproduceError`,
   with a message that says what to do about it.
 
 Tolerance: on the machine and versions of the original run the result is bit-for-bit
@@ -192,7 +192,7 @@ def load_record(
     * a tracker run id (or unique prefix) under ``runs_dir`` (default ``runs``);
     * a model-registry version id under ``registry_dir``.
 
-    Raises :class:`ReproduceError` when nothing matches, or the match holds no record.
+    Raises `ReproduceError` when nothing matches, or the match holds no record.
     """
     path = Path(ref)
     if path.is_file():
@@ -238,7 +238,7 @@ def reproduce(
 
     The panel is, in order of preference: ``panel`` (in memory), ``panel_path``, the path the
     record was made from. Its fingerprint must match the record's, else
-    :class:`DataMismatchError` — unless ``allow_data_mismatch``, which runs anyway and can then
+    `DataMismatchError` — unless ``allow_data_mismatch``, which runs anyway and can then
     only ever report ``not_reproduced``.
     """
     if record.kind != "backtest":

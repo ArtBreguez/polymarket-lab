@@ -2,6 +2,81 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.0.0] — 2026-11-08
+
+### Added — the stability guarantee: a frozen public API, a deprecation policy, and the docs site
+
+Closes #17, the last issue of the v1.0.0 roadmap. From this release pmlab follows
+[semantic versioning](https://semver.org): nothing public is removed or changed incompatibly
+before 2.0.0, and not before it has been deprecated with a warning that names the replacement.
+**No behaviour changes**: every existing call, command and file works as it did in 0.12.1.
+
+- **What is public is written down**: [docs/api-stability.md](docs/api-stability.md). Public is
+  `pmlab.__all__` plus the `__all__` of `pmlab.data`, `pmlab.datasets`, `pmlab.features`,
+  `pmlab.monitoring`, `pmlab.reports`, `pmlab.reproducibility` and `pmlab.tracking`; the `pmlab`
+  command, its sub-commands and options (flags, defaults, environment variables); and the file
+  formats: `champion.json`, the run record, the reproducibility record (`schema_version` 1) and
+  the `pmlab.plugins` entry-point group. Internal is everything else: any other module path
+  (`pmlab.core.costs`, `pmlab.plugins.base`), underscore names, message text.
+- **It is enforced, not just stated.** `tests/api/public_api.json` snapshots 192 public names (kind,
+  signature, public members, bases, abstract methods), 11 commands with every option, and the key
+  tree of each file format. `tests/api/test_public_api.py` fails when the surface differs and says
+  which name, option or key was added, removed or changed; `scripts/api_surface.py --write` changes
+  the snapshot on purpose. The end-to-end test runs the same script with the Python of a venv that
+  holds only the built wheel. Mutation-checked: renaming a public function, dropping a name from `__all__`, changing a public
+  default, renaming a CLI option, renaming a `champion.json` key and adding an abstract method to
+  `MarketPlugin` each turn the snapshot test red with the name that changed; so do a deprecation
+  timeline that allows removal in the same major or in 1.0.0, a decorator that loses the signature,
+  the package reaching a `removed_in`, a public name missing from the reference, a deprecation
+  missing from the policy table, an internal import path in the docs, a Pages workflow that deploys
+  on pull requests, and an unpinned action.
+- **A deprecation policy and its helper**: [docs/deprecation.md](docs/deprecation.md). A name is
+  deprecated in a minor release and removed in the next *major* at the earliest, never before
+  2.0.0. `pmlab._deprecation.deprecated(since=, removed_in=, alternative=)` emits a
+  `PmlabDeprecationWarning` (public, a `DeprecationWarning` subclass) that names the caller's line;
+  it keeps signature, `__wrapped__` and `async`-ness, adds a notice to the docstring, and refuses a
+  timeline that breaks the rule at import time. `warn_deprecated(...)` covers an argument or a key,
+  and `cli=True` a command-line option (one plain `warning:` line on stderr, since Typer cannot flag
+  an option). `DeprecationWarning` and not `FutureWarning`: Python shows it to the code that
+  triggers it (`__main__`, tests) and hides it from libraries in between, which is the audience
+  that can act. A test fails when the package reaches the `removed_in` of any deprecation left in
+  the code. Turn pmlab's deprecations into errors with `pytest -W error::pmlab.PmlabDeprecationWarning`
+  or `warnings.simplefilter("error", pmlab.PmlabDeprecationWarning)` (the interpreter's own `-W`
+  cannot name a third-party category: the page says so).
+- **The docs site** (<https://artbreguez.github.io/polymarket-lab/>): mkdocs-material, every page in
+  `docs/` in the nav, and an API reference generated from the docstrings of the public names only
+  (`mkdocstrings`, static analysis, one page per area; a test fails when a public name has no entry).
+  `mkdocs build --strict` fails on a broken link, a missing anchor, a page outside the nav or an entry
+  that cannot be rendered. The deprecation notice reaches the reference too (a small Griffe extension
+  reads the `@deprecated(...)` call). Published to GitHub Pages by `.github/workflows/docs.yml` on
+  every push to `main` that touches `docs/` or `src/` (and on demand); pull requests build it
+  without deploying; every action is pinned to a commit SHA. New optional extra: `pmlab[docs]`.
+  The tutorial notebook is linked rather than rendered: `mkdocs-jupyter` would take the docs venv
+  from 123 MB / 35 packages to 198 MB / 82 (a Jupyter kernel stack) to show the code cells of a
+  notebook committed without outputs.
+
+### Changed
+
+- **Names that were only reachable through an internal path are public**: `ModelRegistry` and
+  `RegistryEntry` (documented in [docs/registry.md](docs/registry.md)) are now in `pmlab.__all__`;
+  `MLflowTracker` is `pmlab.tracking.MLflowTracker` (loaded on first use, so the core install still
+  never imports MLflow); `PmlabDeprecationWarning` is new. The old module paths keep working.
+- **The documentation teaches the stable paths**: every `from pmlab.<module>.<file> import ...` in
+  the docs, the README and `examples/` is now `from pmlab import ...`, and a test fails if a code
+  example imports a name that is not public.
+- **`WeatherTmaxPlugin.build_training_row`**, deprecated since 0.9.2, now goes through the helper: the
+  same `DeprecationWarning` behaviour, now a `PmlabDeprecationWarning` with the timeline
+  (**removed in 2.0.0**).
+- **Docstrings**: ten public callables that had none now have one (`add_lags`, `add_rolling_stats`,
+  `encode_cyclical`, `encode_onehot`, `clip_outliers`, `generate_report`, `DiskCache`,
+  `AsyncGammaClient`, `AsyncClobClient`, `LiveBrokerError`); Sphinx roles (`:class:`) became
+  Markdown backticks, since the reference is Markdown.
+- Classifier `Development Status :: 5 - Production/Stable`; `Documentation` and `Changelog` project URLs.
+
+### Deprecated
+
+- `WeatherTmaxPlugin.build_training_row` (since 0.9.2): use `build_training_rows`. Removed in 2.0.0.
+
 ## [0.12.1] — 2026-11-08
 
 ### Fixed — the leakage check catches a market-level copy of the realised value

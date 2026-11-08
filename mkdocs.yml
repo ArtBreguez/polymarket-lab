@@ -1,0 +1,128 @@
+# The pmlab documentation site: https://artbreguez.github.io/polymarket-lab/
+#
+#   uv sync --extra docs && uv run mkdocs serve          # live preview
+#   uv run mkdocs build --strict                         # what CI runs; the site lands in site/
+#
+# `strict: true` plus `warn` below means a broken link, a missing anchor, a page left out of the nav
+# or an API entry that cannot be rendered fails the build instead of shipping.
+site_name: pmlab
+site_description: A generic, plugin-based ML framework for Polymarket prediction markets.
+site_url: https://artbreguez.github.io/polymarket-lab/
+repo_url: https://github.com/ArtBreguez/polymarket-lab
+repo_name: ArtBreguez/polymarket-lab
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+strict: true
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    absolute_links: warn
+    unrecognized_links: warn
+    anchors: warn
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          # Read the source tree (static analysis, nothing is imported): the same docs build
+          # from a checkout, from the sdist, or next to an installed wheel.
+          paths: [src]
+          options:
+            docstring_style: google
+            heading_level: 2
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_source: false
+            show_if_no_docstring: true
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+            filters: ["!^_"]
+            # Shows the notice `@deprecated(...)` adds at run time: Griffe reads the source only.
+            extensions:
+              - scripts/griffe_deprecated.py:DeprecatedNotice
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Tutorial: tutorial.md
+      - Tutorial notebook: https://github.com/ArtBreguez/polymarket-lab/blob/main/notebooks/tutorial.ipynb
+      - Plugin authoring: plugin-authoring.md
+  - Guides:
+      - Features: features.md
+      - Async clients: async-clients.md
+      - Backtest costs: costs.md
+      - Leakage: leakage.md
+      - Tuning: tuning.md
+      - Calibration: calibration.md
+      - Reproducibility: reproducibility.md
+      - Experiment tracking: tracking.md
+      - Champion registry: registry.md
+      - Reports: reports.md
+      - Performance budget: performance.md
+  - Running it live:
+      - Live trading: live-trading.md
+      - Drift monitoring: drift-monitoring.md
+      - Live calibration: live-calibration.md
+      - Watchdog: watchdog.md
+  - Stability:
+      - Public API and stability: api-stability.md
+      - Deprecation policy: deprecation.md
+      - Changelog: https://github.com/ArtBreguez/polymarket-lab/blob/main/CHANGELOG.md
+  - API reference:
+      - Overview: reference/index.md
+      - Markets, edge and sizing: reference/core.md
+      - Backtest and gate: reference/backtest.md
+      - Data and features: reference/data.md
+      - Modeling: reference/modeling.md
+      - Execution: reference/execution.md
+      - Monitoring: reference/monitoring.md
+      - Market data clients: reference/markets.md
+      - Plugins and workspaces: reference/plugins.md
+      - Reproducibility: reference/reproducibility.md
+      - Tracking and reports: reference/tracking.md
+      - Sample dataset: reference/datasets.md
+      - Configuration: reference/config.md

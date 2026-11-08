@@ -27,6 +27,9 @@ Use this file as the shared contract for all agents (Codex, Claude, etc).
 | `src/pmlab/reproducibility/` | ReproducibilityRecord (seeds, versions, resolved config, data fingerprint), backtest runner shared by `backtest` and `reproduce`, `pmlab reproduce` |
 | `src/pmlab/datasets/` | The bundled synthetic sample (`load_sample`) and the offline clients that feed the real weather plugin; nothing else may depend on its numbers except the tutorial notebook and its tests |
 | `src/pmlab/workspace/` | WorkspaceContext — multi-workspace path isolation |
+| `src/pmlab/_deprecation.py` | `deprecated` / `warn_deprecated`, `PmlabDeprecationWarning`: the only way a public name is retired (`docs/deprecation.md`) |
+| `scripts/api_surface.py`, `tests/api/` | The public-API snapshot (`tests/api/public_api.json`) and the tests that enforce it |
+| `docs/`, `mkdocs.yml` | The documentation site (mkdocs-material, API reference from docstrings), built `--strict` by `.github/workflows/docs.yml` |
 | `src/pmlab/markets/` | Polymarket Gamma API client, CLOB price client (Phase 4) |
 | `src/pmlab/cli/` | Typer CLI entry points |
 
@@ -54,6 +57,14 @@ Use this file as the shared contract for all agents (Codex, Claude, etc).
 
 6. **Never settle trades before `plugin.is_truth_final()` returns True.**
    Some data sources have a lag (e.g. weather stations). Wait for finalization.
+
+7. **The public API is frozen (1.0+).**
+   Public = `pmlab.__all__` + the `__all__` of `pmlab.data/datasets/features/monitoring/reports/
+   reproducibility/tracking`, the `pmlab` CLI commands and options, and the file formats in
+   `docs/api-stability.md`. `tests/api/public_api.json` is the snapshot: change it only with
+   `scripts/api_surface.py --write`, on purpose. Never remove or change a public name without a
+   deprecation (`pmlab._deprecation.deprecated`) and a major release (`docs/deprecation.md`).
+   Docs and examples import only public names (`from pmlab import ...`), never `pmlab.core.x`.
 
 ---
 
@@ -92,6 +103,12 @@ uv run pytest -m e2e
 
 # Tutorial notebook: execute notebooks/tutorial.ipynb top to bottom, offline (~15 s; docs/tutorial.md)
 uv run pytest -m notebook
+
+# Public API still matches the snapshot (--write to change it on purpose)
+uv run python scripts/api_surface.py
+
+# Docs site (needs `uv sync --extra docs`); must pass --strict
+uv run mkdocs build --strict
 
 # Lint
 uv run ruff check src/ tests/

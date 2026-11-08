@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -520,3 +521,200 @@ def _pyproject_version() -> str:
         if line.startswith("version = "):
             return line.split('"')[1]
     raise AssertionError("no version in pyproject.toml")
+
+
+# ── API stability (v1.0.0, #17): the frozen surface, from the installed wheel ─────────────────────
+API_SURFACE = REPO / "scripts" / "api_surface.py"
+API_SNAPSHOT = REPO / "tests" / "api" / "public_api.json"
+
+
+def _snapshot() -> dict:
+    return json.loads(API_SNAPSHOT.read_text())
+
+
+def test_the_installed_wheel_matches_the_public_api_snapshot(installed: Installed) -> None:
+    """The same script the default suite runs, with the python of a venv holding only the wheel."""
+    snapshot = _snapshot()
+    total = sum(len(v) for v in snapshot["modules"].values())
+    out = _ok(installed.py(API_SURFACE, "--check", "--snapshot", API_SNAPSHOT))
+    assert f"{total} public names imported" in out
+    assert f"{len(snapshot['cli']['commands'])} commands" in out
+
+
+def test_every_name_in_the_snapshot_imports_from_the_installed_wheel(installed: Installed) -> None:
+    """Independent of the script: plain ``importlib`` and ``getattr`` over every snapshot entry."""
+    code = (
+        "import importlib, json, sys\n"
+        "snap = json.load(open(sys.argv[1]))\n"
+        "n = 0\n"
+        "for module, names in snap['modules'].items():\n"
+        "    m = importlib.import_module(module)\n"
+        "    for name in names:\n"
+        "        getattr(m, name)\n"
+        "        n += 1\n"
+        "    assert sorted(m.__all__) == sorted(names), module\n"
+        "print('imported', n)\n"
+    )
+    out = _ok(installed.py("-c", code, API_SNAPSHOT))
+    assert out.strip() == f"imported {sum(len(v) for v in _snapshot()['modules'].values())}"
+
+
+def test_every_command_and_option_in_the_snapshot_is_in_the_installed_cli(
+    installed: Installed,
+) -> None:
+    for command, spec in _snapshot()["cli"]["commands"].items():
+        out = _ok(_run([installed.pmlab, command, "--help"], cwd=installed.workdir, COLUMNS="200"))
+        for param in spec["params"]:
+            for flag in param["flags"]:
+                assert flag in out, f"`pmlab {command} --help` lost {flag}"
+
+
+def test_a_deprecated_path_warns_the_caller_from_the_installed_wheel(installed: Installed) -> None:
+    script = installed.workdir / "uses_deprecated.py"
+    script.write_text(
+        "import warnings\n"
+        "import pmlab\n"
+        "from pmlab._deprecation import deprecated\n"
+        "\n"
+        "plugin = pmlab.WeatherTmaxPlugin()\n"
+        "try:\n"
+        "    plugin.build_training_row(None, 'd1')  # line 7: the deprecated call\n"
+        "except AttributeError:\n"
+        "    pass  # past the warning, the body ran (no market was given)\n"
+        "\n"
+        "@deprecated(since='1.2.0', removed_in='2.0.0', alternative='new_thing')\n"
+        "def old():\n"
+        "    return 1\n"
+        "\n"
+        "assert old() == 1  # line 15\n"
+        "with warnings.catch_warnings():\n"
+        "    warnings.simplefilter('error', pmlab.PmlabDeprecationWarning)\n"
+        "    try:\n"
+        "        old()\n"
+        "    except pmlab.PmlabDeprecationWarning as e:\n"
+        "        print('as an error:', e)\n"
+    )
+    proc = installed.py(script)
+    assert proc.returncode == 0, proc.stderr
+    # Default filters, no -W: a script sees the warning, on the line of its own call.
+    assert "uses_deprecated.py:7: PmlabDeprecationWarning" in proc.stderr
+    assert "WeatherTmaxPlugin.build_training_row is deprecated since 0.9.2" in proc.stderr
+    assert "removed in 2.0.0; use build_training_rows" in proc.stderr
+    assert "uses_deprecated.py:15: PmlabDeprecationWarning" in proc.stderr
+    assert "use new_thing instead" in proc.stderr
+    assert "as an error: old is deprecated since 1.2.0" in proc.stdout
+
+
+def test_the_tutorial_and_readme_imports_resolve_in_the_installed_wheel(
+    installed: Installed,
+) -> None:
+    """The documented import lines, the first thing a new user copies, run against the wheel."""
+    imports = _ok(
+        installed.py(
+            "-c",
+            "import pmlab; from pmlab import ModelRegistry, RegistryEntry, PmlabDeprecationWarning;"
+            "from pmlab.tracking import MLflowTracker; import sys;"
+            "print('mlflow' in sys.modules)",
+        )
+    )
+    assert imports.strip() == "False"  # the class is importable; MLflow itself is not pulled in
+
+
+# ── the docs site, built from the sdist in a clean venv with only the `docs` extra ─────────────
+DocsBuild = tuple[dict[str, Path], subprocess.CompletedProcess[str]]
+
+
+@pytest.fixture(scope="module")
+def docs_build(
+    tmp_path_factory: pytest.TempPathFactory, installed: Installed
+) -> Iterator[DocsBuild]:
+    import tarfile
+
+    uv = shutil.which("uv")
+    assert uv is not None
+    root = tmp_path_factory.mktemp("pmlab-docs-e2e")
+    dist, venv, work = root / "dist", root / ".docs-venv", root / "work"
+    work.mkdir()
+    _ok(_run([uv, "build", "--sdist", "--out-dir", dist], cwd=REPO))
+    sdist = next(dist.glob("pmlab-*.tar.gz"))
+    unpacked = root / "sdist"
+    with tarfile.open(sdist) as archive:
+        archive.extractall(unpacked, filter="data")
+    (project,) = list(unpacked.iterdir())
+    _ok(_run([uv, "venv", "-q", venv, "--python", sys.executable], cwd=work))
+    # The installed wheel plus ONLY the docs extra: what a contributor gets from `pmlab[docs]`.
+    spec = f"pmlab[docs] @ {installed.wheel.as_uri()}"
+    _ok(_run([uv, "pip", "install", "-q", "--python", venv / "bin" / "python", spec], cwd=work))
+    site = root / "site"
+    build = _run(
+        [venv / "bin" / "mkdocs", "build", "--strict", "-f", project / "mkdocs.yml", "-d", site],
+        cwd=work,  # outside the repository and outside the sdist
+        NO_MKDOCS_2_WARNING="1",
+    )
+    yield {"project": project, "site": site, "venv": venv, "work": work, "root": root}, build
+    shutil.rmtree(venv, ignore_errors=True)
+
+
+def test_the_sdist_carries_everything_the_docs_build_needs(docs_build: DocsBuild) -> None:
+    paths, _ = docs_build
+    project = paths["project"]
+    for needed in (
+        "mkdocs.yml",
+        "docs/index.md",
+        "docs/api-stability.md",
+        "docs/deprecation.md",
+        "docs/reference/index.md",
+        "scripts/griffe_deprecated.py",
+        "src/pmlab/__init__.py",
+    ):
+        assert (project / needed).exists(), f"the sdist is missing {needed}"
+
+
+def test_mkdocs_build_strict_passes_from_the_sdist(docs_build: DocsBuild) -> None:
+    paths, build = docs_build
+    assert build.returncode == 0, f"mkdocs build --strict failed:\n{build.stdout}\n{build.stderr}"
+    site = paths["site"]
+    assert (site / "index.html").exists()
+    for page in ("api-stability", "deprecation", "reference/core", "reference/modeling"):
+        assert (site / page / "index.html").exists(), page
+
+
+def test_the_built_reference_documents_the_public_api_and_the_deprecation(
+    docs_build: DocsBuild,
+) -> None:
+    paths, _ = docs_build
+    site = paths["site"]
+    core = (site / "reference" / "core" / "index.html").read_text()
+    assert 'id="pmlab.CostModel"' in core and 'id="pmlab.kelly_stake_size"' in core
+    plugins = (site / "reference" / "plugins" / "index.html").read_text()
+    assert "Deprecated since 0.9.2 and will be removed in 2.0.0" in plugins
+    # Only public names: nothing under an underscore or an internal module path.
+    every_id = "".join(p.read_text() for p in (site / "reference").rglob("index.html"))
+    assert 'id="pmlab._' not in every_id and 'id="pmlab.core.' not in every_id
+
+
+def test_strict_mode_really_fails_on_a_broken_link(docs_build: DocsBuild) -> None:
+    """The negative control: without it, a green build could just mean nothing is checked."""
+    paths, _ = docs_build
+    project, work = paths["project"], paths["work"]
+    page = project / "docs" / "index.md"
+    original = page.read_text()
+    page.write_text(original + "\n[a link that goes nowhere](no-such-page.md)\n")
+    try:
+        broken = _run(
+            [
+                paths["venv"] / "bin" / "mkdocs",
+                "build",
+                "--strict",
+                "-f",
+                project / "mkdocs.yml",
+                "-d",
+                paths["root"] / "site-broken",
+            ],
+            cwd=work,
+            NO_MKDOCS_2_WARNING="1",
+        )
+    finally:
+        page.write_text(original)
+    assert broken.returncode != 0
+    assert "no-such-page.md" in broken.stderr + broken.stdout

@@ -1,10 +1,10 @@
 """Reproducibility (v0.10.0): capture a run's seeds, versions, config and data; re-run it.
 
-* :class:`ReproducibilityRecord` — what a run records about itself. Stored in the experiment
+* `ReproducibilityRecord` — what a run records about itself. Stored in the experiment
   tracker's run file (``ActiveRun.log_reproducibility``), in ``champion.json``
   (``ChampionManifest.reproducibility``), in the model registry, and in the metrics file
   ``pmlab backtest --output`` writes.
-* :func:`reproduce` / ``pmlab reproduce <run>`` — re-execute the recorded run and verify that
+* `reproduce` / ``pmlab reproduce <run>`` — re-execute the recorded run and verify that
   the same metrics come back.
 
 See ``docs/reproducibility.md``.

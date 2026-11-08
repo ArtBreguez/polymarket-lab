@@ -37,6 +37,18 @@ def generate_report(
     title: str = "pmlab Paper Trading Report",
     brier_score: float | None = None,
 ) -> Path:
+    """Render paper trades as one self-contained HTML report and write it to disk.
+
+    Args:
+        trades: Trade records (dicts). A trade with a ``realized_pnl`` is settled; one without is
+            open. The summary uses ``realized_pnl``, ``flat_stake`` and ``edge_after_fee``.
+        output_path: Where to write the file.
+        title: The report's heading.
+        brier_score: A Brier score to show alongside the summary, if you have one.
+
+    Returns:
+        The path written.
+    """
     output_path = Path(output_path)
     settled = [t for t in trades if t.get("realized_pnl") is not None]
     open_trades = [t for t in trades if t.get("realized_pnl") is None]

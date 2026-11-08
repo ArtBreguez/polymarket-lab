@@ -30,6 +30,23 @@ def add_lags(
     group_by: str | None = None,
     fill_value: float = float("nan"),
 ) -> pd.DataFrame:
+    """Add lagged copies of columns, named ``{col}_lag{n}``.
+
+    Args:
+        df: The frame; not modified (a copy is returned).
+        cols: Columns to lag.
+        lags: How many rows to shift each column by.
+        group_by: Shift within each group of this column, so the first row of one entity does not
+            see the last row of the previous one. Pass it whenever the frame holds several
+            entities (cities, markets).
+        fill_value: What the leading rows, which have no earlier row, get.
+
+    Returns:
+        A copy of ``df`` with ``len(cols) * len(lags)`` extra columns.
+
+    Raises:
+        KeyError: A column in ``cols`` is not in ``df``.
+    """
     out = df.copy()
     for col in cols:
         if col not in out.columns:
@@ -51,6 +68,27 @@ def add_rolling_stats(
     group_by: str | None = None,
     min_periods: int = 1,
 ) -> pd.DataFrame:
+    """Add rolling-window statistics of columns, named ``{col}_roll{window}_{stat}``.
+
+    Windows follow the frame's row order (sort by time within each group first) and include the
+    current row. With ``group_by`` each row's window is computed over the rows of its own group and
+    lands on that same row, whether or not the frame is sorted by the group key.
+
+    Args:
+        df: The frame; not modified (a copy is returned).
+        cols: Columns to summarise.
+        windows: Window sizes, in rows.
+        stats: Which statistics: ``"mean"``, ``"std"``, ``"min"``, ``"max"``, ``"median"``.
+            Default ``["mean", "std"]``.
+        group_by: Compute the windows within each group of this column.
+        min_periods: Minimum rows in a window for it to produce a value (earlier rows are NaN).
+
+    Returns:
+        A copy of ``df`` with ``len(cols) * len(windows) * len(stats)`` extra columns.
+
+    Raises:
+        KeyError: A column in ``cols`` is not in ``df``.
+    """
     if stats is None:
         stats = ["mean", "std"]
     out = df.copy()
@@ -76,6 +114,17 @@ def add_rolling_stats(
 
 
 def encode_cyclical(series: pd.Series, period: float) -> tuple[pd.Series, pd.Series]:
+    """Encode a cyclical value (hour, month, day of year) as a point on the unit circle.
+
+    The sine and cosine put the end of the cycle next to its start, which a plain integer cannot.
+
+    Args:
+        series: The values; its name prefixes the new series (``x`` if it has none).
+        period: The length of the cycle, e.g. ``24`` for hours or ``12`` for months.
+
+    Returns:
+        ``(sin, cos)``, two series named ``{name}_sin`` and ``{name}_cos`` on ``series``' index.
+    """
     angle = 2.0 * np.pi * series / period
     name = str(series.name) if series.name is not None else "x"
     sin_s = pd.Series(np.sin(angle).values, index=series.index, name=f"{name}_sin")
@@ -89,6 +138,24 @@ def encode_onehot(
     drop_first: bool = True,
     dtype: type = float,
 ) -> pd.DataFrame:
+    """One-hot encode categorical columns; the originals are replaced by the indicator columns.
+
+    Fit nothing: the categories are read from ``df`` itself, so encode the training and live frames
+    together, or use ``TargetEncoder`` when the live frame may hold categories the training one
+    did not.
+
+    Args:
+        df: The frame; not modified (a copy is returned).
+        cols: Columns to encode.
+        drop_first: Drop each column's first category (avoids a redundant indicator).
+        dtype: The type of the indicator columns.
+
+    Returns:
+        ``df`` without ``cols`` and with one indicator column per remaining category.
+
+    Raises:
+        KeyError: A column in ``cols`` is not in ``df``.
+    """
     out = df.copy()
     for col in cols:
         if col not in out.columns:
@@ -106,6 +173,24 @@ def clip_outliers(
     iqr_factor: float = 3.0,
     zscore_threshold: float = 4.0,
 ) -> pd.DataFrame:
+    """Clip the outliers of columns to a bound computed from the column itself.
+
+    Args:
+        df: The frame; not modified (a copy is returned).
+        cols: Columns to clip.
+        method: ``"iqr"`` clips to ``[Q1 - iqr_factor * IQR, Q3 + iqr_factor * IQR]``;
+            ``"zscore"`` clips to ``mean +/- zscore_threshold * std``.
+        iqr_factor: The IQR multiple, for ``method="iqr"``.
+        zscore_threshold: The number of standard deviations, for ``method="zscore"``.
+
+    Returns:
+        A copy of ``df`` with the columns clipped in place (same names). The bounds are computed on
+        ``df`` as given, so clip the training frame, not the live one, if the bounds must not see
+        live data.
+
+    Raises:
+        KeyError: A column in ``cols`` is not in ``df``.
+    """
     out = df.copy()
     for col in cols:
         if col not in out.columns:

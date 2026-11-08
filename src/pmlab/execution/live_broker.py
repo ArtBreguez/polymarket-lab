@@ -28,7 +28,7 @@ class OrderReceipt:
 
 
 class LiveBrokerError(Exception):
-    pass
+    """A live order could not be placed or confirmed (bad credentials, rejected order, API error)."""
 
 
 class LiveBroker:
