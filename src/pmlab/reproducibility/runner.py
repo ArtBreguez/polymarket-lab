@@ -26,7 +26,11 @@ from typing import Any
 
 import pandas as pd
 
-from pmlab.backtest.rolling_origin import RollingOriginResult, rolling_origin_eval
+from pmlab.backtest.rolling_origin import (
+    RollingOriginResult,
+    _validate_embargo_days,
+    rolling_origin_eval,
+)
 from pmlab.core.costs import CostModel
 from pmlab.core.edge import DEFAULT_MIN_EDGE
 from pmlab.core.policy import TradePolicy
@@ -83,6 +87,7 @@ class BacktestConfig:
     costs: dict[str, float]
     policy: dict[str, Any]
     tuning: dict[str, Any] | None = None
+    embargo_days: int | None = None
 
     @classmethod
     def resolve(
@@ -97,6 +102,7 @@ class BacktestConfig:
         policy: TradePolicy | str = "live",
         min_edge: float | None = None,
         tuning: Mapping[str, Any] | None = None,
+        embargo_days: int | None = None,
     ) -> BacktestConfig:
         """Apply every default and validate. ``ValueError`` says what is wrong.
 
@@ -104,9 +110,16 @@ class BacktestConfig:
         ``tuner.tuning_config()`` after ``TunedForecaster.tune``. It is provenance only (the
         backtest re-runs with the tuned ``model_params`` and does not search again) and is
         left out of the config entirely when ``None``, so untuned records are unchanged.
+
+        ``embargo_days`` is the walk-forward's extra hold-back (``rolling_origin_eval``): a fold
+        trains only on rows decided at least that many days before it, on top of the rule that a
+        label must be known. ``None`` (default) is the rule of 1.0.3 and, like ``tuning``, is left
+        out of the config entirely, so a record that does not use it is as 1.0.3 wrote it. A
+        negative value raises ``ValueError``, a non-int ``TypeError``.
         """
         if model not in _MODELS:
             raise ValueError(f"unknown model {model!r}: only {list(_MODELS)} is supported")
+        embargo_days = _validate_embargo_days(embargo_days)
         user = dict(model_params or {})
         seeded = [k for k in _SEED_PARAMS if k in user]
         if seeded:
@@ -146,6 +159,7 @@ class BacktestConfig:
             costs=(costs or CostModel()).to_dict(),
             policy=policy.to_dict(),
             tuning=None if tuning is None else dict(tuning),
+            embargo_days=embargo_days,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -161,6 +175,8 @@ class BacktestConfig:
         }
         if self.tuning is not None:
             out["tuning"] = dict(self.tuning)
+        if self.embargo_days is not None:
+            out["embargo_days"] = self.embargo_days
         return out
 
     @classmethod
@@ -191,6 +207,7 @@ class BacktestConfig:
             costs=dict(d["costs"]),
             policy=dict(d["policy"]),
             tuning=None if d.get("tuning") is None else dict(d["tuning"]),
+            embargo_days=_validate_embargo_days(d.get("embargo_days")),
         )
 
 
@@ -243,6 +260,7 @@ def run_backtest(
             flat_stake=config.flat_stake,
             costs=CostModel(**config.costs),
             policy=TradePolicy.from_dict(config.policy),
+            embargo_days=config.embargo_days,
         )
     return BacktestOutcome(result.trades, result.steps, backtest_metrics(result))
 

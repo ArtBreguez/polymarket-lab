@@ -542,6 +542,15 @@ def backtest_cmd(
     stride: int = typer.Option(30, "--stride"),
     min_train_rows: int = typer.Option(20, "--min-train-rows"),
     flat_stake: float = typer.Option(1.0, "--flat-stake"),
+    embargo_days: int | None = typer.Option(
+        None,
+        "--embargo-days",
+        help=(
+            "Hold back more: a fold trains only on rows decided at least this many days before "
+            "it, on top of the rule that a row's label must already be known (never instead of "
+            "it). Default: no extra hold-back. Recorded, so `pmlab reproduce` replays it."
+        ),
+    ),
     costs_path: str | None = typer.Option(
         None,
         "--costs",
@@ -655,6 +664,7 @@ def backtest_cmd(
             flat_stake=flat_stake,
             costs=costs or CostModel(),
             policy=trade_policy,
+            embargo_days=embargo_days,
         )
     except ValueError as e:
         _say(str(e), "red")
@@ -674,6 +684,8 @@ def backtest_cmd(
     )
 
     rprint(f"Policy: {_describe_policy(trade_policy)}")
+    if embargo_days is not None:
+        rprint(f"Embargo: a fold trains on rows decided at least {embargo_days} days before it")
 
     seeds = resolve_seeds(seed)
     with console.status("Running walk-forward backtest..."):

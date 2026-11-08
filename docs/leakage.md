@@ -317,6 +317,74 @@ latest decision day with a label: 2025-04-18 | this decision's own day: 2025-04-
 The day before the decision (April 19) is missing too: its market ends at 23:00 that evening, after
 the 12:00 decision. This is the row the old rule trained on.
 
+## Holding back more: `embargo_days`
+
+The rule above is the minimum: a fold never sees a label that did not exist. If you want a margin on
+top of it (features smoothed over a window that reaches into the fold, timestamps you do not fully
+trust, a model that must not see the last week), pass `embargo_days=N`:
+
+```python
+import numpy as np
+from pmlab import build_panel, rolling_origin_eval
+from pmlab.datasets import load_sample
+
+
+class CountRows:
+    """Predicts 0.5 everywhere; remembers how many rows its last fold trained on."""
+
+    def fit(self, X, y):
+        self.n_train = len(X)
+
+    def predict_proba(self, X):
+        return np.full((len(X), 2), 0.5)
+
+
+sample = load_sample()
+resolver = sample.plugin()
+rows = [
+    resolver.build_training_rows(spec, "previous_evening", decision_time=f"{day}T12:00:00+00:00")
+    for day in sample.days[:50]
+    for spec in sample.plugin(day).discover_markets()
+]
+panel = build_panel(rows)
+
+for embargo in (None, 2, 7, 14):
+    result = rolling_origin_eval(
+        panel, CountRows(), min_train_rows=200, stride=10, embargo_days=embargo
+    )
+    folds = "  ".join(f"{s['eval_date'][5:]}: {s['train_rows']}" for s in result.steps)
+    print(f"embargo_days={embargo!s:<4}  {folds}")
+```
+
+```text
+embargo_days=None  04-11: 405  04-21: 855  05-01: 1305  05-11: 1755
+embargo_days=2     04-11: 405  04-21: 855  05-01: 1305  05-11: 1755
+embargo_days=7     04-21: 630  05-01: 1080  05-11: 1530
+embargo_days=14    04-21: 315  05-01: 765  05-11: 1215
+```
+
+Each fold is labelled by its decision date and shows the rows it trained on. The rule:
+
+* a row trains a fold only if its `decision_date` is **at least `N` days before the fold's**, **and**
+  its label was known when the fold decided (the rule above, unchanged). The two conditions are
+  AND-ed, so **the embargo can only make training stricter, never looser**. It cannot make a row
+  trainable whose label is not yet known, whatever `N` is, `0` included;
+* `None` (the default) is the rule above and nothing more: the results of 1.0.3 are reproduced to the
+  last digit;
+* `0` and `1` change nothing, because a fold already trains only on rows decided on an earlier day.
+  With the sample's next-day labels the rule above already holds back two days, so `2` changes
+  nothing either (the second line above equals the first); `7` and `14` do;
+* `min_train_rows` counts the rows that are left, so a long embargo can move the first fold later (the
+  `04-11` fold is gone at `7`);
+* a negative value raises `ValueError`; anything that is not a whole number (`2.5`, `"2"`, `True`)
+  raises `TypeError`.
+
+The same knob is on every entry point that already takes the walk-forward's shape:
+`TunedForecaster(..., embargo_days=N)` (so a search is scored under the hold-back the backtest will
+use), `BacktestConfig.resolve(..., embargo_days=N)` and `pmlab backtest --embargo-days N`. A run that
+sets it records it in its reproducibility record (`config.embargo_days`), so `pmlab reproduce`
+replays the same walk-forward; a run that does not has a record with no such key, as before 1.1.0.
+
 ## Choosing the target yourself
 
 Pass `label_col` to score against a column of your own. It is used as given, on any shape, so

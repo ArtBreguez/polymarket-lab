@@ -40,6 +40,10 @@ pmlab reproduce metrics.json
 `--min-train-rows` counts panel **rows**. A panel has one row per market bin, nine bins per market in
 the sample, so 2700 rows is 300 markets of history before the first prediction.
 
+`--embargo-days N` holds the walk-forward back further: a fold then trains only on rows decided at least
+`N` days before it, in addition to (never instead of) the rule that a row's label must already be known.
+Without it the backtest is what 1.0.3 ran. See [the leakage page](leakage.md#holding-back-more-embargo_days).
+
 The output file carries the record of the run (seeds, versions, config, a fingerprint of the data):
 `pmlab reproduce` re-executes it and prints one line per metric, ending in `REPRODUCED` when they
 match.

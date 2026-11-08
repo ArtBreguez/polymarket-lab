@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import pandas as pd
 
-from pmlab.backtest.rolling_origin import rolling_origin_eval
+from pmlab.backtest.rolling_origin import _validate_embargo_days, rolling_origin_eval
 from pmlab.core.costs import CostModel
 from pmlab.core.policy import TradePolicy
 from pmlab.modeling.base import MarketForecaster
@@ -80,6 +80,11 @@ class TunedForecaster(MarketForecaster):
             (fee, slippage, depth). Under the live policy it decides which trades clear the
             threshold, so tune with the costs you will trade with. Omit it for the 30 bps
             fee, fill at the quote.
+        embargo_days: Keyword-only. Forwarded to ``rolling_origin_eval``: every trial's folds
+            train only on rows decided at least this many days before the fold, on top of the
+            rule that a label must be known. ``None`` (default) is the rule of 1.0.3. Use the
+            value the backtest will use. A negative value raises ``ValueError``, a non-int
+            ``TypeError``.
 
     After ``tune(panel)``, the instance is a fitted forecaster (best params,
     refit on the full panel) and exposes ``best_params_``, ``best_score_``,
@@ -104,6 +109,8 @@ class TunedForecaster(MarketForecaster):
         taker_bps: float | None = None,
         policy: TradePolicy | None = None,
         costs: CostModel | None = None,
+        *,
+        embargo_days: int | None = None,
     ) -> None:
         if n_trials <= 0:
             raise ValueError(f"n_trials must be > 0; got {n_trials}.")
@@ -120,6 +127,7 @@ class TunedForecaster(MarketForecaster):
             raise ValueError(
                 "pass either taker_bps or costs, not both: costs.taker_bps already carries the fee"
             )
+        self.embargo_days = _validate_embargo_days(embargo_days)
         self.build_fn = build_fn
         self.param_space = param_space
         self.n_trials = n_trials
@@ -162,6 +170,7 @@ class TunedForecaster(MarketForecaster):
                 flat_stake=self.flat_stake,
                 costs=self.costs,
                 policy=self.policy,
+                embargo_days=self.embargo_days,
             )
             return _score(result.trades, self.metric)
 
@@ -206,7 +215,7 @@ class TunedForecaster(MarketForecaster):
         ``best_score`` is ``None`` before ``tune`` and for a search that never traded.
         """
         finite = math.isfinite(self.best_score_)
-        return {
+        config: dict[str, Any] = {
             "metric": self.metric,
             "n_trials": self.n_trials,
             "policy": self._policy_dict(),
@@ -216,6 +225,9 @@ class TunedForecaster(MarketForecaster):
             "flat_stake": self.flat_stake,
             "best_score": self.best_score_ if finite else None,
         }
+        if self.embargo_days is not None:  # left out when unused: a record is as 1.0.3 wrote it
+            config["embargo_days"] = self.embargo_days
+        return config
 
     def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
         """Fit the current best model directly (bypasses search).
@@ -276,6 +288,8 @@ class TunedForecaster(MarketForecaster):
         instance.stride = tuning.get("stride", 10)
         instance.min_train_rows = tuning.get("min_train_rows", 20)
         instance.flat_stake = tuning.get("flat_stake", 1.0)
+        # A tuner saved before 1.1.0 has no embargo on file: it trained on every known label.
+        instance.embargo_days = _validate_embargo_days(tuning.get("embargo_days"))
         policy = tuning.get("policy")
         stored = TradePolicy.from_dict(policy) if policy is not None else None
         instance.policy = None if stored == TradePolicy.top_bin_yes() else stored

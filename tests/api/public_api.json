@@ -88,6 +88,19 @@
             "envvar": null,
             "flag": false,
             "flags": [
+              "--embargo-days"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "embargo_days",
+            "required": false,
+            "type": "int"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
               "--costs"
             ],
             "kind": "option",
@@ -1219,14 +1232,14 @@
           },
           "resolve": {
             "kind": "classmethod",
-            "signature": "(cls, plugin: str, model: str = 'lgbm_baseline', model_params: Mapping[str, Any] | None = None, stride: int = 30, min_train_rows: int = 20, flat_stake: float = 1.0, costs: CostModel | None = None, policy: TradePolicy | str = 'live', min_edge: float | None = None, tuning: Mapping[str, Any] | None = None) -> BacktestConfig"
+            "signature": "(cls, plugin: str, model: str = 'lgbm_baseline', model_params: Mapping[str, Any] | None = None, stride: int = 30, min_train_rows: int = 20, flat_stake: float = 1.0, costs: CostModel | None = None, policy: TradePolicy | str = 'live', min_edge: float | None = None, tuning: Mapping[str, Any] | None = None, embargo_days: int | None = None) -> BacktestConfig"
           },
           "to_dict": {
             "kind": "method",
             "signature": "(self) -> dict[str, Any]"
           }
         },
-        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, float], policy: dict[str, Any], tuning: dict[str, Any] | None = None) -> None"
+        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, float], policy: dict[str, Any], tuning: dict[str, Any] | None = None, embargo_days: int | None = None) -> None"
       },
       "BacktestExpectation": {
         "bases": [],
@@ -2380,7 +2393,7 @@
             "signature": "(self) -> dict[str, Any]"
           }
         },
-        "signature": "(build_fn: Callable[[dict[str, Any]], MarketForecaster], param_space: Callable[[optuna.Trial], dict[str, Any]], n_trials: int = 20, metric: TuneMetric = 'total_pnl', random_state: int = 0, stride: int = 10, min_train_rows: int = 20, flat_stake: float = 1.0, taker_bps: float | None = None, policy: TradePolicy | None = None, costs: CostModel | None = None) -> None"
+        "signature": "(build_fn: Callable[[dict[str, Any]], MarketForecaster], param_space: Callable[[optuna.Trial], dict[str, Any]], n_trials: int = 20, metric: TuneMetric = 'total_pnl', random_state: int = 0, stride: int = 10, min_train_rows: int = 20, flat_stake: float = 1.0, taker_bps: float | None = None, policy: TradePolicy | None = None, costs: CostModel | None = None, *, embargo_days: int | None = None) -> None"
       },
       "TypedCache": {
         "bases": [
@@ -2643,7 +2656,7 @@
       },
       "rolling_origin_eval": {
         "kind": "function",
-        "signature": "(panel: pd.DataFrame, model: _ModelProtocol, min_train_rows: int = 20, stride: int = 10, flat_stake: float = 1.0, taker_bps: float | None = None, costs: CostModel | None = None, policy: TradePolicy | None = None) -> RollingOriginResult"
+        "signature": "(panel: pd.DataFrame, model: _ModelProtocol, min_train_rows: int = 20, stride: int = 10, flat_stake: float = 1.0, taker_bps: float | None = None, costs: CostModel | None = None, policy: TradePolicy | None = None, *, embargo_days: int | None = None) -> RollingOriginResult"
       },
       "run_backtest": {
         "kind": "function",
@@ -3127,14 +3140,14 @@
           },
           "resolve": {
             "kind": "classmethod",
-            "signature": "(cls, plugin: str, model: str = 'lgbm_baseline', model_params: Mapping[str, Any] | None = None, stride: int = 30, min_train_rows: int = 20, flat_stake: float = 1.0, costs: CostModel | None = None, policy: TradePolicy | str = 'live', min_edge: float | None = None, tuning: Mapping[str, Any] | None = None) -> BacktestConfig"
+            "signature": "(cls, plugin: str, model: str = 'lgbm_baseline', model_params: Mapping[str, Any] | None = None, stride: int = 30, min_train_rows: int = 20, flat_stake: float = 1.0, costs: CostModel | None = None, policy: TradePolicy | str = 'live', min_edge: float | None = None, tuning: Mapping[str, Any] | None = None, embargo_days: int | None = None) -> BacktestConfig"
           },
           "to_dict": {
             "kind": "method",
             "signature": "(self) -> dict[str, Any]"
           }
         },
-        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, float], policy: dict[str, Any], tuning: dict[str, Any] | None = None) -> None"
+        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, float], policy: dict[str, Any], tuning: dict[str, Any] | None = None, embargo_days: int | None = None) -> None"
       },
       "BacktestOutcome": {
         "bases": [],
