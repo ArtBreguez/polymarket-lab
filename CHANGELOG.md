@@ -34,11 +34,15 @@ examples are executed as written by the end-to-end test.
     the verdict, and a miss with drift points at the drift.
   - **Tolerance**: counts exactly; floats within `--rtol 1e-9 --atol 1e-12` (bit-for-bit on the
     same machine and versions; `--rtol 0 --atol 0` is strict).
+  - A record with no numeric metrics cannot be verified and is an error, never "reproduced".
   - Missing run, no record, unknown run kind, missing or moved panel (`--panel`), malformed or
     newer-schema records: each a one-line error, never a traceback.
 - **`pmlab backtest`** gains `--seed` (default 0), `--lgbm-param KEY=VALUE` (repeatable),
   `--runs-dir` / `--run-name` (also log a tracker run). `pmlab promote-champion` records the
   record from the `--expectation` file, or `--reproducibility FILE`.
+- `run_backtest` / `reproduce` seed python `random` and numpy for the run only (`seeded()`), then
+  restore the caller's generator state. A `champion.json` whose record this pmlab cannot read
+  (a newer schema, damage) loads with a warning and no record rather than failing the live loop.
 - Library API: `BacktestConfig.resolve`, `resolve_seeds`, `run_backtest`, `capture_backtest`,
   `fingerprint_panel`, `capture_environment`, `environment_drift`, `load_record`, `reproduce`
   (all also exported from `pmlab`). `LGBMForecaster.resolved_params()`.
@@ -53,9 +57,10 @@ examples are executed as written by the end-to-end test.
   default LightGBM parameters (no bagging or feature sub-sampling) the seed has no effect, so
   existing backtests give the same numbers. `LGBMForecaster` itself is unchanged: unseeded it
   uses LightGBM's own fixed internal seeds (deterministic, but not recordable).
-- `pmlab backtest --model` now rejects a name other than `lgbm_baseline`. It used to ignore the
-  option and run LightGBM whatever it said, which a reproducibility record would then have
-  recorded wrongly.
+- **Breaking, small:** `pmlab backtest --model` now rejects a name other than `lgbm_baseline`
+  (exit 1). It used to ignore the option and run LightGBM whatever it said, which a
+  reproducibility record would then have recorded wrongly. A script that passed another name was
+  already getting LightGBM; drop the flag or pass `lgbm_baseline`.
 - The backtest summary computation moved from the CLI body to `pmlab.reproducibility`
   (`backtest_metrics`); the numbers are unchanged.
 

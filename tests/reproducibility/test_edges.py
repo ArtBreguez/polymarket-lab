@@ -246,3 +246,90 @@ def test_a_panel_of_an_unknown_format_is_refused(tmp_path):
     odd.write_bytes(b"")
     result = runner.invoke(app, ["backtest", "--plugin", "d", "--panel", str(odd)])
     assert result.exit_code == 1 and "Panel must be .parquet or .csv" in result.output
+
+
+# ── found by review ──────────────────────────────────────────────────────
+def test_a_record_with_no_numeric_metrics_verifies_nothing_and_says_so(tmp_path):
+    record, _ = _record(tmp_path)
+    for metrics in ({}, {"note": "text only"}):
+        with pytest.raises(ReproduceError, match="no numeric metrics"):
+            reproduce(replace(record, metrics=metrics))
+
+
+def test_a_panel_with_list_or_dict_cells_can_be_fingerprinted():
+    df = pd.DataFrame({"a": [[1, 2], [3]], "b": [{"x": 1}, {"y": 2}], "n": [1, 2]})
+    a = fingerprint_panel(df).content_sha256
+    assert fingerprint_panel(df.copy()).content_sha256 == a
+    changed = df.assign(a=[[1, 2], [4]])
+    assert fingerprint_panel(changed).content_sha256 != a
+
+
+def test_running_a_backtest_leaves_the_callers_random_streams_alone():
+    import random
+
+    np.random.seed(5)
+    random.seed(6)
+    want = (np.random.random(), random.random())
+    np.random.seed(5)
+    random.seed(6)
+    run_backtest(
+        make_panel(n_dates=40), BacktestConfig.resolve(plugin="d", stride=10), resolve_seeds(99)
+    )
+    assert (np.random.random(), random.random()) == want
+
+
+def test_seeded_applies_the_seeds_inside_and_restores_the_state_after():
+    import random
+
+    from pmlab.reproducibility import seeded
+
+    random.seed(1)
+    before = random.getstate()
+    with seeded({"python_random": 9, "numpy": 9}):
+        inside = (random.random(), np.random.random())
+    assert random.getstate() == before
+    with seeded({"python_random": 9, "numpy": 9}):
+        assert (random.random(), np.random.random()) == inside
+
+
+@pytest.mark.parametrize("junk", [[], "x", 3])
+def test_a_champion_whose_record_is_not_an_object_still_loads(tmp_path, junk):
+    from pmlab.modeling.champion import ChampionManifest
+    from tests.reproducibility.test_stores import _gate, _model
+
+    out = tmp_path / "out"
+    ChampionManifest.publish(_model(), _gate(), out, plugin_family="demo")
+    path = out / "champion.json"
+    raw = json.loads(path.read_text())
+    raw["reproducibility"] = junk
+    path.write_text(json.dumps(raw))
+    with pytest.warns(UserWarning, match="ignoring the reproducibility record"):
+        assert ChampionManifest.load(path).reproducibility is None
+
+
+def test_a_run_id_is_not_shadowed_by_an_unrelated_directory(tmp_path, monkeypatch):
+    record, _ = _record(tmp_path)
+    runs = tmp_path / "runs" / "demo"
+    runs.mkdir(parents=True)
+    (runs / "ab12cd.json").write_text(json.dumps({"reproducibility": record.to_dict()}))
+    elsewhere = tmp_path / "cwd"
+    (elsewhere / "ab12").mkdir(parents=True)  # a folder that happens to be named like the prefix
+    monkeypatch.chdir(elsewhere)
+    assert load_record("ab12", runs_dir=tmp_path / "runs").seeds == record.seeds
+
+
+def test_a_policy_object_and_a_separate_min_edge_are_not_silently_reconciled():
+    from pmlab.core.policy import TradePolicy
+
+    with pytest.raises(ValueError, match="min_edge is ignored"):
+        BacktestConfig.resolve(plugin="d", policy=TradePolicy.live(min_edge=0.05), min_edge=0.1)
+    ok = BacktestConfig.resolve(plugin="d", policy=TradePolicy.live(min_edge=0.05))
+    assert ok.policy["min_edge"] == 0.05
+
+
+def test_cpu_count_is_recorded_but_never_counted_as_drift():
+    from pmlab.reproducibility import capture_environment, environment_drift
+
+    env = capture_environment()
+    assert env["cpu_count"].isdigit()
+    assert environment_drift({**env, "cpu_count": "9999"}) == []

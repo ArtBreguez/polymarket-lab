@@ -31,7 +31,7 @@ from pmlab.modeling.lgbm_baseline import LGBMForecaster
 from pmlab.reproducibility.capture import (
     ReproducibilityRecord,
     fingerprint_panel,
-    seed_everything,
+    seeded,
 )
 
 __all__ = [
@@ -96,7 +96,13 @@ class BacktestConfig:
                 f"model parameter(s) {seeded} set a seed, but a seed is not a model parameter: "
                 "use --seed (or `seeds`), the one place a run's randomness is chosen and recorded"
             )
-        if isinstance(policy, str):
+        if isinstance(policy, TradePolicy):
+            if min_edge is not None:
+                raise ValueError(
+                    "min_edge is ignored when a TradePolicy is passed: set the threshold on the "
+                    "policy (TradePolicy.live(min_edge=...))"
+                )
+        else:
             if policy == "live":
                 policy = TradePolicy.live(
                     min_edge=DEFAULT_MIN_EDGE if min_edge is None else min_edge
@@ -195,17 +201,21 @@ def backtest_metrics(result: RollingOriginResult) -> dict[str, Any]:
 def run_backtest(
     panel: pd.DataFrame, config: BacktestConfig, seeds: Mapping[str, int | None]
 ) -> BacktestOutcome:
-    """Seed, then run the walk-forward backtest the config describes."""
-    seed_everything(seeds)
-    result = rolling_origin_eval(
-        panel,
-        build_forecaster(config, seeds),
-        min_train_rows=config.min_train_rows,
-        stride=config.stride,
-        flat_stake=config.flat_stake,
-        costs=CostModel(**config.costs),
-        policy=TradePolicy.from_dict(config.policy),
-    )
+    """Seed, then run the walk-forward backtest the config describes.
+
+    The process-wide generators are seeded for the duration of the run only; the caller's own
+    numpy / ``random`` streams are left exactly where they were.
+    """
+    with seeded(seeds):
+        result = rolling_origin_eval(
+            panel,
+            build_forecaster(config, seeds),
+            min_train_rows=config.min_train_rows,
+            stride=config.stride,
+            flat_stake=config.flat_stake,
+            costs=CostModel(**config.costs),
+            policy=TradePolicy.from_dict(config.policy),
+        )
     return BacktestOutcome(result.trades, result.steps, backtest_metrics(result))
 
 

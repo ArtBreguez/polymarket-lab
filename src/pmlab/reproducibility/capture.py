@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import os
 import platform
 import random
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -44,6 +46,7 @@ __all__ = [
     "environment_drift",
     "fingerprint_panel",
     "seed_everything",
+    "seeded",
 ]
 
 # Bumped when a field of the record changes meaning. A reader refuses a *newer* schema (it
@@ -96,6 +99,7 @@ def capture_environment() -> dict[str, str | None]:
     env["system"] = platform.system()
     env["machine"] = platform.machine()
     env["platform"] = platform.platform()
+    env["cpu_count"] = str(os.cpu_count())  # informational, like `platform`: never compared
     return env
 
 
@@ -179,8 +183,11 @@ def _column_digest(series: pd.Series) -> tuple[str, bytes]:
             values = series.astype("object")
     except (TypeError, ValueError):  # e.g. a nullable integer holding <NA>: hash it as text
         values = series.astype("object")
-    hashed = pd.util.hash_pandas_object(values, index=False).to_numpy(dtype="uint64")
-    return kind, hashed.tobytes()
+    try:
+        hashed = pd.util.hash_pandas_object(values, index=False)
+    except TypeError:  # cells that cannot be hashed (lists, dicts, arrays): hash their text
+        hashed = pd.util.hash_pandas_object(values.astype(str), index=False)
+    return kind, hashed.to_numpy(dtype="uint64").tobytes()
 
 
 def fingerprint_panel(df: pd.DataFrame, source: str | None = None) -> DataFingerprint:
@@ -216,6 +223,23 @@ def seed_everything(seeds: Mapping[str, int | None]) -> None:
     npy = seeds.get("numpy")
     if npy is not None:
         np.random.seed(npy)
+
+
+@contextmanager
+def seeded(seeds: Mapping[str, int | None]) -> Iterator[None]:
+    """Seed the process-wide generators for the block, then give them back as they were.
+
+    A library call (``run_backtest``, ``reproduce``) must not reseed the caller's own numpy or
+    ``random`` stream as a side effect, so it uses this rather than :func:`seed_everything`.
+    """
+    py_state = random.getstate()
+    np_state = np.random.get_state()
+    seed_everything(seeds)
+    try:
+        yield
+    finally:
+        random.setstate(py_state)
+        np.random.set_state(np_state)
 
 
 # ── the record ───────────────────────────────────────────────────────────
@@ -270,6 +294,8 @@ class ReproducibilityRecord:
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> ReproducibilityRecord:
         """Read a record back; ``ValueError`` names what is wrong with a malformed one."""
+        if not isinstance(d, Mapping):
+            raise ValueError(f"reproducibility record must be an object, got {type(d).__name__}")
         version = d.get("schema_version", SCHEMA_VERSION)
         if not isinstance(version, int) or version > SCHEMA_VERSION:
             raise ValueError(

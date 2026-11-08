@@ -187,20 +187,18 @@ def load_record(
 
     * a path to a JSON file — a tracker run file, ``champion.json``, a registry version's
       ``champion.json``, the file ``pmlab backtest --output`` wrote, or a bare record;
-    * a path to a directory holding ``champion.json``;
+    * a path to a directory holding ``champion.json`` (a directory without one falls through
+      to the run-id lookup, so a run id is never shadowed by an unrelated folder);
     * a tracker run id (or unique prefix) under ``runs_dir`` (default ``runs``);
     * a model-registry version id under ``registry_dir``.
 
     Raises :class:`ReproduceError` when nothing matches, or the match holds no record.
     """
     path = Path(ref)
-    if path.is_dir():
-        champion = path / "champion.json"
-        if not champion.is_file():
-            raise ReproduceError(f"{path} is a directory without a champion.json")
-        return _read(champion)
     if path.is_file():
         return _read(path)
+    if path.is_dir() and (path / "champion.json").is_file():
+        return _read(path / "champion.json")
 
     looked: list[str] = []
     if registry_dir is not None and _RUN_ID.fullmatch(ref):
@@ -217,6 +215,8 @@ def load_record(
         if len(matches) > 1:
             ids = ", ".join(m.stem for m in matches)
             raise ReproduceError(f"Run id {ref!r} is ambiguous: it matches {ids}. Give more of it.")
+    if path.is_dir():
+        raise ReproduceError(f"{path} is a directory without a champion.json")
     where = "; ".join(looked) if looked else "paths"
     raise ReproduceError(
         f"No run {ref!r} found: it is not an existing file or directory (also looked in {where}). "
@@ -250,6 +250,12 @@ def reproduce(
         config = BacktestConfig.from_dict(record.config)
     except (ValueError, TypeError) as e:
         raise ReproduceError(f"The recorded config is not usable: {e}") from e
+    if not compare_metrics(record.metrics, record.metrics):
+        # Nothing to verify must never read as "verified": all([]) is True.
+        raise ReproduceError(
+            "The record holds no numeric metrics, so a re-run would have nothing to be "
+            "compared with."
+        )
 
     if panel is None:
         source = panel_path if panel_path is not None else record.data.source

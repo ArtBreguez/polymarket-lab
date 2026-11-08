@@ -505,7 +505,12 @@ def settle_trades_cmd(
 def backtest_cmd(
     plugin: str = typer.Option(..., "--plugin", "-p"),
     panel_path: str = typer.Option(..., "--panel", help="Path to historical panel .parquet file"),
-    model: str = typer.Option("lgbm_baseline", "--model", "-m"),
+    model: str = typer.Option(
+        "lgbm_baseline",
+        "--model",
+        "-m",
+        help="Model to backtest. Only lgbm_baseline exists; any other name is refused.",
+    ),
     stride: int = typer.Option(30, "--stride"),
     min_train_rows: int = typer.Option(20, "--min-train-rows"),
     flat_stake: float = typer.Option(1.0, "--flat-stake"),

@@ -21,6 +21,7 @@ from pmlab.reproducibility.capture import (
     environment_drift,
     fingerprint_panel,
     seed_everything,
+    seeded,
 )
 from pmlab.reproducibility.reproduce import (
     DEFAULT_ATOL,
@@ -72,4 +73,5 @@ __all__ = [
     "resolve_seeds",
     "run_backtest",
     "seed_everything",
+    "seeded",
 ]

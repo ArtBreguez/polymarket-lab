@@ -156,7 +156,7 @@ class ChampionManifest:
         if raw_repro is not None:
             try:
                 reproducibility = ReproducibilityRecord.from_dict(raw_repro)
-            except (ValueError, TypeError, KeyError) as e:
+            except (ValueError, TypeError, KeyError, AttributeError) as e:
                 warnings.warn(
                     f"{json_path}: ignoring the reproducibility record, which cannot be read "
                     f"({e}); `pmlab reproduce` will not be able to re-run this champion",

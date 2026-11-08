@@ -12,7 +12,7 @@ the installed wheel (`uv run pytest -m e2e`).
 | Part | Content | Why |
 |---|---|---|
 | **seeds** | `python_random`, `numpy`, `lightgbm`: the value each generator was given | the part of a result that is chance |
-| **environment** | pmlab, Python, numpy, pandas, lightgbm, scikit-learn, optuna (`null` if absent), OS, CPU architecture | a library upgrade can change a number without a line of your code changing |
+| **environment** | pmlab, Python, numpy, pandas, lightgbm, scikit-learn, optuna (`null` if absent), OS, CPU architecture and count | a library upgrade can change a number without a line of your code changing |
 | **config** | the *resolved* parameters: model and its LightGBM params with defaults spelled out, stride, min train rows, stake, the full cost model, the full trade policy | a later change of a default must not change what an old record means |
 | **data** | SHA-256 of the panel's content, row count, column list, where it was read from | tells you the data under a path is no longer the data of the run |
 | **metrics** | what the run produced: `total_trades`, `steps`, `total_pnl`, `hit_rate`, `avg_edge` | what a re-run is compared to |
@@ -259,7 +259,7 @@ re-execute `backtest` runs.
 
 | Where | Seeded by | Note |
 |---|---|---|
-| `pmlab backtest` / `run_backtest` | `--seed` (default 0): python `random`, numpy global, LightGBM `random_state` | one place; a seed in `--lgbm-param` is refused |
+| `pmlab backtest` / `run_backtest` | `--seed` (default 0): python `random`, numpy global, LightGBM `random_state` | one place; a seed in `--lgbm-param` is refused. The global generators are seeded for the run only and restored after, so your own streams are untouched |
 | `LGBMForecaster` used directly | `random_state=` if you pass it | unset, LightGBM uses its own fixed internal seeds: deterministic, but not a value that can be recorded |
 | `SklearnForecaster` `random_forest` / `gradient_boosting` | `random_state=0` by default (**new in 0.10.0**) | previously unseeded: the numpy global state decided, so two runs differed. Pass `random_state=` to change it |
 | `TunedForecaster` | `random_state=0`: the Optuna TPE sampler | unchanged |
@@ -271,9 +271,14 @@ re-execute `backtest` runs.
 
 * Only `backtest` runs can be re-executed from their record; a record of another `kind`
   is read, stored and shown, and `reproduce` says it cannot run it.
-* The record cannot pin `PYTHONHASHSEED` or the number of threads. Neither moves a
-  LightGBM backtest here (checked: 1, 2 and 4 threads give identical probabilities), but a
-  result that depends on them is outside what this guarantees.
+* The record cannot pin `PYTHONHASHSEED`. The number of threads is not pinned either (the CPU
+  count is recorded, for information, and never counted as drift). With LightGBM 4.6.0, 1, 2
+  and 8 threads gave identical probabilities on 300 000 rows x 30 features, but a result that
+  did depend on them would show up as a miss with no version drift; adding
+  `--lgbm-param deterministic=true --lgbm-param force_row_wise=true` removes that source.
+* A backtest that produces no trades writes nothing (no `--output` file, no tracked run), as
+  before: there is no result to reproduce. A record whose metrics hold no number cannot be
+  verified, and `reproduce` says so instead of reporting a vacuous success.
 * A CSV panel is hashed as `pandas.read_csv` returns it; the same file always hashes the same,
   a re-exported one may not (float text parsing).
 * The MLflow tracker stores the record as the artifact `reproducibility.json`; download it
