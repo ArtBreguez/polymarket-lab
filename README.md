@@ -590,6 +590,25 @@ print(tuner.best_params_, tuner.best_score_)
 proba = tuner.predict_proba(X_test)   # refit on the full panel, ready to use
 ```
 
+By default a trial is scored by the historical rule (YES on the most probable bin of every
+market). Live trading takes the best after-fee edge, YES or NO, if it clears `min_edge`, and the
+two rules can rank the same hyper-parameters differently. Tune for what you trade: pass the policy
+and costs (new in 0.12.0, the default is unchanged):
+
+```python
+from pmlab import CostModel, TradePolicy
+
+tuner = TunedForecaster(
+    build_fn=..., param_space=..., n_trials=30,
+    policy=TradePolicy.live(min_edge=0.20),   # the min_edge of `record-trades --min-edge`
+    costs=CostModel(taker_bps=30.0, slippage_bps=50.0),
+)
+```
+
+The record of a tuned backtest carries the objective (`BacktestConfig.resolve(..., tuning=
+tuner.tuning_config())`) and the sampler seed (`resolve_seeds(seed, optuna=tuner.random_state)`).
+See [docs/tuning.md](docs/tuning.md).
+
 ### Leakage-aware cross-validation
 
 For time-series model selection outside the backtest, use splitters that respect

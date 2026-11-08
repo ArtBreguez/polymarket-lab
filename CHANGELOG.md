@@ -2,6 +2,50 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.12.0] — 2026-11-08
+
+### Added — `TunedForecaster` can tune for the trade policy you actually trade
+
+Closes #36. `TunedForecaster` scored every trial with the historical backtest rule (YES on the most
+probable bin of every market, no threshold) while live trading uses the edge path (per market the
+best after-fee edge, YES or NO, taken only if it clears `min_edge`, 0.20 by default). A model tuned
+for one rule can be the wrong model for the other. Documented in [docs/tuning.md](docs/tuning.md).
+
+**No default changed: nothing to do on upgrade.** Without the new arguments a search is the one
+0.11 ran, trial for trial (a test pins every trial's score to the historical backtest's).
+
+- **The mismatch, concretely.** Two candidate models on a crafted 48-day panel (the page builds it
+  and the numbers come from the backtest itself): scored by the historical rule A earns +32.6 and B
+  loses 64.0, so A wins the search; scored by `TradePolicy.live(min_edge=0.20)` A never trades and B
+  earns +23.9, so B wins; at `min_edge=0.05` A wins again (+25.4 vs -12.7). The threshold alone
+  changes which hyper-parameters win. (On the bundled sample the 8-trial tutorial search picks the
+  same parameters under every objective, with different scores: 22.65 historical, 18.13 at 0.05,
+  7.91 at 0.20. The sample is too well-behaved to show the divergence.)
+- **`policy=` and `costs=`.** `TunedForecaster(..., policy=TradePolicy.live(min_edge=0.05),
+  costs=CostModel(...))` forwards both to the scoring `rolling_origin_eval`, so a trial is graded
+  by the decision rule and the fills `record-trades` will use. `policy=None` (default) is the
+  historical rule; `taker_bps` keeps working for a fee alone (it is now `None` by default and still
+  resolves to 30 bps; `tuner.taker_bps` still reads 30.0) and is refused together with `costs`.
+  A `policy` that is not a `TradePolicy` is a `TypeError`.
+- **No lookahead introduced.** Every trial still goes through `rolling_origin_eval`, which fits on
+  `decision_date < eval_date` whatever the policy (a spy forecaster asserts it under the live policy).
+- **A search that never trades warns.** Under a threshold every trial can score `-inf`; `tune()` now
+  raises a `UserWarning` instead of returning the first trial as if it had won.
+- **The record says which objective picked the parameters.** `TunedForecaster.tuning_config()` is the
+  resolved objective (metric, policy, costs, walk-forward settings, best score), strict JSON.
+  `BacktestConfig.resolve(..., tuning=tuner.tuning_config())` stores it as `config["tuning"]` and
+  `resolve_seeds(seed, optuna=tuner.random_state)` adds the sampler seed to `seeds`. A run without a
+  tuner has no `tuning` key and no `optuna` seed: its record is byte-for-byte what it was. A tuned
+  run reproduces like any other (`pmlab reproduce` re-runs the backtest with the tuned parameters,
+  it does not search again) and the recorded objective, seed and data are enough to run the search
+  again and land on the same parameters (tested).
+- **`save`/`load` keep the objective.** A tuner pickled before this release loads as the historical
+  objective, which is what produced it.
+- **Tutorial notebook** tunes with the live policy and the costs of its backtest, and records the
+  objective. Docs: [docs/tuning.md](docs/tuning.md), README, [docs/reproducibility.md](docs/reproducibility.md).
+- **Mutation-checked.** Ignoring the passed policy (7 tests red), ignoring the costs (4), dropping the
+  `tuning` block from the record (4) and dropping the sampler seed (3) each turn tests red.
+
 ## [0.11.2] — 2026-11-08
 
 ### Fixed — the leakage check no longer rejects a ranged-market panel

@@ -12,6 +12,9 @@ Seeding, and where it happens:
 * ``lightgbm`` — passed to the forecaster as ``random_state``, the only place LightGBM reads a
   seed (bagging, feature sub-sampling, extra trees). It is *not* a model parameter of the
   config: there is exactly one place a seed can be set, and a second one is refused.
+* ``optuna`` — only for a run whose parameters came out of a ``TunedForecaster`` search: the
+  sampler's ``random_state``. The backtest itself never reads it (it re-runs with the tuned
+  parameters, which are in the config); it is recorded so the search can be run again.
 """
 
 from __future__ import annotations
@@ -51,9 +54,16 @@ _MODELS = ("lgbm_baseline",)
 _SEED_PARAMS = ("random_state", "seed", "random_seed")
 
 
-def resolve_seeds(seed: int = DEFAULT_SEED) -> dict[str, int]:
-    """One root seed -> the seed of every generator a backtest draws from."""
-    return {"python_random": seed, "numpy": seed, "lightgbm": seed}
+def resolve_seeds(seed: int = DEFAULT_SEED, optuna: int | None = None) -> dict[str, int]:
+    """One root seed -> the seed of every generator a backtest draws from.
+
+    ``optuna`` is the sampler seed of a ``TunedForecaster`` (``tuner.random_state``) whose
+    best parameters the backtest uses; leave it out for a run that was not tuned.
+    """
+    seeds = {"python_random": seed, "numpy": seed, "lightgbm": seed}
+    if optuna is not None:
+        seeds["optuna"] = optuna
+    return seeds
 
 
 @dataclass(frozen=True)
@@ -72,6 +82,7 @@ class BacktestConfig:
     flat_stake: float
     costs: dict[str, float]
     policy: dict[str, Any]
+    tuning: dict[str, Any] | None = None
 
     @classmethod
     def resolve(
@@ -85,8 +96,15 @@ class BacktestConfig:
         costs: CostModel | None = None,
         policy: TradePolicy | str = "live",
         min_edge: float | None = None,
+        tuning: Mapping[str, Any] | None = None,
     ) -> BacktestConfig:
-        """Apply every default and validate. ``ValueError`` says what is wrong."""
+        """Apply every default and validate. ``ValueError`` says what is wrong.
+
+        ``tuning`` is how ``model_params`` were chosen, for the record: pass
+        ``tuner.tuning_config()`` after ``TunedForecaster.tune``. It is provenance only (the
+        backtest re-runs with the tuned ``model_params`` and does not search again) and is
+        left out of the config entirely when ``None``, so untuned records are unchanged.
+        """
         if model not in _MODELS:
             raise ValueError(f"unknown model {model!r}: only {list(_MODELS)} is supported")
         user = dict(model_params or {})
@@ -95,6 +113,11 @@ class BacktestConfig:
             raise ValueError(
                 f"model parameter(s) {seeded} set a seed, but a seed is not a model parameter: "
                 "use --seed (or `seeds`), the one place a run's randomness is chosen and recorded"
+            )
+        if tuning is not None and not isinstance(tuning, Mapping):
+            raise ValueError(
+                "tuning must be a mapping, the TunedForecaster.tuning_config() of the search "
+                f"that chose model_params; got {tuning!r}"
             )
         if isinstance(policy, TradePolicy):
             if min_edge is not None:
@@ -122,10 +145,11 @@ class BacktestConfig:
             flat_stake=flat_stake,
             costs=(costs or CostModel()).to_dict(),
             policy=policy.to_dict(),
+            tuning=None if tuning is None else dict(tuning),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "plugin": self.plugin,
             "model": self.model,
             "model_params": dict(self.model_params),
@@ -135,6 +159,9 @@ class BacktestConfig:
             "costs": dict(self.costs),
             "policy": dict(self.policy),
         }
+        if self.tuning is not None:
+            out["tuning"] = dict(self.tuning)
+        return out
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> BacktestConfig:
@@ -163,6 +190,7 @@ class BacktestConfig:
             flat_stake=float(d["flat_stake"]),
             costs=dict(d["costs"]),
             policy=dict(d["policy"]),
+            tuning=None if d.get("tuning") is None else dict(d["tuning"]),
         )
 
 
