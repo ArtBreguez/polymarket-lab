@@ -2,6 +2,48 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.3] — 2026-11-08
+
+### Added — out-of-fold target encoding, interactions and missing-value indicators
+
+Closes #19. Three more transforms, copy-on-write like the existing five (the input frame
+is never mutated), typed and tested.
+
+- **`TargetEncoder` / `FittedTargetEncoder`** (`pmlab.features.target_encoding`) — smoothed
+  (m-estimate) target encoding of one categorical column with a leakage contract:
+  - `enc.fit_transform(train)` encodes **training rows out-of-fold**: a row's encoding is
+    built from the targets of other folds only (the prior is out-of-fold too), so no row
+    sees its own target.
+  - `cv="time"` (default, needs `time_col`) is an expanding window over distinct
+    timestamps: a row is encoded from strictly **earlier** timestamps only, so there is no
+    lookahead. The earliest fold has no history and is NaN. `cv="group"` (seeded group
+    K-fold, e.g. all bins of one market in one fold) and `cv="kfold"` (seeded shuffled
+    K-fold) exist but must be asked for explicitly; there is no silent fallback to KFold.
+  - `enc.fit(train)` returns a frozen, picklable `FittedTargetEncoder` with the full-train
+    statistics; `.transform(live)` applies them to new rows (no target column needed).
+    Inference never takes the OOF path.
+  - Unseen category -> prior; NaN/None category is its own category (prior if never seen
+    while fitting); NaN targets are ignored; deterministic given `seed`. `enc.assign_folds(df)`
+    exposes the fold ids.
+- **`add_missing_indicators(df, cols, suffix="_isna")`** — `int8` 0/1 flags.
+- **`add_interactions(df, pairs, op="mul")`** — `mul` / `div` / `add` / `sub` with
+  deterministic names (`a_x_b`, `a_div_b`, `a_plus_b`, `a_minus_b`); division by zero is NaN,
+  never `inf`.
+
+All are exported from `pmlab.features` and `pmlab`. See `docs/features.md` for the leakage
+contract and a correct-usage example.
+
+### Fixed — `add_rolling_stats(group_by=...)` put values on the wrong rows
+
+`add_rolling_stats` assigned `groupby().rolling().<stat>().values` positionally. That result
+is ordered by group, so whenever the frame was **not already sorted by the group key**
+(e.g. rows interleaved `a, b, a, b, ...`), every group's rolling values landed on other
+rows — silently, with plausible-looking numbers. It now uses `groupby().transform`, which keeps
+each value on its own row (and is also correct with duplicate index labels). Frames already sorted
+ascending by the group key produce identical output to before (checked); any feature built with
+`group_by` on an unsorted frame was wrong and should be regenerated. `add_lags` was not
+affected. Regression tests use interleaved groups.
+
 ## [0.9.2] — 2026-10-21
 
 ### Fixed — the weather panel showed the backtest only the bin that won (#28)

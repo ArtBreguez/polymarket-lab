@@ -9,9 +9,13 @@
 `pmlab.features` is included in `pmlab`. No extra dependencies.
 
 ```python
-from pmlab import add_lags, add_rolling_stats, encode_cyclical, encode_onehot, clip_outliers
+from pmlab import (
+    add_lags, add_rolling_stats, encode_cyclical, encode_onehot, clip_outliers,
+    add_missing_indicators, add_interactions, TargetEncoder, FittedTargetEncoder,
+)
 # or
 from pmlab.features.transforms import add_lags, ...
+from pmlab.features.target_encoding import TargetEncoder, FittedTargetEncoder
 ```
 
 ---
@@ -50,6 +54,8 @@ df = add_rolling_stats(
 )
 # Adds: temp_roll7_mean, temp_roll7_std, temp_roll14_mean, ...
 ```
+
+With `group_by`, each row's window is computed over the rows of its own group, in the frame's row order, and the value lands on that same row — the frame does **not** need to be sorted by the group key (before 0.9.3 it did, silently). Sort by time within each group first; rolling windows follow row order.
 
 ---
 
@@ -112,6 +118,81 @@ df = clip_outliers(df, cols=["temp"], method="zscore", zscore_threshold=4.0)
 
 ---
 
+## add_missing_indicators
+
+Adds one `int8` 0/1 column per input column: 1 where the value is missing (NaN/None/NaT).
+
+```python
+df = add_missing_indicators(df, cols=["wind_speed", "pressure"])           # suffix="_isna"
+# Adds: wind_speed_isna, pressure_isna
+```
+
+Call it **before** imputing — once the NaNs are filled, the missingness is gone. Row-local, so it cannot leak.
+
+---
+
+## add_interactions
+
+Adds one pairwise column per `(a, b)`. `op` is `"mul"` (default), `"div"`, `"add"` or `"sub"`.
+
+```python
+df = add_interactions(df, pairs=[("temp", "humidity"), ("wind", "temp")])              # temp_x_humidity, wind_x_temp
+df = add_interactions(df, pairs=[("price", "liquidity")], op="div")                    # price_div_liquidity
+# names: a_x_b (mul), a_div_b (div), a_plus_b (add), a_minus_b (sub)
+```
+
+Names follow the order of the pair, so `(a, b)` and `(b, a)` are different columns. **Division by zero gives NaN, never `inf`.** Row-local, so it cannot leak.
+
+---
+
+## Target encoding — `TargetEncoder` / `FittedTargetEncoder`
+
+Replaces a categorical value by a smoothed mean of the target for that value: `(sum + m * prior) / (n + m)` (m-estimate; `m = smoothing`). A category unseen while fitting gets the global `prior`; a missing (NaN/None) category is its own category (its own smoothed estimate if missing values were seen, otherwise `prior`); rows with a NaN target contribute to no statistic. Deterministic given `seed`.
+
+### The leakage contract
+
+Computed naively on the training frame, a row's own target sits inside its own encoding: the model learns to read it back and the backtest overstates live performance. So training and inference are **two different computations**, on purpose (this mirrors `sklearn.preprocessing.TargetEncoder`):
+
+| Use | Call | What a row's encoding is built from |
+|---|---|---|
+| **Training rows** | `enc.fit_transform(train)` | Targets of **other folds only** (out-of-fold). The prior is out-of-fold too. A row never sees its own target. |
+| **New / live rows** | `enc.fit(train).transform(live)` | Full-train smoothed statistics. No target column needed on `live`. |
+
+Never call `fit(train).transform(train)` to build training features: that is the leaky in-sample path.
+
+`cv` selects the folds — there is no silent fallback to shuffled K-fold:
+
+| `cv` | Folds | Use when |
+|---|---|---|
+| `"time"` (default, needs `time_col`) | Expanding window: distinct timestamps are cut into `n_folds` contiguous chunks; chunk `k` is encoded from chunks `< k` only, i.e. **strictly earlier timestamps — no lookahead**. Rows sharing a timestamp share a fold. The earliest chunk has no history and is NaN (trees handle it natively). | Anything with a time order — i.e. almost every market panel. |
+| `"group"` (needs `group_col`) | Seeded group K-fold: all rows of a group (e.g. the bins of one market) stay in one fold and never encode each other. | Rows exchangeable across groups, but not within a group. |
+| `"kfold"` | Seeded shuffled K-fold. Must be asked for explicitly. | Rows fully exchangeable (rare). |
+
+`n_folds` is capped by the number of distinct timestamps / groups / rows. `time_col` should order rows by *when the target became known* (e.g. market resolution time) if that differs from the feature timestamp; no extra purge/embargo is applied.
+
+### Correct usage
+
+```python
+from pmlab import TargetEncoder
+
+enc = TargetEncoder(col="city", target="outcome", time_col="date", n_folds=5, smoothing=10.0)
+
+# training: out-of-fold -> adds city_te (no row sees its own or any later target)
+X_train = enc.fit_transform(train)
+
+# inference: full-train statistics, applied to rows whose target is unknown
+fitted = enc.fit(train)              # fit on the *same* rows the model trained on
+X_live = fitted.transform(live)      # adds city_te; unseen city -> prior
+
+# the fitted encoder is a frozen dataclass of plain floats + a dict: pickle it with the model
+```
+
+To inspect or align with your own CV, `enc.assign_folds(df)` returns each row's fold id. Wrong usage to avoid: encoding the whole panel with `fit(df).transform(df)` and *then* splitting train/test, or fitting on a window that includes the test rows.
+
+The train/serve distributions differ slightly (OOF statistics see less history than full-train ones, most visibly in the first folds); this is the standard cost of leakage-free target encoding, and the reason to keep `n_folds` moderate.
+
+---
+
 ## Full Pipeline Example
 
 ```python
@@ -135,4 +216,12 @@ df["doy_sin"], df["doy_cos"] = encode_cyclical(df["day_of_year"], period=365)
 
 # 5. One-hot encode categoricals
 df = encode_onehot(df, cols=["city"], drop_first=True)
+```
+
+Missing-value indicators and target encoding belong *before* step 5 (they read the raw categorical / NaNs), with the target-encoded column built out-of-fold as above:
+
+```python
+df = add_missing_indicators(df, cols=["humidity"])       # before any imputation
+df = add_interactions(df, pairs=[("temp", "humidity")])
+df = TargetEncoder("city", "outcome", time_col="date").fit_transform(df)
 ```
