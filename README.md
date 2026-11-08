@@ -4,7 +4,7 @@
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
 <img src="https://img.shields.io/badge/coverage-96%25-brightgreen" alt="Coverage 96%">
-<img src="https://img.shields.io/badge/tests-3108%20passing-brightgreen" alt="3108 tests">
+<img src="https://img.shields.io/badge/tests-3109%20passing-brightgreen" alt="3109 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
 <a href="https://artbreguez.github.io/polymarket-lab/"><img src="https://img.shields.io/badge/docs-artbreguez.github.io%2Fpolymarket--lab-blue" alt="Documentation"></a>
@@ -834,7 +834,7 @@ uv build                                  # build wheel + sdist
 | `workspace` | ✅ Stable | 100% |
 | `cli` | 🔧 Shell | 91% |
 
-**Tests:** 3108 passing · **Coverage:** 95.8% · **Python:** 3.12
+**Tests:** 3109 passing · **Coverage:** 95.8% · **Python:** 3.12
 
 ---
 
