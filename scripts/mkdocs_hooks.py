@@ -4,7 +4,8 @@ Registered in ``mkdocs.yml`` (``hooks:``). The home page shows numbers computed 
 sample (``scripts/make_site_data.py`` writes ``docs/assets/data/sample-run.json``); this hook reads
 that file, checks its schema, and turns it into what the template draws: percentages for the fold
 timeline, bar heights for the Brier sparkline, the diverging per-city gate bars. The project version
-comes from ``pyproject.toml``, so the page never states a stale one.
+comes from ``pyproject.toml``, so the page never states a stale one. The changelog page is the
+repository's ``CHANGELOG.md`` itself (``docs/changelog.md`` is a stub), so the two cannot drift.
 
 It does not import MkDocs, so ``tests/test_docs_theme.py`` can load it from a plain dev checkout.
 """
@@ -12,12 +13,14 @@ It does not import MkDocs, so ``tests/test_docs_theme.py`` can load it from a pl
 from __future__ import annotations
 
 import json
+import re
 import tomllib
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 SCHEMA = 1
+REPO_URL = "https://github.com/ArtBreguez/polymarket-lab"
 SHOWN_FOLD_COUNT = 6
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
@@ -116,3 +119,22 @@ def on_config(config: Any) -> Any:
             "version"
         ]
     return config
+
+
+def changelog_for_site(text: str) -> str:
+    """``CHANGELOG.md`` as a site page: links into ``docs/`` become page links, others go to GitHub."""
+
+    def fix(match: re.Match[str]) -> str:
+        target = match.group(1)
+        if target.startswith("docs/"):
+            return f"]({target[len('docs/') :]})"
+        return f"]({REPO_URL}/blob/main/{target})"
+
+    return re.sub(r"\]\((?!https?://|#|mailto:)([^)\s]+)\)", fix, text)
+
+
+def on_page_read_source(page: Any, config: Any) -> str | None:
+    if page.file.src_uri != "changelog.md":
+        return None
+    changelog = Path(config.docs_dir).parent / "CHANGELOG.md"
+    return changelog_for_site(changelog.read_text(encoding="utf-8"))
