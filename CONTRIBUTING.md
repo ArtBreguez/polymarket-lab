@@ -107,6 +107,25 @@ formats. A test compares them with a checked-in snapshot and fails on any differ
 - **Docs examples** import only public names (`from pmlab import ...`); a test enforces it.
 - `uv run mkdocs build --strict` must pass (CI runs it on every change to `docs/` or `src/`).
 
+### The documentation site's theme
+
+The site (https://pmlab.hiddenterps.si/) is Material for MkDocs with its own skin; nothing is loaded
+from a third party (the three font families are self-hosted, see `docs/assets/fonts/`).
+
+- `docs/assets/stylesheets/pmlab.css` is the whole theme: tokens first (`--pm-*`, one block per colour
+  scheme), then the chrome, the content, the API reference and the home page. Header, hero, code blocks
+  and footer stay charcoal in the light scheme; only the reading surface flips.
+- `overrides/` holds the templates: `main.html` (family strip, font preloads), `home.html`, `404.html`.
+- The home page draws real numbers from the bundled sample: `docs/assets/data/sample-run.json`, made by
+  `uv run python scripts/make_site_data.py` (about 15 s, offline) and read by `scripts/mkdocs_hooks.py`.
+  Change the library in a way that moves them, and rerun it; `--check` (run by the e2e job against the
+  wheel) fails when the file is out of date.
+- `tests/test_docs_theme.py` holds what a restyle loses quietly: AA contrast of every colour token in
+  both schemes, `prefers-reduced-motion`, transform and opacity only in keyframes, no third-party host,
+  font budget, and that every link in a template lands on a page. A new colour pair goes into those
+  tests; a text colour under 4.5:1 does not ship.
+- `uv sync --extra docs && uv run mkdocs serve` previews it.
+
 ### Documentation and the README
 
 The README is also the PyPI page, so it uses absolute links only, and it carries no number that can

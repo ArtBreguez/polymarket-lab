@@ -30,6 +30,7 @@ Use this file as the shared contract for all agents (Codex, Claude, etc).
 | `src/pmlab/_deprecation.py` | `deprecated` / `warn_deprecated`, `PmlabDeprecationWarning`: the only way a public name is retired (`docs/deprecation.md`) |
 | `scripts/api_surface.py`, `tests/api/` | The public-API snapshot (`tests/api/public_api.json`) and the tests that enforce it |
 | `docs/`, `mkdocs.yml` | The documentation site (mkdocs-material, API reference from docstrings), built `--strict` by `.github/workflows/docs.yml` |
+| `overrides/`, `docs/assets/`, `scripts/make_site_data.py`, `scripts/mkdocs_hooks.py` | The site's skin: templates (`home.html`, `404.html`), the one stylesheet (`pmlab.css`, tokens first), self-hosted fonts and the home page's data file `sample-run.json`; `tests/test_docs_theme.py` holds its contrast, motion and no-third-party guards (see `CONTRIBUTING.md`) |
 | `src/pmlab/markets/` | Polymarket Gamma and CLOB clients (sync and async), `DiskCache` |
 | `src/pmlab/features/` | Pure DataFrame transforms and out-of-fold `TargetEncoder` (copy-on-write, no I/O) |
 | `src/pmlab/monitoring/` | Drift (PSI/KL), live calibration, `health_report`: the pure core of `pmlab monitor` |
