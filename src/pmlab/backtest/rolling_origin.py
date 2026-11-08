@@ -62,7 +62,7 @@ def rolling_origin_eval(
         stride: Evaluate every Nth distinct decision_date.
         flat_stake: Notional USDC risked per trade.
         taker_bps: Legacy fee-only knob. Mutually exclusive with ``costs``.
-        costs: Full :class:`~pmlab.core.costs.CostModel` (fee + slippage + depth).
+        costs: Full `CostModel` (fee + slippage + depth).
             Omit both arguments for the historical default (30bps, fill at quote).
         policy: The decision rule. Omit it for the historical backtest: YES on the bin
             with the highest predicted probability, every market, no threshold (the

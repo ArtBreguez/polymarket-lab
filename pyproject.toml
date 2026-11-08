@@ -43,6 +43,15 @@ tune = [
 track = [
   "mlflow>=2.14",
 ]
+# The documentation site (`mkdocs build --strict`, see mkdocs.yml). Not a runtime dependency.
+# MkDocs is held below 2.0: that release drops the plugin system Material and mkdocstrings use.
+# The tutorial notebook is linked, not rendered: mkdocs-jupyter would add a Jupyter kernel stack.
+docs = [
+  "mkdocs>=1.6,<2",
+  "mkdocs-material>=9.6,<10",
+  "mkdocstrings[python]>=1.0,<2",
+  "ruff>=0.9",  # mkdocstrings formats long signatures with it (else it prints them on one line)
+]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=5.0",
@@ -67,7 +76,9 @@ pmlab = "pmlab.cli.main:app"
 
 [project.urls]
 Homepage = "https://github.com/ArtBreguez/polymarket-lab"
+Documentation = "https://artbreguez.github.io/polymarket-lab/"
 Repository = "https://github.com/ArtBreguez/polymarket-lab"
+Changelog = "https://github.com/ArtBreguez/polymarket-lab/blob/main/CHANGELOG.md"
 Issues = "https://github.com/ArtBreguez/polymarket-lab/issues"
 
 [tool.hatch.build.targets.wheel]

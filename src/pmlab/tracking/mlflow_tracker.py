@@ -8,7 +8,7 @@ constructing an ``MLflowTracker`` raises a clear, actionable ImportError.
 It maps pmlab's run semantics onto MLflow: ``experiment`` → MLflow experiment,
 params → ``log_params``, metrics → ``log_metrics``, the gate decision →
 ``log_params({"gate_decision": ...})`` plus the full gate dict as a JSON artifact.
-It also mirrors every run into a :class:`~pmlab.tracking.RunRecord` so
+It also mirrors every run into a `RunRecord` so
 ``list_runs``/``get_run`` return the same typed objects as the local backend.
 """
 

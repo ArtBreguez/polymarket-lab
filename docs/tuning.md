@@ -2,7 +2,7 @@
 
 `TunedForecaster` picks hyper-parameters by scoring every Optuna trial with a walk-forward
 backtest (`rolling_origin_eval`). *What a trial is scored on* is a decision rule, and since
-0.12.0 it is yours to choose: pass the [`TradePolicy`](../src/pmlab/core/policy.py) you will
+0.12.0 it is yours to choose: pass the [`TradePolicy`](reference/core.md#pmlab.TradePolicy) you will
 trade with and the search maximises that, not a stand-in for it.
 
 ```text

@@ -9,7 +9,7 @@ flag any that separate it suspiciously well.
 What "the label" is depends on what the model is trained on. ``rolling_origin_eval`` fits
 ``outcome_label == winning_label`` per row. On a panel with one row per outcome bin that is
 a different thing from ``winning_label``, which is the same for every bin of a market, so
-:func:`check_no_leakage` scores such a panel against the per-row outcome (issue #35).
+`check_no_leakage` scores such a panel against the per-row outcome (issue #35).
 
 A feature that is the same for every bin of a market cannot separate that outcome (it scores
 0.5 by construction), so on such a panel it is also scored by how close it sits to each bin:
@@ -213,7 +213,7 @@ def check_no_leakage(
             leaks; otherwise return the report for inspection.
 
     Returns:
-        A :class:`LeakageReport`. When ``raise_on_leak`` is True and leakage is
+        A `LeakageReport`. When ``raise_on_leak`` is True and leakage is
         found, raises instead of returning.
 
     Raises:
@@ -280,7 +280,7 @@ def check_no_leakage(
 
 @dataclass
 class PriceTimingReport:
-    """What :func:`check_price_timing` found.
+    """What `check_price_timing` found.
 
     Attributes:
         n_rows: rows in the frame.
@@ -317,7 +317,7 @@ def check_price_timing(
 ) -> PriceTimingReport:
     """Check that every price was observed strictly before the decision that uses it.
 
-    "Strictly before" is the rule :meth:`FeatureSnapshotStore.as_of` applies to features
+    "Strictly before" is the rule `FeatureSnapshotStore.as_of` applies to features
     (``captured_at < cutoff``), so a price and the features beside it are held to one
     standard. Timestamps are compared in UTC, so offsets do not matter.
 
@@ -347,7 +347,7 @@ def check_price_timing(
             otherwise return the report.
 
     Returns:
-        A :class:`PriceTimingReport`.
+        A `PriceTimingReport`.
 
     Raises:
         LeakageError: a price was observed at or after its decision, has no time, or the

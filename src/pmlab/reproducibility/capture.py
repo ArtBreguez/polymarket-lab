@@ -230,7 +230,7 @@ def seeded(seeds: Mapping[str, int | None]) -> Iterator[None]:
     """Seed the process-wide generators for the block, then give them back as they were.
 
     A library call (``run_backtest``, ``reproduce``) must not reseed the caller's own numpy or
-    ``random`` stream as a side effect, so it uses this rather than :func:`seed_everything`.
+    ``random`` stream as a side effect, so it uses this rather than `seed_everything`.
     """
     py_state = random.getstate()
     np_state = np.random.get_state()

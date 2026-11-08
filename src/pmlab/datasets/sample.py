@@ -54,7 +54,7 @@ def _labels(center: int, half_width: int) -> list[str]:
 
 
 class SampleDataset:
-    """The parsed sample. Build it with :func:`load_sample`."""
+    """The parsed sample. Build it with `load_sample`."""
 
     def __init__(self, payload: Mapping[str, Any]) -> None:
         self.payload: dict[str, Any] = dict(payload)

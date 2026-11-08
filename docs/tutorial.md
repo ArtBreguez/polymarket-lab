@@ -3,7 +3,7 @@
 > One notebook, the whole workflow, on data that ships with the package. No network, no
 > account, no API key.
 
-[`notebooks/tutorial.ipynb`](../notebooks/tutorial.ipynb) walks through
+[`notebooks/tutorial.ipynb`](https://github.com/ArtBreguez/polymarket-lab/blob/main/notebooks/tutorial.ipynb) walks through
 **discover → panel → tune → backtest → gate → paper → report** with pmlab's public API only
 (every name is imported from `pmlab`). It doubles as living documentation: each step is a short
 prose cell and a few lines of code, and the three safety rules of `AGENTS.md` are not described

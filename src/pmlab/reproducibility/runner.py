@@ -2,13 +2,13 @@
 
 ``pmlab backtest`` and ``pmlab reproduce`` call the same functions here, so a re-run executes
 exactly the code path of the original run rather than a re-implementation of it. A
-:class:`BacktestConfig` holds the *resolved* parameters (every default spelled out), the seeds
-live next to it in one dict (:func:`resolve_seeds`), and :func:`run_backtest` applies both.
+`BacktestConfig` holds the *resolved* parameters (every default spelled out), the seeds
+live next to it in one dict (`resolve_seeds`), and `run_backtest` applies both.
 
 Seeding, and where it happens:
 
 * ``python_random`` / ``numpy`` — the process-wide generators, pinned by
-  :func:`~pmlab.reproducibility.capture.seed_everything` before the run.
+  `seed_everything` before the run.
 * ``lightgbm`` — passed to the forecaster as ``random_state``, the only place LightGBM reads a
   seed (bagging, feature sub-sampling, extra trees). It is *not* a model parameter of the
   config: there is exactly one place a seed can be set, and a second one is refused.
@@ -70,7 +70,7 @@ def resolve_seeds(seed: int = DEFAULT_SEED, optuna: int | None = None) -> dict[s
 class BacktestConfig:
     """The resolved parameters of a backtest: nothing left to a default.
 
-    Build one with :meth:`resolve`, which applies the defaults; ``from_dict`` reads one back
+    Build one with `resolve`, which applies the defaults; ``from_dict`` reads one back
     from a record exactly as it was written.
     """
 

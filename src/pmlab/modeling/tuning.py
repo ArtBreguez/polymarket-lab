@@ -65,22 +65,24 @@ class TunedForecaster(MarketForecaster):
         metric: What to maximize — ``"total_pnl"`` (default), ``"mean_pnl"``, or
             ``"hit_rate"``.
         random_state: Seed for Optuna's sampler (reproducible search).
-        stride / min_train_rows / flat_stake: forwarded to ``rolling_origin_eval``.
+        stride: Forwarded to ``rolling_origin_eval``.
+        min_train_rows: Forwarded to ``rolling_origin_eval``.
+        flat_stake: Forwarded to ``rolling_origin_eval``.
         taker_bps: Legacy fee-only knob (default 30). Mutually exclusive with ``costs``.
         policy: The decision rule every trial is scored under, a
-            :class:`~pmlab.core.policy.TradePolicy`. Omit it for the historical objective
+            `TradePolicy`. Omit it for the historical objective
             (YES on the top-probability bin, every market: the search that shipped before
             policies existed, unchanged). Pass ``TradePolicy.live(min_edge=...)`` to tune for
             what ``record-trades`` trades: the best after-fee edge per market, YES or NO,
             taken if it clears ``min_edge``. Use the ``min_edge`` you will trade with.
-        costs: The :class:`~pmlab.core.costs.CostModel` a trial's fills are priced with
+        costs: The `CostModel` a trial's fills are priced with
             (fee, slippage, depth). Under the live policy it decides which trades clear the
             threshold, so tune with the costs you will trade with. Omit it for the 30 bps
             fee, fill at the quote.
 
     After ``tune(panel)``, the instance is a fitted forecaster (best params,
     refit on the full panel) and exposes ``best_params_``, ``best_score_``,
-    and ``study_``. :meth:`tuning_config` returns the objective it maximised, resolved,
+    and ``study_``. `tuning_config` returns the objective it maximised, resolved,
     for the reproducibility record (``BacktestConfig.resolve(tuning=...)``).
 
     A trial that makes no trade scores ``-inf``; if *every* trial does (a threshold nothing

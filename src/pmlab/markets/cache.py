@@ -13,6 +13,16 @@ _SENTINEL = object()
 
 
 class DiskCache:
+    """A file-backed key-value cache with a time to live: one JSON file per key.
+
+    A value expires ``ttl_seconds`` after it was set; reading an expired or unreadable entry returns
+    the default. Values must be JSON-serialisable.
+
+    Args:
+        cache_dir: Where the entries live (created if missing).
+        ttl_seconds: How long a value stays fresh.
+    """
+
     def __init__(self, cache_dir: Path | str, ttl_seconds: int = 3600) -> None:
         self.cache_dir = Path(cache_dir)
         self.ttl_seconds = ttl_seconds

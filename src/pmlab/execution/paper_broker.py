@@ -44,7 +44,7 @@ class PaperBroker:
                 names it is a segment called "all". An empty set records nothing.
             flat_stake: Notional USDC per trade.
             taker_bps: Legacy fee-only knob. Mutually exclusive with ``costs``.
-            costs: Full :class:`~pmlab.core.costs.CostModel`. Use the SAME model the
+            costs: Full `CostModel`. Use the SAME model the
                 backtest was run with, otherwise live and backtest PnL are not
                 comparable and a drift alarm cannot tell the market from our own
                 arithmetic. Omit both for the historical default (30bps, fill at

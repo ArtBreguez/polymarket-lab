@@ -293,14 +293,14 @@ class GammaClient:
 
         Paginates using offset-based iteration, stopping when a page has fewer
         than *page_size* results.  Each page is filtered with the temperature-max
-        heuristic and parsed into :class:`TmaxMarketInfo`.
+        heuristic and parsed into `TmaxMarketInfo`.
 
         Args:
             page_size: Results per API page (max 100).
             active: If True, only fetch active markets.
 
         Returns:
-            List of parsed :class:`TmaxMarketInfo` for every matching market.
+            List of parsed `TmaxMarketInfo` for every matching market.
         """
         from pmlab.logging import get_logger
 

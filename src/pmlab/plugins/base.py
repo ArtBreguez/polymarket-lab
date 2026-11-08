@@ -87,7 +87,7 @@ class MarketPlugin(ABC):
             - "outcome_label": str  (the bin this row represents)
 
         A market with several outcome bins is **several rows**: see
-        :meth:`build_training_rows`, which is what a panel should be built from. This
+        `build_training_rows`, which is what a panel should be built from. This
         method describes one (market, bin, decision) and is the only one a plugin has to
         write.
 
@@ -111,7 +111,7 @@ class MarketPlugin(ABC):
         ``winning_label``). A panel holding only the bin that won makes every YES a
         winner and every NO a loser, and its backtest reports an edge that is not there.
 
-        The default wraps :meth:`build_training_row`, so a plugin written for the
+        The default wraps `build_training_row`, so a plugin written for the
         singular form keeps working: one row, or none when that returns None. Override
         this for a market with several bins. Then every row must carry:
 
@@ -123,7 +123,7 @@ class MarketPlugin(ABC):
 
         and should say where the price came from and when it was observed
         (``price_source``, ``price_ts``) against the decision (``decision_ts``), which
-        :func:`pmlab.data.check_price_timing` then enforces. A bin with no usable price
+        `check_price_timing` then enforces. A bin with no usable price
         gets no row; never fill one in.
 
         Args:
