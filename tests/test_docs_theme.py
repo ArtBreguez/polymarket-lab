@@ -317,11 +317,21 @@ class TestMkdocsHook:
     ) -> None:
         # The percentages are what the hero draws: a train bar must never reach into its test tick.
         rows = hook.home_view(data)["rows"]
-        assert [r["n"] for r in rows] == [1, 12, 24, 36, 48, 60]
+        numbers = [r["n"] for r in rows]
+        # six folds spread over however many there are, the first and the last included
+        assert len(numbers) == 6 and numbers[0] == 1 and numbers[-1] == len(data["folds"])
+        assert numbers == sorted(set(numbers))
         for row in rows:
             assert 0 < row["train"] <= row["test"] + 0.05 <= 100.05, row
             assert row["train_end"] < row["test_day"]
         assert [r["train"] for r in rows] == sorted(r["train"] for r in rows)
+
+    @pytest.mark.parametrize("folds", [1, 3, 6, 7, 59, 60, 61, 250])
+    def test_shown_folds_spread_over_any_number_of_folds(self, hook: Any, folds: int) -> None:
+        shown = hook.shown_folds(folds)
+        assert len(shown) == min(folds, 6)
+        assert shown[0] == 0 and shown[-1] == folds - 1
+        assert list(shown) == sorted(set(shown))
 
     def test_the_gate_bars_start_and_stop_at_the_zero_line(
         self, hook: Any, data: dict[str, Any]

@@ -253,6 +253,70 @@ not about its values. That is what `FeatureSnapshotStore.as_of` (features strict
 cutoff) and the price-timing guard (`check_price_timing`, which `build_panel` always runs on
 stamped rows) enforce, and the distance score is a second line behind them.
 
+## Labels arrive after the decision
+
+A row is a decision and its label. The two are not at the same time: the `weather_tmax`
+`previous_evening` horizon decides on day D about the temperature of D+1, so the label of the row
+decided on D is not known until D+1 is over. A walk-forward that trains on "every row decided before
+today" therefore trains, today, on a label that does not exist yet: the row decided yesterday is about
+today.
+
+`rolling_origin_eval` (and so `TunedForecaster`, which scores every trial with it) trains a fold only
+on rows whose label was **known when the fold decided**:
+
+* a row's label is known at its `market_close_ts`, the instant its market ends (the plugin writes
+  it on every row, and `build_panel` already checks it);
+* the fold decides at its earliest `decision_ts` (the start of its `decision_date` when the panel
+  has none);
+* a row with no readable `market_close_ts`, or a panel without the column, is assumed to resolve the
+  day after its decision, so it trains a fold from two days later. If your labels arrive later than
+  that, put the time the label became known in `market_close_ts`: the rule then follows the data and
+  holds back as many days as your markets need.
+
+**What the rule trusts.** `market_close_ts` must be no earlier than the moment the label can be
+computed. The weather plugin takes the earlier of the market's own close and the end of its target
+day, so a market that closes at noon on its target day counts as known from noon, although that day's
+maximum is final only at midnight. That matters only to a fold that decides later in that same day;
+a fold that decides in the morning, as the sample's does, is exact. If your markets close before their
+outcome exists and you decide in the afternoon, write the later time in `market_close_ts`.
+
+Releases before 1.0.3 trained on `decision_date < eval_date` and so carried one decision day of
+lookahead with the sample's next-day labels; the
+[changelog](https://github.com/ArtBreguez/polymarket-lab/blob/main/CHANGELOG.md) says what changed.
+
+The same applies to a model you train to go live, which is not a fold, so nothing holds the row back
+for you: fit it on the rows known when you will decide, not on every row you have.
+
+```python
+import pandas as pd
+from pmlab import build_panel
+from pmlab.datasets import load_sample
+
+sample = load_sample()
+resolver = sample.plugin()
+rows = [
+    resolver.build_training_rows(spec, "previous_evening", decision_time=f"{day}T12:00:00+00:00")
+    for day in sample.days[:20]
+    for spec in sample.plugin(day).discover_markets()
+]
+panel = build_panel(rows)
+
+# What a model that decides at the last decision of this panel may train on:
+decide_at = pd.to_datetime(panel["decision_ts"], utc=True).max()
+known = pd.to_datetime(panel["market_close_ts"], utc=True) <= decide_at
+print(f"{int(known.sum())} of {len(panel)} rows are labelled by {decide_at:%Y-%m-%d %H:%M} UTC")
+last_known = panel.loc[known, "decision_date"].max()
+print("latest decision day with a label:", last_known, "| this decision's own day:", panel["decision_date"].max())
+```
+
+```text
+810 of 900 rows are labelled by 2025-04-20 12:00 UTC
+latest decision day with a label: 2025-04-18 | this decision's own day: 2025-04-20
+```
+
+The day before the decision (April 19) is missing too: its market ends at 23:00 that evening, after
+the 12:00 decision. This is the row the old rule trained on.
+
 ## Choosing the target yourself
 
 Pass `label_col` to score against a column of your own. It is used as given, on any shape, so

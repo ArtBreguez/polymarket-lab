@@ -90,9 +90,9 @@ panel.to_parquet("panel.parquet")  # the next blocks read it back
 ```
 
 ```text
-historical (top-prob)    A: +32.6   B: -64.0
-live, min_edge=0.20      A: no trades   B: +23.9
-live, min_edge=0.05      A: +25.4   B: -12.7
+historical (top-prob)    A: +32.5   B: -63.5
+live, min_edge=0.20      A: no trades   B: +24.9
+live, min_edge=0.05      A: +25.2   B: -11.7
 ```
 
 Tuned by the historical rule, the winner is A. Held to the live rule at the default threshold,
@@ -163,7 +163,8 @@ you will trade with. The default of `policy=None` is kept so existing searches r
 right choice only if you really do trade the top bin of every market.
 
 Still true with a policy: tuning uses only training folds. Every trial is scored by
-`rolling_origin_eval`, which fits strictly on `decision_date < eval_date`, whatever the policy.
+`rolling_origin_eval`, which fits only on rows whose label was already known when the fold decided
+([the rule](leakage.md#labels-arrive-after-the-decision)), whatever the policy.
 
 ### Choosing the metric under a threshold
 

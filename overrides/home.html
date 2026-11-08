@@ -54,7 +54,7 @@
             <span>{{ s.backtest.folds }} folds</span>
           </figcaption>
           <div class="pm-hud__body">
-            <ol class="pm-folds" aria-label="Six of the {{ s.backtest.folds }} folds. Each one trains on every day before the day it tests, never on or after it.">
+            <ol class="pm-folds" aria-label="Six of the {{ s.backtest.folds }} folds. Each one trains only on days whose outcome was already known when the test day decided: the day before it is held back, and nothing on or after it is used.">
               {% for r in h.rows %}
               <li class="pm-fold">
                 <span>fold {{ r.n }}</span>
@@ -119,7 +119,7 @@
       <ol class="pm-rules">
         <li class="pm-rule pm-reveal">
           <h3>No lookahead.</h3>
-          <p><code>rolling_origin_eval</code> trains only on rows from before the day it predicts. <code>build_panel</code> refuses a price seen at or after the decision it informs, and <code>check_no_leakage</code> raises when a feature gives the outcome away.</p>
+          <p><code>rolling_origin_eval</code> trains only on rows whose label was already known when the fold decided. <code>build_panel</code> refuses a price seen at or after the decision it informs, and <code>check_no_leakage</code> raises when a feature gives the outcome away.</p>
           <pre class="pm-proof"><span class="k">fold</span>  1  train {{ s.backtest.train_start }} → {{ h.first_fold.train_end }}  test <span class="good">{{ h.first_fold.test }}</span>
 <span class="k">fold</span> {{ s.backtest.folds }}  train {{ s.backtest.train_start }} → {{ h.last_fold.train_end }}  test <span class="good">{{ h.last_fold.test }}</span>  <span class="k">({{ h.last_fold.train_rows }} rows)</span></pre>
           <a class="pm-more" href="{{ 'leakage/' | url }}">How the checks work <svg width="14" height="14" aria-hidden="true"><use href="#pm-next"/></svg></a>

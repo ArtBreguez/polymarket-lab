@@ -11,374 +11,368 @@
  },
  "backtest": {
   "train_start": "2025-04-01",
-  "folds": 60,
-  "trades": 298,
-  "pnl": 95.66,
+  "folds": 59,
+  "trades": 289,
+  "pnl": 135.22,
   "brier": 0.0957,
-  "brier_skill": 0.0306,
+  "brier_skill": 0.0312,
   "min_train_rows": 2700,
   "stride": 1
  },
  "folds": [
   {
-   "test": "2025-05-31",
+   "test": "2025-06-01",
    "train_end": "2025-05-30",
    "train_rows": 2700,
-   "brier": 0.1009
-  },
-  {
-   "test": "2025-06-01",
-   "train_end": "2025-05-31",
-   "train_rows": 2745,
-   "brier": 0.0962
-  },
-  {
-   "test": "2025-06-02",
-   "train_end": "2025-06-01",
-   "train_rows": 2790,
-   "brier": 0.1121
-  },
-  {
-   "test": "2025-06-03",
-   "train_end": "2025-06-02",
-   "train_rows": 2835,
-   "brier": 0.0881
-  },
-  {
-   "test": "2025-06-04",
-   "train_end": "2025-06-03",
-   "train_rows": 2880,
-   "brier": 0.0906
-  },
-  {
-   "test": "2025-06-05",
-   "train_end": "2025-06-04",
-   "train_rows": 2925,
-   "brier": 0.1079
-  },
-  {
-   "test": "2025-06-06",
-   "train_end": "2025-06-05",
-   "train_rows": 2970,
-   "brier": 0.1048
-  },
-  {
-   "test": "2025-06-07",
-   "train_end": "2025-06-06",
-   "train_rows": 3015,
-   "brier": 0.0986
-  },
-  {
-   "test": "2025-06-08",
-   "train_end": "2025-06-07",
-   "train_rows": 3060,
    "brier": 0.092
   },
   {
+   "test": "2025-06-02",
+   "train_end": "2025-05-31",
+   "train_rows": 2745,
+   "brier": 0.1051
+  },
+  {
+   "test": "2025-06-03",
+   "train_end": "2025-06-01",
+   "train_rows": 2790,
+   "brier": 0.0904
+  },
+  {
+   "test": "2025-06-04",
+   "train_end": "2025-06-02",
+   "train_rows": 2835,
+   "brier": 0.0963
+  },
+  {
+   "test": "2025-06-05",
+   "train_end": "2025-06-03",
+   "train_rows": 2880,
+   "brier": 0.1074
+  },
+  {
+   "test": "2025-06-06",
+   "train_end": "2025-06-04",
+   "train_rows": 2925,
+   "brier": 0.1039
+  },
+  {
+   "test": "2025-06-07",
+   "train_end": "2025-06-05",
+   "train_rows": 2970,
+   "brier": 0.0951
+  },
+  {
+   "test": "2025-06-08",
+   "train_end": "2025-06-06",
+   "train_rows": 3015,
+   "brier": 0.0947
+  },
+  {
    "test": "2025-06-09",
-   "train_end": "2025-06-08",
-   "train_rows": 3105,
-   "brier": 0.0953
+   "train_end": "2025-06-07",
+   "train_rows": 3060,
+   "brier": 0.0904
   },
   {
    "test": "2025-06-10",
-   "train_end": "2025-06-09",
-   "train_rows": 3150,
-   "brier": 0.1055
+   "train_end": "2025-06-08",
+   "train_rows": 3105,
+   "brier": 0.1136
   },
   {
    "test": "2025-06-11",
-   "train_end": "2025-06-10",
-   "train_rows": 3195,
-   "brier": 0.0865
+   "train_end": "2025-06-09",
+   "train_rows": 3150,
+   "brier": 0.0803
   },
   {
    "test": "2025-06-12",
-   "train_end": "2025-06-11",
-   "train_rows": 3240,
-   "brier": 0.095
+   "train_end": "2025-06-10",
+   "train_rows": 3195,
+   "brier": 0.085
   },
   {
    "test": "2025-06-13",
-   "train_end": "2025-06-12",
-   "train_rows": 3285,
-   "brier": 0.0952
+   "train_end": "2025-06-11",
+   "train_rows": 3240,
+   "brier": 0.0988
   },
   {
    "test": "2025-06-14",
-   "train_end": "2025-06-13",
-   "train_rows": 3330,
-   "brier": 0.1101
+   "train_end": "2025-06-12",
+   "train_rows": 3285,
+   "brier": 0.1081
   },
   {
    "test": "2025-06-15",
-   "train_end": "2025-06-14",
-   "train_rows": 3375,
-   "brier": 0.098
+   "train_end": "2025-06-13",
+   "train_rows": 3330,
+   "brier": 0.1025
   },
   {
    "test": "2025-06-16",
-   "train_end": "2025-06-15",
-   "train_rows": 3420,
-   "brier": 0.1004
-  },
-  {
-   "test": "2025-06-17",
-   "train_end": "2025-06-16",
-   "train_rows": 3465,
-   "brier": 0.094
-  },
-  {
-   "test": "2025-06-18",
-   "train_end": "2025-06-17",
-   "train_rows": 3510,
-   "brier": 0.0867
-  },
-  {
-   "test": "2025-06-19",
-   "train_end": "2025-06-18",
-   "train_rows": 3555,
-   "brier": 0.1032
-  },
-  {
-   "test": "2025-06-20",
-   "train_end": "2025-06-19",
-   "train_rows": 3600,
-   "brier": 0.0793
-  },
-  {
-   "test": "2025-06-21",
-   "train_end": "2025-06-20",
-   "train_rows": 3645,
-   "brier": 0.0895
-  },
-  {
-   "test": "2025-06-22",
-   "train_end": "2025-06-21",
-   "train_rows": 3690,
-   "brier": 0.1167
-  },
-  {
-   "test": "2025-06-23",
-   "train_end": "2025-06-22",
-   "train_rows": 3735,
-   "brier": 0.1057
-  },
-  {
-   "test": "2025-06-24",
-   "train_end": "2025-06-23",
-   "train_rows": 3780,
-   "brier": 0.0816
-  },
-  {
-   "test": "2025-06-25",
-   "train_end": "2025-06-24",
-   "train_rows": 3825,
-   "brier": 0.1006
-  },
-  {
-   "test": "2025-06-26",
-   "train_end": "2025-06-25",
-   "train_rows": 3870,
-   "brier": 0.0964
-  },
-  {
-   "test": "2025-06-27",
-   "train_end": "2025-06-26",
-   "train_rows": 3915,
-   "brier": 0.1049
-  },
-  {
-   "test": "2025-06-28",
-   "train_end": "2025-06-27",
-   "train_rows": 3960,
-   "brier": 0.0922
-  },
-  {
-   "test": "2025-06-29",
-   "train_end": "2025-06-28",
-   "train_rows": 4005,
-   "brier": 0.0919
-  },
-  {
-   "test": "2025-06-30",
-   "train_end": "2025-06-29",
-   "train_rows": 4050,
-   "brier": 0.0967
-  },
-  {
-   "test": "2025-07-01",
-   "train_end": "2025-06-30",
-   "train_rows": 4095,
-   "brier": 0.0973
-  },
-  {
-   "test": "2025-07-02",
-   "train_end": "2025-07-01",
-   "train_rows": 4140,
-   "brier": 0.1022
-  },
-  {
-   "test": "2025-07-03",
-   "train_end": "2025-07-02",
-   "train_rows": 4185,
-   "brier": 0.0996
-  },
-  {
-   "test": "2025-07-04",
-   "train_end": "2025-07-03",
-   "train_rows": 4230,
-   "brier": 0.1002
-  },
-  {
-   "test": "2025-07-05",
-   "train_end": "2025-07-04",
-   "train_rows": 4275,
-   "brier": 0.0845
-  },
-  {
-   "test": "2025-07-06",
-   "train_end": "2025-07-05",
-   "train_rows": 4320,
-   "brier": 0.0779
-  },
-  {
-   "test": "2025-07-07",
-   "train_end": "2025-07-06",
-   "train_rows": 4365,
-   "brier": 0.0875
-  },
-  {
-   "test": "2025-07-08",
-   "train_end": "2025-07-07",
-   "train_rows": 4410,
-   "brier": 0.1129
-  },
-  {
-   "test": "2025-07-09",
-   "train_end": "2025-07-08",
-   "train_rows": 4455,
-   "brier": 0.1009
-  },
-  {
-   "test": "2025-07-10",
-   "train_end": "2025-07-09",
-   "train_rows": 4500,
-   "brier": 0.0843
-  },
-  {
-   "test": "2025-07-11",
-   "train_end": "2025-07-10",
-   "train_rows": 4545,
-   "brier": 0.0802
-  },
-  {
-   "test": "2025-07-12",
-   "train_end": "2025-07-11",
-   "train_rows": 4590,
-   "brier": 0.097
-  },
-  {
-   "test": "2025-07-13",
-   "train_end": "2025-07-12",
-   "train_rows": 4635,
-   "brier": 0.0872
-  },
-  {
-   "test": "2025-07-14",
-   "train_end": "2025-07-13",
-   "train_rows": 4680,
-   "brier": 0.1016
-  },
-  {
-   "test": "2025-07-15",
-   "train_end": "2025-07-14",
-   "train_rows": 4725,
-   "brier": 0.0747
-  },
-  {
-   "test": "2025-07-16",
-   "train_end": "2025-07-15",
-   "train_rows": 4770,
-   "brier": 0.1007
-  },
-  {
-   "test": "2025-07-17",
-   "train_end": "2025-07-16",
-   "train_rows": 4815,
-   "brier": 0.0889
-  },
-  {
-   "test": "2025-07-18",
-   "train_end": "2025-07-17",
-   "train_rows": 4860,
+   "train_end": "2025-06-14",
+   "train_rows": 3375,
    "brier": 0.1038
   },
   {
+   "test": "2025-06-17",
+   "train_end": "2025-06-15",
+   "train_rows": 3420,
+   "brier": 0.0994
+  },
+  {
+   "test": "2025-06-18",
+   "train_end": "2025-06-16",
+   "train_rows": 3465,
+   "brier": 0.0922
+  },
+  {
+   "test": "2025-06-19",
+   "train_end": "2025-06-17",
+   "train_rows": 3510,
+   "brier": 0.1044
+  },
+  {
+   "test": "2025-06-20",
+   "train_end": "2025-06-18",
+   "train_rows": 3555,
+   "brier": 0.0748
+  },
+  {
+   "test": "2025-06-21",
+   "train_end": "2025-06-19",
+   "train_rows": 3600,
+   "brier": 0.0903
+  },
+  {
+   "test": "2025-06-22",
+   "train_end": "2025-06-20",
+   "train_rows": 3645,
+   "brier": 0.1199
+  },
+  {
+   "test": "2025-06-23",
+   "train_end": "2025-06-21",
+   "train_rows": 3690,
+   "brier": 0.1076
+  },
+  {
+   "test": "2025-06-24",
+   "train_end": "2025-06-22",
+   "train_rows": 3735,
+   "brier": 0.0848
+  },
+  {
+   "test": "2025-06-25",
+   "train_end": "2025-06-23",
+   "train_rows": 3780,
+   "brier": 0.1009
+  },
+  {
+   "test": "2025-06-26",
+   "train_end": "2025-06-24",
+   "train_rows": 3825,
+   "brier": 0.0899
+  },
+  {
+   "test": "2025-06-27",
+   "train_end": "2025-06-25",
+   "train_rows": 3870,
+   "brier": 0.106
+  },
+  {
+   "test": "2025-06-28",
+   "train_end": "2025-06-26",
+   "train_rows": 3915,
+   "brier": 0.0977
+  },
+  {
+   "test": "2025-06-29",
+   "train_end": "2025-06-27",
+   "train_rows": 3960,
+   "brier": 0.0886
+  },
+  {
+   "test": "2025-06-30",
+   "train_end": "2025-06-28",
+   "train_rows": 4005,
+   "brier": 0.103
+  },
+  {
+   "test": "2025-07-01",
+   "train_end": "2025-06-29",
+   "train_rows": 4050,
+   "brier": 0.0961
+  },
+  {
+   "test": "2025-07-02",
+   "train_end": "2025-06-30",
+   "train_rows": 4095,
+   "brier": 0.1008
+  },
+  {
+   "test": "2025-07-03",
+   "train_end": "2025-07-01",
+   "train_rows": 4140,
+   "brier": 0.0968
+  },
+  {
+   "test": "2025-07-04",
+   "train_end": "2025-07-02",
+   "train_rows": 4185,
+   "brier": 0.1101
+  },
+  {
+   "test": "2025-07-05",
+   "train_end": "2025-07-03",
+   "train_rows": 4230,
+   "brier": 0.081
+  },
+  {
+   "test": "2025-07-06",
+   "train_end": "2025-07-04",
+   "train_rows": 4275,
+   "brier": 0.0749
+  },
+  {
+   "test": "2025-07-07",
+   "train_end": "2025-07-05",
+   "train_rows": 4320,
+   "brier": 0.0854
+  },
+  {
+   "test": "2025-07-08",
+   "train_end": "2025-07-06",
+   "train_rows": 4365,
+   "brier": 0.1053
+  },
+  {
+   "test": "2025-07-09",
+   "train_end": "2025-07-07",
+   "train_rows": 4410,
+   "brier": 0.0954
+  },
+  {
+   "test": "2025-07-10",
+   "train_end": "2025-07-08",
+   "train_rows": 4455,
+   "brier": 0.0922
+  },
+  {
+   "test": "2025-07-11",
+   "train_end": "2025-07-09",
+   "train_rows": 4500,
+   "brier": 0.098
+  },
+  {
+   "test": "2025-07-12",
+   "train_end": "2025-07-10",
+   "train_rows": 4545,
+   "brier": 0.0866
+  },
+  {
+   "test": "2025-07-13",
+   "train_end": "2025-07-11",
+   "train_rows": 4590,
+   "brier": 0.0895
+  },
+  {
+   "test": "2025-07-14",
+   "train_end": "2025-07-12",
+   "train_rows": 4635,
+   "brier": 0.1032
+  },
+  {
+   "test": "2025-07-15",
+   "train_end": "2025-07-13",
+   "train_rows": 4680,
+   "brier": 0.0758
+  },
+  {
+   "test": "2025-07-16",
+   "train_end": "2025-07-14",
+   "train_rows": 4725,
+   "brier": 0.0997
+  },
+  {
+   "test": "2025-07-17",
+   "train_end": "2025-07-15",
+   "train_rows": 4770,
+   "brier": 0.0886
+  },
+  {
+   "test": "2025-07-18",
+   "train_end": "2025-07-16",
+   "train_rows": 4815,
+   "brier": 0.102
+  },
+  {
    "test": "2025-07-19",
-   "train_end": "2025-07-18",
-   "train_rows": 4905,
-   "brier": 0.095
+   "train_end": "2025-07-17",
+   "train_rows": 4860,
+   "brier": 0.0985
   },
   {
    "test": "2025-07-20",
-   "train_end": "2025-07-19",
-   "train_rows": 4950,
-   "brier": 0.0972
+   "train_end": "2025-07-18",
+   "train_rows": 4905,
+   "brier": 0.0986
   },
   {
    "test": "2025-07-21",
-   "train_end": "2025-07-20",
-   "train_rows": 4995,
-   "brier": 0.0932
+   "train_end": "2025-07-19",
+   "train_rows": 4950,
+   "brier": 0.0917
   },
   {
    "test": "2025-07-22",
-   "train_end": "2025-07-21",
-   "train_rows": 5040,
-   "brier": 0.0995
+   "train_end": "2025-07-20",
+   "train_rows": 4995,
+   "brier": 0.1
   },
   {
    "test": "2025-07-23",
-   "train_end": "2025-07-22",
-   "train_rows": 5085,
-   "brier": 0.0979
+   "train_end": "2025-07-21",
+   "train_rows": 5040,
+   "brier": 0.096
   },
   {
    "test": "2025-07-24",
-   "train_end": "2025-07-23",
-   "train_rows": 5130,
-   "brier": 0.1096
+   "train_end": "2025-07-22",
+   "train_rows": 5085,
+   "brier": 0.1105
   },
   {
    "test": "2025-07-25",
-   "train_end": "2025-07-24",
-   "train_rows": 5175,
-   "brier": 0.0894
+   "train_end": "2025-07-23",
+   "train_rows": 5130,
+   "brier": 0.0905
   },
   {
    "test": "2025-07-26",
-   "train_end": "2025-07-25",
-   "train_rows": 5220,
-   "brier": 0.0933
+   "train_end": "2025-07-24",
+   "train_rows": 5175,
+   "brier": 0.0926
   },
   {
    "test": "2025-07-27",
-   "train_end": "2025-07-26",
-   "train_rows": 5265,
-   "brier": 0.093
+   "train_end": "2025-07-25",
+   "train_rows": 5220,
+   "brier": 0.0815
   },
   {
    "test": "2025-07-28",
-   "train_end": "2025-07-27",
-   "train_rows": 5310,
-   "brier": 0.0912
+   "train_end": "2025-07-26",
+   "train_rows": 5265,
+   "brier": 0.0895
   },
   {
    "test": "2025-07-29",
-   "train_end": "2025-07-28",
-   "train_rows": 5355,
-   "brier": 0.0872
+   "train_end": "2025-07-27",
+   "train_rows": 5310,
+   "brier": 0.0883
   }
  ],
  "gate": {
@@ -387,36 +381,36 @@
   "segments": [
    {
     "segment": "Athens",
-    "trades": 60,
-    "pnl": 33.72,
+    "trades": 59,
+    "pnl": 17.38,
     "passes": true,
     "reason": "ok"
    },
    {
     "segment": "Istanbul",
-    "trades": 60,
-    "pnl": 20.36,
+    "trades": 59,
+    "pnl": 22.99,
     "passes": true,
     "reason": "ok"
    },
    {
     "segment": "Lisbon",
-    "trades": 58,
-    "pnl": -10.98,
+    "trades": 53,
+    "pnl": -16.28,
     "passes": false,
     "reason": "negative_pnl"
    },
    {
     "segment": "Madrid",
-    "trades": 60,
-    "pnl": 26.41,
+    "trades": 59,
+    "pnl": 51.31,
     "passes": true,
     "reason": "ok"
    },
    {
     "segment": "Rome",
-    "trades": 60,
-    "pnl": 26.15,
+    "trades": 59,
+    "pnl": 59.83,
     "passes": true,
     "reason": "ok"
    }
@@ -443,19 +437,19 @@
    "target_date": "2025-07-31",
    "bin": "<=24°C",
    "market_price": 0.109,
-   "model_prob": 0.28,
-   "edge": 0.167,
+   "model_prob": 0.239,
+   "edge": 0.126,
    "side": "yes",
    "allowed": true
   },
   {
    "city": "Istanbul",
    "target_date": "2025-07-31",
-   "bin": "<=24°C",
-   "market_price": 0.111,
-   "model_prob": 0.011,
-   "edge": 0.093,
-   "side": "no",
+   "bin": "30°C",
+   "market_price": 0.113,
+   "model_prob": 0.231,
+   "edge": 0.115,
+   "side": "yes",
    "allowed": true
   },
   {
@@ -463,8 +457,8 @@
    "target_date": "2025-07-31",
    "bin": "31°C",
    "market_price": 0.208,
-   "model_prob": 0.318,
-   "edge": 0.106,
+   "model_prob": 0.311,
+   "edge": 0.099,
    "side": "yes",
    "allowed": false
   },
@@ -473,19 +467,19 @@
    "target_date": "2025-07-31",
    "bin": ">=37°C",
    "market_price": 0.086,
-   "model_prob": 0.549,
-   "edge": 0.46,
+   "model_prob": 0.22,
+   "edge": 0.131,
    "side": "yes",
    "allowed": true
   },
   {
    "city": "Rome",
    "target_date": "2025-07-31",
-   "bin": "25°C",
-   "market_price": 0.158,
-   "model_prob": 0.029,
-   "edge": 0.122,
-   "side": "no",
+   "bin": "<=19°C",
+   "market_price": 0.065,
+   "model_prob": 0.292,
+   "edge": 0.224,
+   "side": "yes",
    "allowed": true
   },
   {
@@ -493,19 +487,9 @@
    "target_date": "2025-08-01",
    "bin": "<=26°C",
    "market_price": 0.112,
-   "model_prob": 0.015,
-   "edge": 0.09,
+   "model_prob": 0.011,
+   "edge": 0.094,
    "side": "no",
-   "allowed": true
-  },
-  {
-   "city": "Istanbul",
-   "target_date": "2025-08-01",
-   "bin": "30°C",
-   "market_price": 0.064,
-   "model_prob": 0.17,
-   "edge": 0.103,
-   "side": "yes",
    "allowed": true
   },
   {
@@ -513,50 +497,60 @@
    "target_date": "2025-08-01",
    "bin": "29°C",
    "market_price": 0.179,
-   "model_prob": 0.238,
-   "edge": 0.055,
+   "model_prob": 0.286,
+   "edge": 0.103,
    "side": "yes",
    "allowed": false
   },
   {
    "city": "Madrid",
    "target_date": "2025-08-01",
-   "bin": ">=36°C",
-   "market_price": 0.077,
-   "model_prob": 0.62,
-   "edge": 0.539,
-   "side": "yes",
+   "bin": "32°C",
+   "market_price": 0.17,
+   "model_prob": 0.011,
+   "edge": 0.152,
+   "side": "no",
    "allowed": true
   },
   {
    "city": "Rome",
    "target_date": "2025-08-01",
-   "bin": "25°C",
-   "market_price": 0.121,
-   "model_prob": 0.204,
-   "edge": 0.079,
-   "side": "yes",
+   "bin": ">=31°C",
+   "market_price": 0.078,
+   "model_prob": 0.009,
+   "edge": 0.062,
+   "side": "no",
    "allowed": true
   },
   {
    "city": "Athens",
    "target_date": "2025-08-02",
-   "bin": "<=26°C",
-   "market_price": 0.097,
-   "model_prob": 0.004,
-   "edge": 0.086,
+   "bin": "28°C",
+   "market_price": 0.131,
+   "model_prob": 0.019,
+   "edge": 0.105,
    "side": "no",
    "allowed": true
   },
   {
    "city": "Istanbul",
    "target_date": "2025-08-02",
-   "bin": "29°C",
-   "market_price": 0.144,
-   "model_prob": 0.022,
-   "edge": 0.115,
-   "side": "no",
+   "bin": "25°C",
+   "market_price": 0.107,
+   "model_prob": 0.246,
+   "edge": 0.135,
+   "side": "yes",
    "allowed": true
+  },
+  {
+   "city": "Lisbon",
+   "target_date": "2025-08-02",
+   "bin": "29°C",
+   "market_price": 0.244,
+   "model_prob": 0.34,
+   "edge": 0.092,
+   "side": "yes",
+   "allowed": false
   }
  ],
  "api": {

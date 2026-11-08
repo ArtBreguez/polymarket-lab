@@ -339,8 +339,13 @@ def test_leakage_check_accepts_a_ranged_panel_and_still_catches_a_leak(
     out = _ok(installed.py(WALKTHROUGH, REPO / "docs" / "leakage.md", "--cwd", work))
     assert "FAIL" not in out
     done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
-    assert done == total and int(done) == 6
+    assert done == total and int(done) == 7
     assert "2700 rows, 300 markets, 9 bins each" in out
+    # issue #47: the page's own demonstration of which labels are known when a model decides
+    assert "810 of 900 rows are labelled by 2025-04-20 12:00 UTC" in out
+    assert (
+        "latest decision day with a label: 2025-04-18 | this decision's own day: 2025-04-20" in out
+    )
     assert "scored against: outcome_label == winning_label" in out and "leaked: none" in out
     assert "feature_oops (score=1.000)" in out
     assert "won: none" in out and "'feature_fcst_tmax'" in out  # the old target still on request
@@ -429,9 +434,9 @@ def test_tuning_page_runs_as_written_and_a_tuned_run_records_its_objective(
     done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
     assert done == total and int(done) == 4
     # The mismatch, from the backtest itself: the two rules rank A and B in opposite orders.
-    assert "historical (top-prob)    A: +32.6   B: -64.0" in out
-    assert "live, min_edge=0.20      A: no trades   B: +23.9" in out
-    assert "live, min_edge=0.05      A: +25.4   B: -12.7" in out
+    assert "historical (top-prob)    A: +32.5   B: -63.5" in out
+    assert "live, min_edge=0.20      A: no trades   B: +24.9" in out
+    assert "live, min_edge=0.05      A: +25.2   B: -11.7" in out
     # ...and the tuner follows the rule it is given.
     assert "historical : {'col': 'feature_p_a'}" in out
     assert "live  0.20 : {'col': 'feature_p_b'}" in out
@@ -891,3 +896,79 @@ def test_the_home_page_numbers_are_what_the_installed_wheel_produces(installed: 
     )
     out = _ok(installed.py(SITE_DATA, "--check"))
     assert "matches the library" in out
+
+
+# ── issue #47: a fold never trains on a label that was not yet known ──────────────────────────────
+
+_NO_LOOKAHEAD_PROBE = '''
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import pmlab
+from pmlab import build_panel, rolling_origin_eval
+from pmlab.datasets import load_sample
+
+work = Path(sys.argv[1])
+sample = load_sample()
+resolver = sample.plugin()
+rows = [
+    resolver.build_training_rows(spec, "previous_evening", decision_time=f"{day}T12:00:00+00:00")
+    for day in sample.days
+    for spec in sample.plugin(day).discover_markets()
+]
+panel = build_panel(rows, check_leakage=True).reset_index(drop=True)
+panel.to_parquet(work / "panel.parquet")
+
+
+class Recorder:
+    """Predicts 0.5 and remembers which rows each fold trained and tested on."""
+
+    def __init__(self):
+        self.folds, self.train = [], None
+
+    def fit(self, X, y):
+        self.train = X.index
+
+    def predict_proba(self, X):
+        self.folds.append((self.train, X.index))
+        return np.full((len(X), 2), 0.5)
+
+
+rec = Recorder()
+result = rolling_origin_eval(panel, rec, min_train_rows=500, stride=5)
+assert len(result.steps) >= 20 and len(rec.folds) == len(result.steps)
+for train, test in rec.folds:
+    decides = pd.to_datetime(panel.loc[test, "decision_ts"], utc=True).min()
+    known = pd.to_datetime(panel.loc[train, "market_close_ts"], utc=True)
+    assert (known <= decides).all(), (decides, known.max())  # no label from the future
+    eval_day = pd.Timestamp(panel.loc[test, "decision_date"].iloc[0])
+    last_train = pd.Timestamp(panel.loc[train, "decision_date"].max())
+    assert last_train == eval_day - pd.Timedelta(days=2)  # the eve of the eval day is held back
+print("no lookahead probe OK", pmlab.__version__, len(result.steps), "folds")
+'''
+
+
+def test_a_backtest_never_trains_on_a_label_from_the_future(installed: Installed) -> None:
+    """The installed wheel, on the bundled sample: every fold of ``rolling_origin_eval`` trains only
+    on labels known at its decision, and the CLI backtest of that panel is recorded and reproduces."""
+    work = installed.workdir / "no_lookahead"
+    work.mkdir()
+    probe = work / "probe.py"
+    probe.write_text(_NO_LOOKAHEAD_PROBE)
+    out = _ok(installed.py(probe, work))
+    assert f"no lookahead probe OK {_pyproject_version()}" in out
+
+    metrics = work / "metrics.json"
+    backtest = _run(
+        [
+            installed.pmlab, "backtest", "--plugin", "weather_tmax", "--panel", work / "panel.parquet",
+            "--stride", "20", "--min-train-rows", "1350", "--min-edge", "0.05", "--output", metrics,
+        ],
+        cwd=work,
+    )  # fmt: skip
+    assert "Steps evaluated" in _ok(backtest)
+    reproduced = _ok(_run([installed.pmlab, "reproduce", metrics], cwd=work))
+    assert "REPRODUCED" in reproduced and "NOT REPRODUCED" not in reproduced

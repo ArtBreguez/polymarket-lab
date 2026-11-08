@@ -46,7 +46,8 @@ def rolling_origin_eval(
         + feature_* columns
 
     For each eval step:
-        - Train on rows with decision_date < eval_date
+        - Train on the rows decided before ``eval_date`` **whose label was already known when
+          the eval decision was taken** (see below)
         - Predict on rows at eval_date
         - Decide the trade of each (market_id, decision_date) under ``policy``
         - Compute PnL using settle_position
@@ -54,6 +55,29 @@ def rolling_origin_eval(
     ``market_price`` is the label's YES price **at the row's decision_date** (the plugin
     contract, see ``MarketPlugin.build_training_row``). A decision uses only its own row's
     price and forecast, so nothing later than the decision date reaches it.
+
+    **Labels are known later than decisions.** A decision on day D can ask about D+1 (the
+    ``weather_tmax`` ``previous_evening`` horizon), so the row decided on the day before an
+    eval date carries the eval day's own outcome. Training on it is lookahead. A row therefore
+    trains a fold only when its label was known at that fold's decision:
+
+    - ``market_close_ts`` (the plugin writes it on every row: the instant the market ends, which
+      is when the day it asks about is over) must be at or before the fold's decision time, the
+      earliest ``decision_ts`` of the fold's rows (the start of ``eval_date`` UTC when the panel
+      has no ``decision_ts``);
+    - a row with no usable ``market_close_ts``, or a panel without the column, is assumed to
+      resolve the day after its decision, so it trains a fold only from two days later
+      (``decision_date + 1 day < eval_date``). If your labels arrive later than that, put the
+      time the label became known in ``market_close_ts``.
+
+    The rule trusts ``market_close_ts`` to be no earlier than the moment the label can be computed.
+    The weather plugin takes the earlier of the market's own close and the end of its target day,
+    so a market that closes at noon on its target day counts as known from noon although the
+    day's maximum is final only at midnight: that matters to a fold that decides later that same
+    day (never to one that decides in the morning, as the sample's does).
+
+    A fold therefore starts one decision day later. Backtests run before this rule (release
+    1.0.2 and earlier) carried a day of lookahead.
 
     Args:
         panel: Training/eval panel (see column contract above).
@@ -77,7 +101,9 @@ def rolling_origin_eval(
 
     Raises:
         ValueError: If both ``taker_bps`` and ``costs`` are supplied, which would
-            give the fee two conflicting sources of truth.
+            give the fee two conflicting sources of truth. Also if a ``decision_date`` is not a
+            real ``YYYY-MM-DD`` date (e.g. ``2026-01-32``), since which labels were known
+            when a fold decided cannot be told without it.
     """
     if taker_bps is not None and costs is not None:
         raise ValueError(
@@ -96,13 +122,20 @@ def rolling_origin_eval(
     sorted_dates = sorted(panel["decision_date"].unique())
     n_dates = len(sorted_dates)
 
+    day_start = _day_starts(panel["decision_date"])
+    label_known_at = _label_known_at(panel, day_start)
+    decision_cutoffs = _decision_cutoffs(panel, day_start)
+
     all_trades: list[dict[str, Any]] = []
     steps: list[dict[str, Any]] = []
 
     for i in range(0, n_dates, stride):
         eval_date = sorted_dates[i]
 
-        train_mask = panel["decision_date"] < eval_date
+        # Only rows whose label existed when this fold's decision was taken may train it.
+        train_mask = (panel["decision_date"] < eval_date) & (
+            label_known_at <= decision_cutoffs[eval_date]
+        )
         train_df = panel[train_mask]
 
         if len(train_df) < min_train_rows:
@@ -217,6 +250,59 @@ def rolling_origin_eval(
         )
 
     return RollingOriginResult(trades=trades_df, steps=steps)
+
+
+#: Decision days a label is assumed to lag its decision when the panel does not say: the next
+#: day's value, as for every shipped plugin. A row decided on D then trains from D + 2 days.
+_DEFAULT_LABEL_LAG_DAYS = 1
+
+
+def _utc_times(values: pd.Series) -> pd.Series:
+    """ISO-8601 text (or datetimes) as UTC timestamps; anything unreadable or missing is NaT."""
+    return pd.to_datetime(values, utc=True, errors="coerce", format="ISO8601")
+
+
+def _day_starts(decision_date: pd.Series) -> pd.Series:
+    """Each ``decision_date`` as the start of that UTC day; a value that is no date is an error.
+
+    The hold-back is measured in time, so a decision date must be a real calendar date. Silently
+    skipping the rows whose date cannot be read would shrink the training set without a word.
+    """
+    days = pd.to_datetime(decision_date, utc=True, errors="coerce", format="ISO8601")
+    unreadable = decision_date[days.isna()]
+    if not unreadable.empty:
+        raise ValueError(
+            "decision_date must be a 'YYYY-MM-DD' calendar date, because a fold may train only "
+            f"on labels known when it decides; got e.g. {unreadable.iloc[0]!r}."
+        )
+    return days
+
+
+def _label_known_at(panel: pd.DataFrame, day_start: pd.Series) -> pd.Series:
+    """When each row's label was known: its ``market_close_ts``, else the end of the next day.
+
+    ``market_close_ts`` is the instant the market ends, which for a market on a day's value is
+    the end of that day. A row without a readable one is assumed to resolve the day after its
+    decision (`_DEFAULT_LABEL_LAG_DAYS`), whose end is the midnight two days after that date.
+    """
+    fallback = day_start + pd.Timedelta(days=_DEFAULT_LABEL_LAG_DAYS + 1)
+    if "market_close_ts" not in panel.columns:
+        return fallback
+    return _utc_times(panel["market_close_ts"]).fillna(fallback)
+
+
+def _decision_cutoffs(panel: pd.DataFrame, day_start: pd.Series) -> pd.Series:
+    """Per ``decision_date``: the instant its decision was taken, the latest a label may be known.
+
+    The earliest ``decision_ts`` of the day's rows (several horizons may decide on one day).
+    A day with none readable is cut at its start, the safe side: only labels known at the
+    start of the day count.
+    """
+    cutoffs = day_start.groupby(panel["decision_date"]).first()
+    if "decision_ts" in panel.columns:
+        decided = _utc_times(panel["decision_ts"]).groupby(panel["decision_date"]).min()
+        cutoffs = decided.reindex(cutoffs.index).fillna(cutoffs)
+    return cutoffs
 
 
 Decision = tuple["pd.Series[Any]", str]

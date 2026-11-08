@@ -4,6 +4,64 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.0.3] — 2026-11-08
+
+A fix to `rolling_origin_eval` that **changes the numbers of every backtest on a panel with next-day
+labels**, which is every `weather_tmax` backtest. **No public API changes** (`tests/api/public_api.json`
+is identical): no name, parameter, command, option or file key was added, removed or changed.
+
+### Fixed
+
+- **`rolling_origin_eval` trained every fold on a label that was not yet known (issue #47).** It trained
+  on the rows with `decision_date < eval_date`. A `weather_tmax` decision taken on day D asks about day
+  D+1, so the row decided on the day before an eval date E is labelled with E's own temperature: a
+  value that exists only after E has ended, hours after the decision at E was taken. Each fold therefore
+  saw one label from the future. It is one day out of 60 or more, but it contradicts "no lookahead",
+  which this library promises, and **every backtest, tuning search and walk-forward number produced by
+  1.0.2 or earlier on such a panel was one day optimistic in what the model knew**. Re-run them.
+  - A row now trains a fold only when its label was known at the fold's decision: its
+    `market_close_ts` (the instant its market ends, which the plugin already writes on every row and
+    `build_panel` already checks) must be at or before the fold's earliest `decision_ts`. Folds are cut
+    at the start of their day when the panel has no `decision_ts`.
+  - A row with no readable `market_close_ts`, or a panel without the column, is assumed to resolve the day
+    after its decision, so it trains a fold from two days later. This is the conservative default for a
+    custom plugin that does not say when its labels arrive; if they arrive later still, write the time in
+    `market_close_ts` and the rule follows it. There is deliberately no new `embargo_days` parameter: a
+    patch release adds nothing public (`docs/api-stability.md`), and the column is the knob.
+  - `TunedForecaster` scores its trials with `rolling_origin_eval`, so tuning follows the same rule.
+  - The tutorial and `scripts/make_site_data.py` (which feeds the docs home page) refit their champion
+    only on the rows known when the first live day decides, for the same reason; the site script no
+    longer carries its own copy of the fold rule.
+
+### Changed
+
+- **Backtest results change.** On the bundled sample (the tutorial's backtest), before and after:
+  folds 60 → 59 (the first fold waits one more day for the 60th day's labels), trades 298 → 289, total
+  PnL +95.66 → +135.22, pooled Brier 0.0957 → 0.0957 (skill 0.0306 → 0.0312). The gate verdict is
+  unchanged: NO_GO over all five cities (Lisbon loses money), GO scoped to the four that pass. The PnL
+  went *up*: one day of lookahead has no fixed sign, and these are a few dozen trades. Nothing should be
+  read into either figure; the point is that a fold can no longer have seen a label it could not have had.
+- **A backtest recorded by 1.0.2 or earlier will usually not reproduce** on a panel with next-day labels:
+  `pmlab reproduce` exits 1 with `NOT REPRODUCED`, the metrics that differ, and the version change
+  (`pmlab 1.0.2 → 1.0.3`) in its drift table (`docs/reproducibility.md`). Run the backtest again and
+  record it again. The exception proves the cause: a model that cannot tell a market's bins apart (the
+  raw sample panel's features are the same on every bin, so LightGBM predicts 1/9 everywhere) does not
+  depend on the extra day, and its old record still reproduces.
+- **`rolling_origin_eval` raises `ValueError` for a `decision_date` that is not a real calendar date**
+  (`2026-01-32`, `yesterday`). It used to order the strings and carry on; it now has to place each row in
+  time, and skipping the unreadable rows would shrink the training set without a word. `build_panel`
+  already requires `YYYY-MM-DD`.
+
+### Documentation
+
+- `docs/leakage.md` explains when a label is known, the rule above, and how to fit a model you are going
+  to trade on the rows known when it will decide. The README, the home page, `docs/tuning.md`,
+  `docs/architecture.md` and the tutorial (prose, the champion cell and its sample output) now say what
+  the backtest does.
+- The docs home page drew exactly folds 1, 12, 24, 36, 48 and 60 of a backtest that had exactly 60; with 59
+  it silently dropped the last one. It now spreads six folds over however many there are
+  (`scripts/mkdocs_hooks.py`, `shown_folds`).
+
 ## [1.0.2] — 2026-11-08
 
 A redesign of the documentation site and its move to **https://pmlab.hiddenterps.si/**. **No behaviour
@@ -1473,7 +1531,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.12.1...v1.0.0
