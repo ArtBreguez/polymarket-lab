@@ -17,18 +17,28 @@ Thank you for your interest in contributing! This guide covers how to get starte
 ```bash
 git clone https://github.com/ArtBreguez/polymarket-lab
 cd polymarket-lab
-uv sync --extra dev        # installs all dev dependencies
+uv sync --extra dev                # installs all dev dependencies
 uv sync --extra dev --extra docs   # ... plus the docs site's (mkdocs, mkdocstrings)
-pre-commit install         # sets up lint hooks
 ```
 
 ### Verify your setup
 
 ```bash
-uv run pytest              # the whole suite should pass
-uv run ruff check src/ tests/
-uv run mypy src/
+uv run pytest                          # the default suite; it should pass
+uv run ruff check src/ tests/          # lint
+uv run ruff format --check src/ tests/ # formatting (`uv run ruff format src/ tests/` fixes it)
+uv run mypy src/                       # strict type check
 ```
+
+CI runs those four, plus the suites the default run deselects (each is its own job):
+
+| Command | What it checks |
+|---|---|
+| `uv run pytest -m e2e` | Builds the wheel, installs it in a fresh venv and runs the public API, the CLI, the README and the docs pages from there. Needs `uv` and the network. |
+| `uv run pytest -m notebook` | Executes `notebooks/tutorial.ipynb` top to bottom, offline. |
+| `uv run pytest -m perf` | Times the hot paths against the budget in [docs/performance.md](docs/performance.md). Run it alone. |
+| `uv run python scripts/api_surface.py` | The public API still matches `tests/api/public_api.json`. |
+| `uv run mkdocs build --strict` | The docs site builds (needs the `docs` extra). |
 
 ---
 
@@ -49,10 +59,11 @@ uv run pytest tests/path/to/test_new.py -v  # expect FAILED or ImportError
 uv run pytest tests/path/to/test_new.py -v  # expect PASSED
 
 # Run full suite before pushing
-uv run pytest --cov=src/pmlab --cov-fail-under=70
+uv run pytest --cov=src/pmlab
 ```
 
-**Coverage gate:** 70% minimum (enforced in CI). Aim for 90%+.
+**Coverage gate:** 90% minimum. The number is `fail_under` in `pyproject.toml`, the single source
+of truth: pytest-cov reads it, and CI runs `pytest --cov` without an override, so a miss fails the job.
 
 ---
 
@@ -78,7 +89,7 @@ Quick checklist:
 2. Export all public symbols via `__all__` in the module
 3. Add to `src/pmlab/__init__.py` if it belongs in the top-level public API
 4. Write tests in the corresponding `tests/` directory
-5. Update `CHANGELOG.md` under `## [Unreleased]`
+5. Add a bullet to `CHANGELOG.md` under `## [Unreleased]` (see [Releases](#releases))
 
 ---
 
@@ -96,6 +107,16 @@ formats. A test compares them with a checked-in snapshot and fails on any differ
 - **Docs examples** import only public names (`from pmlab import ...`); a test enforces it.
 - `uv run mkdocs build --strict` must pass (CI runs it on every change to `docs/` or `src/`).
 
+### Documentation and the README
+
+The README is also the PyPI page, so it uses absolute links only, and it carries no number that can
+go stale (no test count, no coverage figure): `tests/test_readme.py` checks both. The fenced
+`python` and `bash` blocks of the README and of the guide pages that
+`tests/e2e/test_installed_wheel.py` names are **executed as written** by the end-to-end tests,
+against the built wheel; use `text` for sample output and `shell` for commands
+that must not run (an install line, a command that needs credentials or the network). A page whose
+blocks build on each other is run in order, so write each block to work after the ones above it.
+
 ---
 
 ## Commit Convention
@@ -109,7 +130,8 @@ Format: `<type>: <subject>` — imperative mood, no period, max 72 chars.
 | `refactor` | Restructuring without behavior change |
 | `test` | Adding or improving tests |
 | `docs` | Documentation only |
-| `chore` | Tooling, CI, dependencies |
+| `chore` | Tooling, repository upkeep, dependencies |
+| `ci` | GitHub Actions workflows |
 | `perf` | Performance improvement |
 
 Examples:
@@ -128,8 +150,9 @@ docs: add live-trading guide for LiveBroker setup
 2. Follow the TDD contract above
 3. Ensure all checks pass:
    ```bash
-   uv run pytest --cov=src/pmlab --cov-fail-under=70
+   uv run pytest --cov=src/pmlab
    uv run ruff check src/ tests/
+   uv run ruff format --check src/ tests/
    uv run mypy src/
    ```
 4. Update `CHANGELOG.md` — add your changes under `## [Unreleased]`
@@ -137,9 +160,26 @@ docs: add live-trading guide for LiveBroker setup
 
 ---
 
+## Releases
+
+pmlab follows [semantic versioning](https://semver.org) from 1.0 (see
+[docs/deprecation.md](docs/deprecation.md) for how a public name is retired). A release is a pull
+request, opened by a maintainer, that:
+
+1. bumps `version` in `pyproject.toml` and `__version__` in `src/pmlab/__init__.py` (a test checks
+   that the two and the newest `CHANGELOG.md` heading agree);
+2. renames `## [Unreleased]` to `## [x.y.z] — YYYY-MM-DD` and adds a fresh empty `## [Unreleased]`
+   above it, with the compare links at the bottom of the file.
+
+Merging it to `main` publishes: `.github/workflows/publish.yml` runs the gates, uploads to PyPI,
+and creates the `vX.Y.Z` tag and the GitHub release. A merge that does not bump the version
+publishes nothing.
+
+---
+
 ## Code Style
 
-- **Formatter / linter:** [ruff](https://docs.astral.sh/ruff/) — `uv run ruff check src/ tests/ --fix`
+- **Formatter / linter:** [ruff](https://docs.astral.sh/ruff/) — `uv run ruff check src/ tests/ --fix` and `uv run ruff format src/ tests/`
 - **Type checker:** mypy in strict mode — `uv run mypy src/`
 - **Line length:** 100 characters
 - **Python version:** 3.12+ syntax (use `X | Y` unions, `match`, etc.)
@@ -164,4 +204,5 @@ These rules are enforced by the framework itself or by code review:
 
 ## Questions
 
-Open an [issue](https://github.com/ArtBreguez/polymarket-lab/issues) or start a discussion.
+Open an [issue](https://github.com/ArtBreguez/polymarket-lab/issues). To report a security problem, follow
+[SECURITY.md](SECURITY.md) instead of opening a public issue.

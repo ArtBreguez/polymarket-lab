@@ -1,155 +1,72 @@
 # pmlab Roadmap
 
-Vision: **the complete, best-engineered ML lifecycle library for Polymarket** —
-from raw market discovery to a monitored live champion, every stage typed,
-tested, and reproducible.
+Vision: **the complete, best-engineered ML lifecycle library for Polymarket**: from raw market
+discovery to a monitored live champion, every stage typed, tested and reproducible.
 
-This roadmap is organized by the ML lifecycle. Each stage lists what **exists
-today** (✅) and what's **planned** (▢), with the target release. Status current
-as of **v0.10.0**.
+**The 1.0 roadmap is done.** pmlab 1.0.0 shipped on 2026-11-08 with a frozen public API, and nothing
+is scheduled beyond it. This file lists what shipped, the gaps that are known, and the ideas that
+would close them. None of those is a commitment or has a date. The exact history is in the
+[changelog](CHANGELOG.md); open work is in the [issue tracker](https://github.com/ArtBreguez/polymarket-lab/issues).
 
 ---
 
-## Lifecycle coverage at a glance
+## Lifecycle coverage
 
-| Stage | Today (v1.0.0) | Biggest gap |
+| Stage | What exists | Known gap |
 |---|---|---|
-| 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning; no historical per-bin CLOB price (a weather panel's price is the discovery-time Gamma one) |
-| 2. Feature engineering | 8 transforms (incl. out-of-fold target encoding), per-plugin features, `build_panel`, leakage guards | No feature registry |
-| 3. Modeling | LGBM, sklearn, ensemble, conformal, calibration (binary+multiclass), tuning | ✅ core complete |
-| 4. Validation | rolling-origin, holdout gate, Brier, purged/embargoed CV, bootstrap stability report, **cost model** | ✅ core complete |
-| 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
-| 6. Execution | Paper + Live broker, settlement, one cost model shared with the backtest | No latency model; costs are an approximation, not a book walk |
-| 7. Monitoring | cost assumptions and the backtest expectation travel with the champion; live calibration on realized trades; PSI/KL drift; `pmlab monitor` watchdog with cron-friendly exit codes | The watchdog reports, nothing acts on it (no pause or retrain trigger) |
-| 8. Reproducibility & DX | CLI (11 cmds), typed, a frozen public API and a docs site, seeds/versions/config/data captured per run and `pmlab reproduce`, an executed offline tutorial notebook | The tutorial runs on synthetic data, not a real market |
+| 1. Data & ingestion | Gamma/CLOB clients (sync and async), DiskCache, plugins, point-in-time `FeatureSnapshotStore` | No panel versioning; no historical per-bin CLOB price (a weather panel's price is the one seen at discovery) |
+| 2. Feature engineering | 9 transforms (incl. out-of-fold target encoding), per-plugin features, `build_panel`, leakage and price-timing guards | No feature registry |
+| 3. Modeling | LightGBM, scikit-learn, ensembles, conformal sets, calibration (binary and multiclass), walk-forward tuning | |
+| 4. Validation | Rolling-origin backtest, holdout gate, Brier decomposition, purged/embargoed CV, bootstrap stability report, one cost model | |
+| 5. Model management | `ChampionManifest` hard gate, experiment tracking, versioned `ModelRegistry` with rollback | No automated retrain trigger |
+| 6. Execution | Paper and live brokers, settlement, the backtest's cost model reused for fills | No latency model; costs approximate, they do not walk the book |
+| 7. Monitoring | Drift (PSI/KL), live calibration, backtest-expectation comparison, `pmlab monitor` with cron-friendly exit codes | The watchdog reports; nothing acts on it (no pause, no retrain) |
+| 8. Reproducibility & DX | Typed, frozen public API, docs site, seeds/versions/config/data hash per run and `pmlab reproduce`, an executed offline tutorial | The tutorial runs on synthetic data, not a real market |
 
----
+## Shipped
 
-## v0.6.0 — Finish the modeling layer ✅ SHIPPED
+| Milestone | What |
+|---|---|
+| 0.1 – 0.4 | Core primitives, plugins, LightGBM and scikit-learn forecasters, paper and live brokers, HTML report, async clients |
+| 0.5 – 0.6 | Ensembles, conformal sets, calibration wrappers, multiclass calibration, walk-forward tuning, purged CV |
+| 0.7 | `pmlab.data`: point-in-time snapshot store, panel builder, leakage guards; more transforms |
+| 0.8 | Experiment tracking, model registry, bootstrap stability report, the cost model behind the backtest |
+| 0.9 | One cost model for backtest and live, drift monitoring, live calibration, the `pmlab monitor` watchdog |
+| 0.10 – 0.12 | Reproducibility capture and `pmlab reproduce`, the bundled sample and tutorial notebook, tuning for the policy you trade |
+| **1.0** | The stability guarantee: [#17](https://github.com/ArtBreguez/polymarket-lab/issues/17) API freeze, deprecation policy and docs site; [#16](https://github.com/ArtBreguez/polymarket-lab/issues/16) reproducibility; [#15](https://github.com/ArtBreguez/polymarket-lab/issues/15) tutorial notebook; [#18](https://github.com/ArtBreguez/polymarket-lab/issues/18) coverage gate and performance budget |
+| 1.0 follow-ups | Found by using it, fixed before the release: [#33](https://github.com/ArtBreguez/polymarket-lab/issues/33) registry round trip, [#35](https://github.com/ArtBreguez/polymarket-lab/issues/35) and [#39](https://github.com/ArtBreguez/polymarket-lab/issues/39) leakage check on ranged markets, [#36](https://github.com/ArtBreguez/polymarket-lab/issues/36) tuning under the live policy |
 
-The v0.5.0 additions were binary-first. This release closed that gap and made
-tuning first-class.
+## What could come next
 
-- ✅ **Multiclass calibration.** `CalibratedForecaster` now supports >2 classes
-  via one-vs-rest (`MulticlassCalibrator`), isotonic/sigmoid — F1 and
-  multi-outcome political markets are calibrated too.
-- ✅ **Multiclass Brier / calibration diagnostics.** `multiclass_brier` (with a
-  climatology skill score) and `reliability_data_multiclass` (per-class curves).
-- ✅ **`TunedForecaster` / `tune()`** — Optuna hyperparameter search that
-  **respects the no-lookahead contract** by scoring trials through
-  `rolling_origin_eval`, never a random shuffle. Optuna is an optional extra.
-- ✅ **Cross-validation utilities** — `purged_kfold` / `embargoed_split` for time
-  series (López de Prado style) so tuning and model selection don't leak.
+Ideas, in no order, each a candidate for a minor release that keeps the public API:
 
-## v0.7.0 — Data & feature engineering as a first-class stage ✅ SHIPPED (2026-08-30)
+- **Close the paper-trading loop from the command line.** `pmlab settle-trades` is a placeholder
+  (settlement needs a plugin wired to real data) and nothing writes the signals file that
+  `pmlab record-trades` reads, so both steps are done from Python today.
+- **A second reference plugin.** `sports_f1` is a skeleton (untimed price, one row per market). A
+  finished categorical plugin would exercise the per-bin machinery on something other than weather.
+- **A watchdog that acts.** A hook that pauses the broker or starts a retrain on an alert.
+- **A real-market tutorial.** The bundled sample is synthetic on purpose; a recorded real market
+  would be a better demonstration, if one can be shipped under its terms.
+- **Panel versioning and a feature registry**, from the table above.
 
-Turn the empty `pmlab.data` package into the backbone of reproducibility.
-
-- ✅ **Feature store** — `FeatureSnapshotStore`: append-only, point-in-time
-  parquet snapshots keyed by `(market_id, captured_at)` per family, with an
-  `as_of(cutoff)` no-lookahead read. Kills silent feature drift between training
-  and serving, and lets ingestion honor the no-lookahead principle.
-- ✅ **Panel builder** — typed `build_panel(rows)` that assembles the training
-  panel from plugin rows with schema validation and dtype enforcement (and an
-  optional leakage check).
-- ✅ **Leakage guards** — `check_no_leakage`: scores each feature's separation of
-  the label and raises `LeakageError` on suspicious columns. Found by dogfooding
-  (a feature derived from the outcome had reported AUC 1.000 silently).
-- ✅ **More transforms** *(shipped in 0.9.3, #19)* — out-of-fold `TargetEncoder`
-  (time / group / k-fold, plus a fitted mapping for live rows), `add_interactions`,
-  `add_missing_indicators`; all copy-on-write like the existing five.
-
-## v0.8.0 — Validation & model management
-
-- ✅ **Experiment tracking (pluggable)** — an `ExperimentTracker` protocol with a
-  zero-dependency `LocalJSONTracker` default (one append-only JSON record per run)
-  and an optional `MLflowTracker` behind the `track` extra. Every backtest can log
-  params, metrics, and the gate decision; `BacktestMetrics` and `HoldoutGateResult`
-  log directly with no manual glue. Runs are listable/loadable point-in-time.
-- ✅ **Model registry** *(v0.8.1)* — `ModelRegistry` versions every promoted
-  champion (archived model + calibrator + manifest under `registry/<version_id>/`)
-  with `list` / `get` / `diff` / `rollback`, replacing the single overwrite-in-place
-  `champion.json`. The hard gate is re-asserted on `record()`, so a NO_GO can
-  never enter the registry, and rollback preserves history (no version deleted).
-- ✅ **Stability report** *(v0.8.2)* — `stability_report(trades)` bootstraps the
-  trade log (resample with replacement) to put a confidence interval around
-  total PnL, avg PnL/trade, and hit rate, plus `prob_positive_pnl`. A "GO" is now
-  judged on a distribution, not a point estimate — two books with identical point
-  PnL but different consistency get visibly different intervals. Pure function,
-  deterministic by seed, `to_dict()` for the tracker; does not touch
-  `rolling_origin_eval`.
-- ✅ **Backtest realism** *(v0.8.3)* — `CostModel` (fee + price-proportional
-  slippage + fixed slippage + a linear depth penalty) behind a `costs=` argument
-  on `rolling_origin_eval`. Fills now happen at the costed price and `edge` is
-  measured against that fill, not the quote, so `avg_edge` — the number the gate
-  reads — can no longer overstate an unexecutable trade. The default reproduces
-  the previous behaviour exactly (30bps, fill at quote); passing both `costs=`
-  and the legacy `taker_bps=` raises rather than double-charging. Trade logs gain
-  a `fill_price` column so a backtest shows the price it actually paid.
-
-## v0.9.0 — Monitoring & the production loop
-
-- ✅ **One cost model across backtest and live** *(v0.8.4)* — `PaperBroker(costs=)`
-  fills with the same arithmetic as `rolling_origin_eval` and records `fill_price`;
-  `ChampionManifest.publish(costs=)` persists the friction its gate was computed
-  under and `ModelRegistry.record()` carries it into archived versions. Prerequisite
-  for the watchdog below: without it, a live-vs-backtest PnL comparison mixes market
-  movement with two different cost definitions.
-- ✅ **Drift monitoring** *(v0.9.0)* — `drift_report` compares live features and
-  predictions against the training panel with PSI and KL(current ‖ reference),
-  classifying each feature ok / warn / alert / insufficient from explicit,
-  configurable thresholds. Bins come from the reference only; missing rates and
-  unseen categories count as drift; `drift_report_from_store` reads the live window
-  point-in-time. Classifies, does not act — the watchdog below consumes it.
-- ✅ **Live calibration tracking** *(v0.8.5)* — `CalibrationTracker` scores rolling
-  Brier, Murphy reliability and reliability curves on realized trades, overall and
-  per segment; `PaperBroker` now persists `model_prob` so the forecast is on record.
-  Computes numbers only — thresholds belong to the watchdog.
-- ✅ **Watchdog CLI** *(v0.9.1)* — `pmlab monitor` judges drift, live calibration
-  and live PnL against the champion's own backtest expectation (recorded in
-  `champion.json` at promotion), and stays silent when healthy so it can run from
-  cron. A shortfall must be both material and distinguishable from noise; a check
-  that could not be measured is `insufficient`, never green; exit codes separate
-  warn / alert / insufficient / bad input / internal error. `health_report` is the
-  pure core. Reports and exits — acting on an alert is left to the caller.
-  The backtest simulates the live policy (YES and NO), so the book is held to the
-  backtest per side and per segment, Holm-corrected; a sequential test catches an
-  edge that fades; every PnL result says what it could have detected. `pmlab
-  resettle` repairs logs that an older release booked wrongly.
-
-## v1.0.0 — Polish, DX, and stability guarantee
-
-- ✅ **End-to-end tutorial** *(shipped in 0.11.0, #15)* — one notebook: discover → panel →
-  tune → backtest → gate → paper → report, on a bundled synthetic sample (39 KB, no network),
-  executed offline in CI and from the installed wheel by the e2e
-  ([docs/tutorial.md](docs/tutorial.md)).
-- ✅ **Reproducibility capture** *(shipped in 0.10.0, #16)* — every run records seeds,
-  library versions, resolved config and a data fingerprint into the run record and
-  `champion.json`; `pmlab reproduce <run>` re-executes it
-  ([docs/reproducibility.md](docs/reproducibility.md)).
-- ✅ **API stability** *(shipped in 1.0.0, #17)* — the public API is frozen and checked against a
-  snapshot, a deprecation policy and helper (`PmlabDeprecationWarning`, removal only in a later
-  major), and the docs site (mkdocs-material, API reference from the docstrings) is published to
-  GitHub Pages ([docs/api-stability.md](docs/api-stability.md),
-  [docs/deprecation.md](docs/deprecation.md)).
-- ✅ **Coverage ≥ 90%** and a documented performance budget for the hot paths *(shipped in
-  0.9.4, #18)* — the gate is 90% in `pyproject.toml`; `rolling_origin_eval` and `build_panel`
-  have a budget asserted in CI (`pytest -m perf`, [docs/performance.md](docs/performance.md)).
+Breaking changes wait for 2.0 and follow the [deprecation policy](docs/deprecation.md).
 
 ---
 
 ## Design principles (non-negotiable)
 
-1. **No lookahead, ever.** Any new validation/tuning path trains strictly on
+1. **No lookahead, ever.** Any new validation or tuning path trains strictly on
    `decision_date < eval_date`. Asserted in tests.
-2. **One interface.** New models implement `MarketForecaster`; new calibrators
-   share `fit/transform/save/load`. Everything stays drop-in.
-3. **Optional heavy deps stay optional.** MLflow/Optuna behind extras, never in
-   the core install.
-4. **Typed + tested first.** TDD contract in `AGENTS.md`; mypy `--strict` clean.
+2. **One interface.** New models implement `MarketForecaster`; new calibrators share
+   `fit/transform/save/load`. Everything stays drop-in.
+3. **Optional heavy dependencies stay optional.** MLflow and Optuna are behind extras, never in the
+   core install.
+4. **Typed and tested first.** The TDD contract is in [AGENTS.md](AGENTS.md); mypy `--strict` is clean.
 5. **Reproducible over clever.** A result you can't re-run isn't a result.
+6. **The public API is a promise.** What is public is listed in
+   [docs/api-stability.md](docs/api-stability.md) and a test fails when it changes by accident.
 
 ---
 
-*This file is a living contract. Propose changes via PR; tick items as they ship
-and move the "status as of" version marker.*
+*This file is a living contract. Propose changes via PR.*

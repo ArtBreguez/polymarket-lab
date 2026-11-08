@@ -30,8 +30,14 @@ Use this file as the shared contract for all agents (Codex, Claude, etc).
 | `src/pmlab/_deprecation.py` | `deprecated` / `warn_deprecated`, `PmlabDeprecationWarning`: the only way a public name is retired (`docs/deprecation.md`) |
 | `scripts/api_surface.py`, `tests/api/` | The public-API snapshot (`tests/api/public_api.json`) and the tests that enforce it |
 | `docs/`, `mkdocs.yml` | The documentation site (mkdocs-material, API reference from docstrings), built `--strict` by `.github/workflows/docs.yml` |
-| `src/pmlab/markets/` | Polymarket Gamma API client, CLOB price client (Phase 4) |
-| `src/pmlab/cli/` | Typer CLI entry points |
+| `src/pmlab/markets/` | Polymarket Gamma and CLOB clients (sync and async), `DiskCache` |
+| `src/pmlab/features/` | Pure DataFrame transforms and out-of-fold `TargetEncoder` (copy-on-write, no I/O) |
+| `src/pmlab/monitoring/` | Drift (PSI/KL), live calibration, `health_report`: the pure core of `pmlab monitor` |
+| `src/pmlab/tracking/` | `ExperimentTracker` protocol, `LocalJSONTracker`, `MLflowTracker` (optional extra) |
+| `src/pmlab/reports/` | `generate_report`: the self-contained HTML report |
+| `src/pmlab/config.py` | `PmlabSettings` (environment-driven settings; the `PMLAB_*` variables are public) |
+| `src/pmlab/cli/` | Typer CLI entry points (`pmlab`); `monitor` lives in `cli/monitor.py` |
+| `README.md` | The front page **and the PyPI page**: absolute links only, no number that can go stale; `tests/test_readme.py` enforces it and the e2e job runs its code (see `CONTRIBUTING.md`) |
 
 ---
 
@@ -95,6 +101,9 @@ uv run pytest
 # Run tests with coverage
 uv run pytest --cov=src/pmlab --cov-report=term-missing
 
+# Formatting (CI checks it; drop --check to fix)
+uv run ruff format --check src/ tests/
+
 # Performance budget of the hot paths (opt-in, ~1 min, run it alone; see docs/performance.md)
 uv run pytest -m perf
 
@@ -117,7 +126,7 @@ uv run ruff check src/ tests/
 uv run mypy src/
 
 # Workspace-scoped command
-scripts/pmlab-workspace ops_daily uv run pmlab scan-edge --plugin weather_tmax
+scripts/pmlab-workspace ops_daily uv run pmlab scan-markets --plugin weather_tmax
 
 # Build distribution
 uv build
@@ -160,36 +169,28 @@ notebook uses means updating the notebook in the same PR; regenerating the sampl
 (`scripts/make_sample_dataset.py`) changes its numbers, so re-run the notebook, e2e and default
 suites. See `docs/tutorial.md`.
 
+Docs and README: the code blocks of `README.md` and of the guide pages named in
+`tests/e2e/test_installed_wheel.py` are executed as written by `uv run pytest -m e2e`, against the
+built wheel, and `tests/test_readme.py` runs the README in the default suite. A block that does not
+run is a documentation bug. Use `text` (output) or `shell` (not run) for anything illustrative.
+
 ---
 
-## Architecture Summary
+---
 
-```
-Polymarket API ──► MarketPlugin.discover_markets() ──► list[MarketSpec]
-                                │
-                                ├──► MarketPlugin.fetch_features()   ──► features dict
-                                ├──► MarketPlugin.fetch_truth()       ──► realized outcome
-                                └──► MarketPlugin.build_training_row() ──► training row
-                                              │
-                    ┌─────────────────────────┘
-                    │
-                    ▼
-            rolling_origin_eval(panel, model)
-                    │
-                    ├──► BacktestMetrics (PnL, hit_rate, edge)
-                    └──► HoldoutGate.evaluate(required_segments) ──► GO / NO_GO
-                                            │
-                                           GO
-                                            │
-                              ChampionManifest.publish(model, gate)
-                              (hard-raises on NO_GO)
-                                            │
-                                     champion.json
-                                     champion.pkl
-                                            │
-                              PaperBroker.record(signals)
-                              (reads allowed_segments from champion.json)
-                                            │
-                              SettlementEngine.settle_all(specs)
-                              (calls plugin.fetch_truth + is_truth_final)
-```
+## Versioning and Releases
+
+Semantic versioning from 1.0 (`docs/deprecation.md`). A PR that changes what the wheel ships (code,
+or the README, which is the PyPI page) bumps `version` in `pyproject.toml` **and** `__version__` in
+`src/pmlab/__init__.py`, and adds a dated `## [x.y.z]` entry to `CHANGELOG.md`; a test checks that
+the three agree. Merging to `main` with a new version publishes to PyPI, tags and creates the
+GitHub release (`.github/workflows/publish.yml`); a merge without a bump publishes nothing. The
+reviewer merges, not the author.
+
+---
+
+## Architecture
+
+See `docs/architecture.md`: the pipeline from `MarketPlugin.discover_markets()` to
+`SettlementEngine.settle_all()`, and what each package owns. The module table above is the
+ownership contract; the page is the picture.
