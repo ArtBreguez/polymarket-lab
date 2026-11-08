@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pmlab"
-version = "0.10.0"
+version = "0.11.0"
 description = "A generic, plugin-based ML framework for Polymarket prediction markets."
 readme = "README.md"
 license = { text = "MIT" }
@@ -56,6 +56,10 @@ dev = [
   "pytest-github-actions-annotate-failures>=0.2",
   "pyyaml>=6.0",
   "optuna>=3.6",
+  # executes docs/tutorial notebook in the `notebook` CI job (see tests/notebooks)
+  "nbclient>=0.10",
+  "nbformat>=5.10",
+  "ipykernel>=6.29",
 ]
 
 [project.scripts]
@@ -84,9 +88,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short -m 'not e2e and not perf'"
+addopts = "-v --tb=short -m 'not e2e and not perf and not notebook'"
 markers = [
     "e2e: builds the wheel and runs the public API in a fresh venv (needs uv + network); run with `pytest -m e2e`",
+    "notebook: executes notebooks/tutorial.ipynb top to bottom, offline (about a minute); run with `pytest -m notebook`",
     "perf: times the hot paths against the budget in docs/performance.md (about a minute, needs a quiet process); run with `pytest -m perf`",
 ]
 asyncio_mode = "auto"

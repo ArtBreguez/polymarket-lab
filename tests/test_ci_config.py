@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -117,3 +118,30 @@ def test_default_pytest_deselects_perf():
     cfg = _pyproject()["tool"]["pytest"]["ini_options"]
     assert "not perf" in cfg["addopts"]
     assert any(m.startswith("perf") for m in cfg["markers"])
+
+
+def _pyproject() -> dict:
+    return tomllib.loads((Path(__file__).parent.parent / "pyproject.toml").read_text())
+
+
+def test_ci_executes_the_tutorial_notebook_in_its_own_job():
+    ci = _load_ci()
+    assert "notebook" in ci["jobs"]
+    cmds = [s.get("run", "") for s in ci["jobs"]["notebook"]["steps"]]
+    assert any("pytest -m notebook" in c for c in cmds), cmds
+
+
+def test_the_default_run_deselects_the_notebook_marker():
+    ini = _pyproject()["tool"]["pytest"]["ini_options"]
+    assert "not notebook" in ini["addopts"]
+    assert any(m.startswith("notebook:") for m in ini["markers"])
+    # ...and the main test job must not override that with its own -m
+    ci = _load_ci()
+    cmds = [s.get("run", "") for s in ci["jobs"]["test"]["steps"]]
+    assert not any("pytest" in c and " -m " in c for c in cmds)
+
+
+def test_the_notebook_executor_is_a_dev_dependency():
+    dev = " ".join(_pyproject()["project"]["optional-dependencies"]["dev"])
+    for dep in ("nbclient", "nbformat", "ipykernel", "optuna"):
+        assert dep in dev
