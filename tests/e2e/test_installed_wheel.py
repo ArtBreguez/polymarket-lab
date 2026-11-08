@@ -277,19 +277,28 @@ def test_registry_page_runs_as_written_and_a_rollback_loses_nothing(installed: I
 def test_leakage_check_accepts_a_ranged_panel_and_still_catches_a_leak(
     installed: Installed,
 ) -> None:
-    """docs/leakage.md against the wheel (issue #35), then the same claims probed directly:
-    the bundled per-bin sample passes ``build_panel(check_leakage=True)``, a planted copy of the
-    outcome is refused on that shape and on a one-row-per-market one, and an explicit label is
-    used as given."""
+    """docs/leakage.md against the wheel (issues #35 and #39), then the same claims probed
+    directly: the bundled per-bin sample passes ``build_panel(check_leakage=True)``, a planted
+    copy of the outcome is refused on that shape and on a one-row-per-market one, a market-level
+    copy of the realised value is refused too (whichever way the open-ended bins are worded),
+    and an explicit label is used as given."""
     work = installed.workdir / "leakage_doc"
     out = _ok(installed.py(WALKTHROUGH, REPO / "docs" / "leakage.md", "--cwd", work))
     assert "FAIL" not in out
     done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
-    assert done == total and int(done) == 4
+    assert done == total and int(done) == 6
     assert "2700 rows, 300 markets, 9 bins each" in out
     assert "scored against: outcome_label == winning_label" in out and "leaked: none" in out
     assert "feature_oops (score=1.000)" in out
     assert "won: none" in out and "'feature_fcst_tmax'" in out  # the old target still on request
+    # the market-level copy (#39): caught, named, and the noise sweep the page prints
+    assert "feature_realised_tmax (score=1.000, by its distance to each bin)" in out
+    assert "feature_fcst_tmax      0.698  (distance to the bins)" in out
+    assert "feature_market_price   0.646  (as is)" in out
+    assert "copy + noise of 0.0 degrees: 1.000" in out
+    assert (
+        "copy + noise of 0.3 degrees: 0.995" in out and "copy + noise of 1.0 degrees: 0.879" in out
+    )
 
     probe = (
         "import pmlab\n"
@@ -318,6 +327,27 @@ def test_leakage_check_accepts_a_ranged_panel_and_still_catches_a_leak(
         "leak = (one['winning_label'] == rarest).astype(float)\n"
         "assert refused(one.assign(feature_copy=leak)), 'one-row-per-market leak not caught'\n"
         "assert refused(panel.assign(won=won), label_col='won') is None\n"
+        "# 0.12.1 (#39): a market-level copy of the realised value, on the whole sample\n"
+        "realised = panel['winning_label'].str.extract(r'(-?\\d+)', expand=False).astype(float)\n"
+        "msg = refused(panel.assign(feature_realised_tmax=realised))\n"
+        "assert msg and 'feature_realised_tmax (score=1.000, by its distance to each bin)' in msg, msg\n"
+        "honest = check_no_leakage(panel)\n"
+        "assert honest.leaked == [] and len(honest.bin_relative) == 8, honest\n"
+        "assert max(honest.scores.values()) < 0.8, honest.scores\n"
+        "# the same panel with the tails worded the other way: still read, still refused\n"
+        "import re\n"
+        "def reword(label):\n"
+        "    m = re.fullmatch(r'<=(-?\\d+)°C', label) or None\n"
+        "    n = re.fullmatch(r'>=(-?\\d+)°C', label) or None\n"
+        "    return f'{m[1]}°C or below' if m else f'{n[1]}°C or above' if n else label\n"
+        "worded = panel.assign(outcome_label=panel['outcome_label'].map(reword),\n"
+        "                      winning_label=panel['winning_label'].map(reword))\n"
+        "assert (worded['outcome_label'] != panel['outcome_label']).any()\n"
+        "assert refused(worded.assign(feature_realised_tmax=realised)), 'worded tails not read'\n"
+        "assert check_no_leakage(worded).leaked == [], 'worded tails: honest sample flagged'\n"
+        "# one row per market and an explicit label: no distance score at all\n"
+        "assert check_no_leakage(one, raise_on_leak=False).bin_relative == []\n"
+        "assert check_no_leakage(panel.assign(won=won), label_col='won').bin_relative == []\n"
         "print('leakage probe OK', pmlab.__version__)\n"
     )
     ok = _ok(installed.py("-c", probe))
