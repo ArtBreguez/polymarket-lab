@@ -57,25 +57,36 @@
     });
   }
 
+  // Reveal on scroll: an element appears once its top is inside the upper 92% of the viewport, so a
+  // jump past it (End, a search hit, an anchor) reveals it too: nothing can stay hidden.
   function reveal() {
-    var items = document.querySelectorAll(".pm-reveal");
-    if (!items.length) return;
-    if (!("IntersectionObserver" in window)) {
-      items.forEach(function (el) { el.classList.add("is-in"); });
-      return;
+    var pending = Array.prototype.slice.call(document.querySelectorAll(".pm-reveal"));
+    if (!pending.length) return;
+    var queued = false;
+    function check() {
+      queued = false;
+      var line = window.innerHeight * 0.92;
+      pending = pending.filter(function (el) {
+        if (el.getBoundingClientRect().top < line) {
+          el.classList.add("is-in");
+          return false;
+        }
+        return true;
+      });
+      if (!pending.length) {
+        window.removeEventListener("scroll", onScroll);
+        window.removeEventListener("resize", onScroll);
+      }
     }
-    var seen = new IntersectionObserver(
-      function (entries) {
-        entries.forEach(function (entry) {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("is-in");
-            seen.unobserve(entry.target);
-          }
-        });
-      },
-      { rootMargin: "0px 0px -8% 0px" }
-    );
-    items.forEach(function (el) { seen.observe(el); });
+    function onScroll() {
+      if (!queued) {
+        queued = true;
+        window.requestAnimationFrame(check);
+      }
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    check();
   }
 
   var box = document.querySelector("[data-install]");
