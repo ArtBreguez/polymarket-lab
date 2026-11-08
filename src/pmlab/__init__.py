@@ -71,6 +71,7 @@ from pmlab.modeling.diagnostics import (
 )
 from pmlab.modeling.ensemble import EnsembleForecaster
 from pmlab.modeling.lgbm_baseline import LGBMForecaster
+from pmlab.modeling.registry import ModelRegistry, RegistryEntry
 from pmlab.modeling.sklearn_forecaster import SklearnForecaster
 from pmlab.modeling.tuning import TunedForecaster
 from pmlab.monitoring.calibration_tracker import CalibrationTracker, CalibrationWindow
@@ -179,6 +180,8 @@ __all__ = [
     # Modeling
     "MarketForecaster",
     "ChampionManifest",
+    "ModelRegistry",
+    "RegistryEntry",
     "ReproducibilityRecord",
     "DataFingerprint",
     "BacktestConfig",

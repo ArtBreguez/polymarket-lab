@@ -74,8 +74,7 @@ import numpy as np
 import pandas as pd
 import json
 
-from pmlab.backtest.holdout_gate import HoldoutGateResult
-from pmlab.modeling.lgbm_baseline import LGBMForecaster
+from pmlab import HoldoutGateResult, LGBMForecaster
 
 rng = np.random.default_rng(0)
 X = pd.DataFrame({"feature_a": rng.normal(size=60)})
@@ -98,8 +97,7 @@ Archive it, restore it into another directory, and compare every field of the ma
 ```python
 import dataclasses
 
-from pmlab.modeling.champion import ChampionManifest
-from pmlab.modeling.registry import ModelRegistry
+from pmlab import ChampionManifest, ModelRegistry
 
 promoted = ChampionManifest.load("champion/champion.json")
 registry = ModelRegistry("registry")

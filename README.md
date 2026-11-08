@@ -3,16 +3,17 @@
 <img src="https://img.shields.io/pypi/v/pmlab?color=blue" alt="PyPI version">
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
-<img src="https://img.shields.io/badge/coverage-95%25-brightgreen" alt="Coverage 95%">
-<img src="https://img.shields.io/badge/tests-433%20passing-brightgreen" alt="433 tests">
+<img src="https://img.shields.io/badge/coverage-96%25-brightgreen" alt="Coverage 96%">
+<img src="https://img.shields.io/badge/tests-3108%20passing-brightgreen" alt="3108 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
+<a href="https://artbreguez.github.io/polymarket-lab/"><img src="https://img.shields.io/badge/docs-artbreguez.github.io%2Fpolymarket--lab-blue" alt="Documentation"></a>
 
 # pmlab
 
 **A generic, plugin-based ML framework for Polymarket prediction markets.**
 
-[Installation](#installation) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Writing a Plugin](#writing-a-plugin) · [CLI](#cli-reference) · [API Reference](#api-reference) · [Roadmap](ROADMAP.md) · [Contributing](#contributing)
+[Documentation](https://artbreguez.github.io/polymarket-lab/) · [Installation](#installation) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Writing a Plugin](#writing-a-plugin) · [CLI](#cli-reference) · [API Reference](#api-reference) · [Roadmap](ROADMAP.md) · [Contributing](#contributing)
 
 </div>
 
@@ -43,6 +44,11 @@ uv add pmlab
 ```
 
 **Requirements:** Python 3.12+
+
+**Documentation:** <https://artbreguez.github.io/polymarket-lab/> — guides, the tutorial, and an API
+reference generated from the docstrings. From 1.0 the public API is frozen:
+[what is public and what is promised](docs/api-stability.md), and the
+[deprecation policy](docs/deprecation.md).
 
 ### Try it offline: the tutorial notebook
 
@@ -104,8 +110,7 @@ only the one that won. Override `build_training_rows` for it; see
 
 ```python
 import pandas as pd
-from pmlab import LGBMForecaster
-from pmlab.backtest.rolling_origin import rolling_origin_eval
+from pmlab import LGBMForecaster, rolling_origin_eval
 
 panel = pd.read_parquet("data/historical_panel.parquet")
 model = LGBMForecaster()
@@ -128,8 +133,7 @@ print(live.trades["direction"].value_counts())   # yes / no
 
 # The trade log composes straight into metrics and the go/no-go gate —
 # no manual column wrangling.
-from pmlab import compute_metrics
-from pmlab.backtest.holdout_gate import HoldoutGateResult
+from pmlab import compute_metrics, HoldoutGateResult
 
 metrics = compute_metrics(result.trades)          # derives outcome from PnL
 gate = HoldoutGateResult.evaluate(result.trades)  # aggregate GO / NO_GO
@@ -693,6 +697,14 @@ scripts/pmlab-workspace historical_real pmlab backtest --plugin weather_tmax --s
 
 ## API Reference
 
+The complete reference, generated from the docstrings, is at
+<https://artbreguez.github.io/polymarket-lab/reference/>. What is public (and so stable from 1.0)
+is `pmlab.__all__` plus the `__all__` of `pmlab.data`, `pmlab.datasets`, `pmlab.features`,
+`pmlab.monitoring`, `pmlab.reports`, `pmlab.reproducibility` and `pmlab.tracking`, the `pmlab`
+command and its options, and the file formats listed in [docs/api-stability.md](docs/api-stability.md).
+Import from those; module paths such as `pmlab.core.costs` are internal. The tables below are a
+quick index of the most used names.
+
 ### Core
 
 | Symbol | Description |
@@ -798,6 +810,8 @@ uv run pytest -m notebook                  # executes notebooks/tutorial.ipynb o
 uv run ruff check src/ tests/             # lint
 uv run ruff check src/ tests/ --fix       # auto-fix
 uv run mypy src/                          # type check
+uv run python scripts/api_surface.py      # the public API still matches tests/api/public_api.json
+uv sync --extra docs && uv run mkdocs build --strict   # the docs site (docs/, mkdocs.yml)
 uv build                                  # build wheel + sdist
 ```
 
@@ -820,7 +834,7 @@ uv build                                  # build wheel + sdist
 | `workspace` | ✅ Stable | 100% |
 | `cli` | 🔧 Shell | 91% |
 
-**Tests:** 237 passing · **Coverage:** 95.7% · **Python:** 3.12
+**Tests:** 3108 passing · **Coverage:** 95.8% · **Python:** 3.12
 
 ---
 

@@ -13,9 +13,8 @@ from pmlab import (
     add_lags, add_rolling_stats, encode_cyclical, encode_onehot, clip_outliers,
     add_missing_indicators, add_interactions, TargetEncoder, FittedTargetEncoder,
 )
-# or
-from pmlab.features.transforms import add_lags, add_rolling_stats  # the five originals live here
-from pmlab.features.target_encoding import TargetEncoder, FittedTargetEncoder
+# or, from the subpackage (the same names)
+from pmlab.features import add_lags, add_rolling_stats, TargetEncoder, FittedTargetEncoder
 ```
 
 ---

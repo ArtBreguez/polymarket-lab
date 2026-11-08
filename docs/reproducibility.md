@@ -195,8 +195,7 @@ version and `rollback()` restores it, as it does every other field of the manife
 ```python
 import pandas as pd
 
-from pmlab.backtest.holdout_gate import HoldoutGateResult
-from pmlab.modeling.champion import ChampionManifest
+from pmlab import HoldoutGateResult, ChampionManifest
 from pmlab.reproducibility import BacktestConfig, build_forecaster, load_record, run_backtest
 
 record = load_record("metrics.json")

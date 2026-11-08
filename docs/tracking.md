@@ -15,10 +15,7 @@ Two backends share one `ExperimentTracker` protocol:
 ## Basic Usage
 
 ```python
-from pmlab import LocalJSONTracker
-from pmlab.backtest.rolling_origin import rolling_origin_eval
-from pmlab.backtest.metrics import compute_metrics
-from pmlab.backtest.holdout_gate import HoldoutGateResult
+from pmlab import LocalJSONTracker, rolling_origin_eval, compute_metrics, HoldoutGateResult
 
 tracker = LocalJSONTracker(root="runs")
 
@@ -73,7 +70,7 @@ uv sync --extra track     # or: pip install pmlab[track]
 ```
 
 ```python
-from pmlab.tracking.mlflow_tracker import MLflowTracker
+from pmlab.tracking import MLflowTracker
 
 tracker = MLflowTracker(tracking_uri="file:./mlruns")  # or a remote server
 # same run(...) / log_params / log_metrics / log_gate / list_runs API

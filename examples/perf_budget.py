@@ -29,8 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from pmlab.backtest.rolling_origin import rolling_origin_eval
-from pmlab.core.policy import TradePolicy
+from pmlab import rolling_origin_eval, TradePolicy
 from pmlab.data import build_panel
 
 SEED = 20260508

@@ -11,8 +11,7 @@ You write the domain logic; pmlab handles everything else.
 ## Minimal example
 
 ```python
-from pmlab.plugins.base import MarketPlugin
-from pmlab.core.market_spec import MarketSpec, OutcomeBin
+from pmlab import MarketPlugin, MarketSpec, OutcomeBin
 from typing import Any
 
 class CryptoPricePlugin(MarketPlugin):
@@ -182,8 +181,7 @@ train on a better price (a CLOB midpoint at the horizon, say), put it in the spe
 
 ```python
 from collections import Counter
-from pmlab import build_panel
-from pmlab.plugins.weather_tmax.plugin import WeatherTmaxPlugin
+from pmlab import build_panel, WeatherTmaxPlugin
 
 plugin = WeatherTmaxPlugin(gamma_client=..., forecast_client=..., truth_client=...)
 specs = plugin.discover_markets()   # prices are stamped "observed now"
@@ -260,7 +258,7 @@ Override when your data source has a finalization lag (e.g. weather stations).
 ## Registering your plugin
 
 ```python
-from pmlab.plugins.registry import PluginRegistry
+from pmlab import PluginRegistry
 from my_package import CryptoPricePlugin
 
 registry = PluginRegistry()
@@ -294,7 +292,7 @@ plugin = CryptoPricePlugin(gamma_client=mock_gamma)
 
 ```python
 from unittest.mock import MagicMock
-from pmlab.core.market_spec import MarketSpec
+from pmlab import MarketSpec
 
 def test_fetch_features_returns_float_dict():
     plugin = CryptoPricePlugin()

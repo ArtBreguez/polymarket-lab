@@ -157,8 +157,7 @@ Run these before flipping `dry_run=False`:
 `LiveBroker` raises `LiveBrokerError` on any API failure:
 
 ```python
-from pmlab import LiveBroker
-from pmlab.execution.live_broker import LiveBrokerError
+from pmlab import LiveBroker, LiveBrokerError
 
 try:
     receipt = broker.place_order(...)

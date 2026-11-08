@@ -96,7 +96,7 @@ import time
 import numpy as np
 from sklearn.dummy import DummyClassifier
 
-from pmlab.backtest.rolling_origin import rolling_origin_eval
+from pmlab import rolling_origin_eval
 from pmlab.data import build_panel
 ```
 

@@ -3,18 +3,19 @@
 Every backtest run can log its params, metrics, and gate decision so results are
 auditable and reproducible — the roadmap's "no result you can't re-run" principle.
 
-Two backends share one :class:`ExperimentTracker` protocol:
+Two backends share one `ExperimentTracker` protocol:
 
-* :class:`LocalJSONTracker` — the zero-dependency default. Writes one append-only
+* `LocalJSONTracker` — the zero-dependency default. Writes one append-only
   JSON record per run under ``<root>/<experiment>/<run_id>.json``. Point-in-time
   and immutable: a new run never overwrites an old one (unique ``run_id``), so the
   run history is stable evidence, mirroring the FeatureSnapshotStore philosophy.
-* ``MLflowTracker`` — optional, behind the ``track`` extra. Imported lazily so the
-  core install never pulls MLflow. See :mod:`pmlab.tracking.mlflow_tracker`.
+* `MLflowTracker` — optional, behind the ``track`` extra. Imported lazily so the
+  core install never pulls MLflow: ``pmlab.tracking.MLflowTracker`` loads its module on first
+  use, and the module itself imports ``mlflow`` only when a tracker is built.
 
 Metrics/gate objects log directly: ``log_metrics`` accepts a plain dict or a
-:class:`~pmlab.backtest.metrics.BacktestMetrics`; ``log_gate`` accepts a
-:class:`~pmlab.backtest.holdout_gate.HoldoutGateResult`. No manual glue.
+`BacktestMetrics`; ``log_gate`` accepts a
+`HoldoutGateResult`. No manual glue.
 """
 
 from __future__ import annotations
@@ -27,14 +28,32 @@ from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from pmlab.tracking.mlflow_tracker import MLflowTracker
 
 __all__ = [
     "ExperimentTracker",
     "ActiveRun",
     "LocalJSONTracker",
+    "MLflowTracker",
     "RunRecord",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Load ``MLflowTracker`` on first access (PEP 562): the module imports this one, so an
+    eager import here would be circular, and it keeps MLflow out of the core install."""
+    if name == "MLflowTracker":
+        from pmlab.tracking.mlflow_tracker import MLflowTracker
+
+        return MLflowTracker
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), "MLflowTracker"})
 
 
 def _json_safe(obj: Any) -> Any:
@@ -147,7 +166,7 @@ class RunRecord:
 class ActiveRun:
     """A live run handle. Accumulates state and asks the tracker to persist.
 
-    Obtained from :meth:`ExperimentTracker.run` and used as a context manager so
+    Obtained from `ExperimentTracker.run` and used as a context manager so
     the run is flushed (with a ``finished``/``failed`` status) on exit even when
     the body raises.
     """
@@ -173,7 +192,7 @@ class ActiveRun:
         self._tracker._persist(self._record)
 
     def log_reproducibility(self, record: Any) -> None:
-        """Store the run's :class:`~pmlab.reproducibility.ReproducibilityRecord` (or its dict).
+        """Store the run's `ReproducibilityRecord` (or its dict).
 
         It sits next to the params and metrics, so ``pmlab reproduce <run_id>`` can re-execute
         the run from this file alone.
