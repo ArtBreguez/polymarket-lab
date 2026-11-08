@@ -82,6 +82,9 @@ uv run pytest
 # Run tests with coverage
 uv run pytest --cov=src/pmlab --cov-report=term-missing
 
+# End-to-end: build the wheel, install it in a fresh venv, run the public API (needs uv + network)
+uv run pytest -m e2e
+
 # Lint
 uv run ruff check src/ tests/
 

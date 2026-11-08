@@ -84,7 +84,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not e2e'"
+markers = [
+    "e2e: builds the wheel and runs the public API in a fresh venv (needs uv + network); run with `pytest -m e2e`",
+]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
