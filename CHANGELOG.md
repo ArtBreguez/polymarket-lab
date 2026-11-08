@@ -2,6 +2,56 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.1] — 2026-11-08
+
+### Fixed — a registry round trip loses no manifest field
+
+Closes #33. `ModelRegistry.record()` dropped `backtest_expectation`, and `rollback()` dropped
+`costs` and `backtest_expectation`, so a champion rolled back from the registry came back
+without the promise `pmlab monitor` holds live PnL and calibration against (the check then
+reports "unavailable") and without the friction its gate was computed under. Documented in
+[docs/registry.md](docs/registry.md).
+
+- **Root cause**: `champion.json` was written key by key in three places (`publish`, `record`,
+  `rollback`), and each new manifest field (`costs` in 0.8.4, `backtest_expectation` in 0.9.1,
+  `reproducibility` in 0.10.0) had to be added to all three by hand. Two writers were missed.
+- **`ChampionManifest.to_dict()`** is now the one serializer (the inverse of `load()`);
+  `publish`, `ModelRegistry.record()` and `ModelRegistry.rollback()` all write it. The JSON it
+  produces is byte-for-byte what `publish` wrote before. A field added to the manifest reaches
+  every copy of it without touching the registry.
+- **Tests that cover a field added later**: `tests/modeling/test_registry_roundtrip.py` publishes
+  a manifest with every field set, records it, rolls it back and compares it field by field over
+  `dataclasses.fields(ChampionManifest)`, and compares the `champion.json` files key by key. A
+  guard fails by name if the fixture leaves a field unset, so a new field cannot go unexercised.
+  Also pinned: a `promote-champion` champion (CLI) survives the registry, and a second
+  record/rollback of a rolled-back champion still loses nothing.
+- **Also fixed, found by the end-to-end run**: a registry opened with a relative path
+  (`ModelRegistry("registry")`) archived `model_path` relative to the directory it was recorded
+  from, so `rollback()` from any other directory raised `FileNotFoundError`, and so did one on a
+  registry that had been moved. `ModelRegistry.get()` now points at the artifacts where the
+  registry keeps them (next to the version's `champion.json`) instead of trusting the stored
+  path. The on-disk format is unchanged.
+- **End to end, from the installed wheel**: the new docs page runs as written (backtest under
+  non-default costs, `promote-champion`, record, rollback, `pmlab reproduce` on the archived
+  version); the e2e then compares the promoted, archived and restored files.
+
+### Compatibility
+
+- Registry entries written by older releases still load and roll back. They never held
+  `backtest_expectation`, so a rollback to one has no expectation (`None`, which the watchdog
+  reports as unavailable, never as fine). What they did archive, `costs` (since 0.8.4) and
+  `reproducibility` (since 0.10.0), a rollback now restores too. Pinned by a test that strips the
+  keys the way 0.10.0 and earlier left them.
+- `champion.json` files, the registry's `index.json` layout and every public signature are
+  unchanged. `ChampionManifest.to_dict()` is new.
+
+### Notes
+
+Found while implementing #16. This is the second time this root cause has bitten
+(0.8.4 noted `record()` "rebuilds `champion.json` field by field instead of copying it").
+Checked for the same gap: `promote-champion` passes costs, expectation and reproducibility to
+`publish`, which now serializes through `to_dict()`; no other code writes a `champion.json`.
+
 ## [0.11.0] — 2026-11-08
 
 ### Added — an end-to-end tutorial notebook on a bundled sample dataset
