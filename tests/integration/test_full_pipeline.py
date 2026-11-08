@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC
+from datetime import UTC, date, timedelta
 from typing import Any
 
 import numpy as np
@@ -74,7 +74,7 @@ class IntegrationPlugin(MarketPlugin):
 
 def _make_synthetic_panel(n: int = 100) -> pd.DataFrame:
     rng = np.random.default_rng(42)
-    dates = [f"2026-0{i // 10 + 1}-{i % 28 + 1:02d}" for i in range(n)]
+    dates = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(n)]
     return pd.DataFrame(
         {
             "market_id": [f"m{i % 10}" for i in range(n)],

@@ -3,8 +3,9 @@
 Naive tuning (random-shuffle CV) leaks the future into model selection on time
 series — the single most common way a prediction-market backtest lies to you.
 ``TunedForecaster`` scores every Optuna trial through ``rolling_origin_eval``,
-which trains strictly on ``decision_date < eval_date``, so the search itself is
-walk-forward and lookahead-free.
+which trains only on rows whose label was already known when the fold decided (the
+``market_close_ts`` rule of that function), so the search itself is walk-forward and
+lookahead-free.
 
 What a trial is scored *on* is a choice, and it has to be the choice you will trade with.
 By default a trial is the historical backtest: YES on the most probable bin of every market,

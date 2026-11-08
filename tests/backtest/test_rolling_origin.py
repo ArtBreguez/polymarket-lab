@@ -76,16 +76,20 @@ def test_no_lookahead():
             return np.full((len(X), 2), 0.5)
 
     detector = LookaheadDetector()
-    # We verify by checking result.steps: train_rows < total rows at eval_date
+    # We verify by checking result.steps: train_rows only counts rows decided at least two days
+    # before eval_date. This panel carries no label times, so each label is assumed to arrive the
+    # day after its decision (issue #47): the row decided on the eve of eval_date is held back.
     result = rolling_origin_eval(panel, detector, min_train_rows=20, stride=10)
-    # Each step should have train_rows that come strictly before eval_date
+    assert result.steps
     for step in result.steps:
         eval_date = step["eval_date"]
-        n_before = (panel["decision_date"] < eval_date).sum()
-        assert step["train_rows"] == n_before, (
+        last_usable = (pd.Timestamp(eval_date) - pd.Timedelta(days=2)).date().isoformat()
+        n_usable = (panel["decision_date"] <= last_usable).sum()
+        assert step["train_rows"] == n_usable, (
             f"Lookahead detected at {eval_date}: "
-            f"train_rows={step['train_rows']} vs expected={n_before}"
+            f"train_rows={step['train_rows']} vs expected={n_usable}"
         )
+        assert step["train_rows"] < (panel["decision_date"] < eval_date).sum()
 
 
 def test_respects_min_train():

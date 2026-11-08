@@ -317,7 +317,9 @@ class TestNoLookahead:
         assert by_date.loc["2024-01-02", "direction"] == "yes"
         assert by_date.loc["2024-01-02", "market_price"] == pytest.approx(0.80)
 
-    def test_the_training_rows_stay_strictly_before_the_decision_date(self) -> None:
+    def test_the_training_rows_stop_two_days_before_the_decision_date(self) -> None:
+        # No label times in this panel: a label is assumed to arrive the day after its decision,
+        # so the row decided on the eve of the eval date is not training data yet (issue #47).
         panel = _panel(self._rows(0.30, "cold"))
         result = rolling_origin_eval(
             panel,
@@ -327,8 +329,10 @@ class TestNoLookahead:
             policy=TradePolicy.live(min_edge=0.0),
             costs=_FRICTIONLESS,
         )
+        assert result.steps
         for step in result.steps:
-            assert step["train_rows"] == int((panel["decision_date"] < step["eval_date"]).sum())
+            last = (pd.Timestamp(step["eval_date"]) - pd.Timedelta(days=2)).date().isoformat()
+            assert step["train_rows"] == int((panel["decision_date"] <= last).sum())
 
 
 class TestTheEdgeColumnsAreFinite:

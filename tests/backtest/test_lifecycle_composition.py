@@ -7,6 +7,8 @@ DataFrame produced by rolling_origin_eval could not be fed into compute_metrics
 
 from __future__ import annotations
 
+import datetime as dt
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -21,7 +23,7 @@ def _panel(n_dates: int = 40, per_date: int = 12, seed: int = 0) -> pd.DataFrame
     rng = np.random.default_rng(seed)
     rows = []
     for d in range(n_dates):
-        date = f"2026-01-{d + 1:02d}"
+        date = (dt.date(2026, 1, 1) + dt.timedelta(days=d)).isoformat()
         for _ in range(per_date):
             f = rng.normal(0, 1)
             win = "YES" if f + rng.normal(0, 0.4) > 0 else "NO"
