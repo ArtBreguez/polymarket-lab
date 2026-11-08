@@ -263,7 +263,7 @@ re-execute `backtest` runs.
 | `pmlab backtest` / `run_backtest` | `--seed` (default 0): python `random`, numpy global, LightGBM `random_state` | one place; a seed in `--lgbm-param` is refused. The global generators are seeded for the run only and restored after, so your own streams are untouched |
 | `LGBMForecaster` used directly | `random_state=` if you pass it | unset, LightGBM uses its own fixed internal seeds: deterministic, but not a value that can be recorded |
 | `SklearnForecaster` `random_forest` / `gradient_boosting` | `random_state=0` by default (**new in 0.10.0**) | previously unseeded: the numpy global state decided, so two runs differed. Pass `random_state=` to change it |
-| `TunedForecaster` | `random_state=0`: the Optuna TPE sampler | unchanged |
+| `TunedForecaster` | `random_state=0`: the Optuna TPE sampler | unchanged. Record it with `resolve_seeds(seed, optuna=tuner.random_state)` and the objective with `BacktestConfig.resolve(tuning=tuner.tuning_config())` (**new in 0.12.0**, [docs/tuning.md](tuning.md)): a tuned run reproduces like any other, and its record says which policy picked the parameters |
 | calibrators, conformal | `random_state=0`: the calibration split | unchanged |
 | bootstrap stability report | `seed=0` | unchanged |
 | target encoding (`kfold`, `group`) | `seed=0` | unchanged |
