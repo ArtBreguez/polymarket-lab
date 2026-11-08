@@ -115,6 +115,10 @@ class RunRecord:
     params: dict[str, Any] = field(default_factory=dict)
     metrics: dict[str, Any] = field(default_factory=dict)
     gate: dict[str, Any] = field(default_factory=dict)
+    # The run's ReproducibilityRecord as a dict (seeds, library versions, resolved config,
+    # data fingerprint): what `pmlab reproduce` re-executes. Empty for runs recorded before
+    # 0.10.0 and for runs that never logged one.
+    reproducibility: dict[str, Any] = field(default_factory=dict)
     status: str = "running"
     started_at: str = ""
     ended_at: str | None = None
@@ -132,6 +136,7 @@ class RunRecord:
             params=d.get("params", {}),
             metrics=d.get("metrics", {}),
             gate=d.get("gate", {}),
+            reproducibility=d.get("reproducibility") or {},
             status=d.get("status", "running"),
             started_at=d.get("started_at", ""),
             ended_at=d.get("ended_at"),
@@ -165,6 +170,15 @@ class ActiveRun:
 
     def log_gate(self, gate: Any) -> None:
         self._record.gate = _to_plain_dict(gate)
+        self._tracker._persist(self._record)
+
+    def log_reproducibility(self, record: Any) -> None:
+        """Store the run's :class:`~pmlab.reproducibility.ReproducibilityRecord` (or its dict).
+
+        It sits next to the params and metrics, so ``pmlab reproduce <run_id>`` can re-execute
+        the run from this file alone.
+        """
+        self._record.reproducibility = _to_plain_dict(record)
         self._tracker._persist(self._record)
 
     def __enter__(self) -> ActiveRun:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ from pmlab.backtest.holdout_gate import HoldoutGateResult
 from pmlab.core.costs import CostModel
 from pmlab.core.segments import segment_allowed
 from pmlab.modeling.base import MarketForecaster
+from pmlab.reproducibility.capture import ReproducibilityRecord
 
 if TYPE_CHECKING:
     from pmlab.modeling.calibration import IsotonicCalibrator
@@ -34,6 +36,11 @@ class ChampionManifest:
     # live run can be held against it. None for champions published before it was
     # recorded: the watchdog then reports the check as unavailable, never as fine.
     expectation: BacktestExpectation | None = None
+    # How the backtest behind the promotion was run: seeds, library versions, resolved config,
+    # a fingerprint of the data, and the metrics it produced. `pmlab reproduce champion.json`
+    # re-executes it. None for champions published before 0.10.0 (or without one): they load
+    # as before, and `reproduce` says there is nothing to re-run.
+    reproducibility: ReproducibilityRecord | None = None
 
     @classmethod
     def publish(
@@ -46,6 +53,7 @@ class ChampionManifest:
         calibrator: IsotonicCalibrator | None = None,
         costs: CostModel | None = None,
         expectation: BacktestExpectation | None = None,
+        reproducibility: ReproducibilityRecord | None = None,
     ) -> ChampionManifest:
         """Publish a champion model.
 
@@ -60,6 +68,8 @@ class ChampionManifest:
                 (`BacktestExpectation.from_trades`). Without it, `pmlab monitor`
                 cannot say whether live PnL or calibration has fallen short of
                 what the promotion assumed.
+            reproducibility: The backtest's `ReproducibilityRecord` (`capture_backtest`),
+                so the result the promotion rests on can be re-run with `pmlab reproduce`.
         """
         if gate.decision != "GO":
             raise ValueError(
@@ -97,6 +107,7 @@ class ChampionManifest:
             plugin_family=plugin_family,
             costs=costs,
             expectation=expectation,
+            reproducibility=reproducibility,
         )
 
         json_data = {
@@ -108,6 +119,7 @@ class ChampionManifest:
             "publish_gate": gate.to_dict(),
             "costs": costs.to_dict() if costs is not None else None,
             "backtest_expectation": expectation.to_dict() if expectation is not None else None,
+            "reproducibility": reproducibility.to_dict() if reproducibility is not None else None,
         }
         json_path = output_dir / "champion.json"
         with open(json_path, "w") as f:
@@ -136,6 +148,21 @@ class ChampionManifest:
             BacktestExpectation.from_dict(raw_expectation) if raw_expectation is not None else None
         )
 
+        # Absent means an older champion. Unlike the expectation, the reproducibility record
+        # never gates a trade, so one this pmlab cannot read (written by a newer release, or
+        # damaged) must not take the live loop down: it loads as "no record", with a warning.
+        raw_repro = data.get("reproducibility")
+        reproducibility = None
+        if raw_repro is not None:
+            try:
+                reproducibility = ReproducibilityRecord.from_dict(raw_repro)
+            except (ValueError, TypeError, KeyError) as e:
+                warnings.warn(
+                    f"{json_path}: ignoring the reproducibility record, which cannot be read "
+                    f"({e}); `pmlab reproduce` will not be able to re-run this champion",
+                    stacklevel=2,
+                )
+
         return cls(
             model_name=data["model_name"],
             model_path=Path(data["model_path"]),
@@ -145,6 +172,7 @@ class ChampionManifest:
             plugin_family=data["plugin_family"],
             costs=costs,
             expectation=expectation,
+            reproducibility=reproducibility,
         )
 
     def get_allowed_segments(self) -> set[str]:
