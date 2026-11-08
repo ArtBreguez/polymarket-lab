@@ -18,9 +18,10 @@ Closes #18. No change to the library's behaviour; the guarantees are in the buil
   `perf` job (`uv run pytest -m perf`, deselected from the default run like `e2e`). Three seeded,
   in-process workloads (72k-row backtest, 28.8k-row backtest under the live best-edge policy,
   120k-row `build_panel` with price-timing stamps) are timed as the best of 5 runs after a warm-up
-  and read in **calibration units** (seconds divided by a fixed loop measured in the same run), so
+  and read in **calibration units** (seconds divided by a fixed loop of the hot paths' own pandas work, measured in the same run), so
   the budget holds across machines; a round over budget is retried before it fails. Budgets are
-  2.5x the reference, so a 3x slowdown fails and 2x does not. A scaling check (2x the rows must
+  about 2.3x the reference machine's value, so a 3x slowdown fails and 2x does not, on the CI
+  runner as well as on the reference VM. A scaling check (2x the rows must
   cost < 3x) catches super-linear growth independently of the machine. Everything is in
   `examples/perf_budget.py` (runnable by anyone: `python examples/perf_budget.py [--check]`),
   documented in `docs/performance.md`, with the doc's table pinned to the script by a test.

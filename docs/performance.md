@@ -21,14 +21,14 @@ masks and boolean takes on object columns, a group-by on two string keys, `iterr
 records to a DataFrame, an interpreter loop) with none of pmlab's code in it, so it tracks how
 fast a machine runs *this kind* of work. A first version that was only a pure-Python loop did
 not: the CI runner has a much faster interpreter than the reference VM but the same pandas
-speed, and the units differed by 2x between them. The budget is 2.5x the reference, so a 3x
-slowdown fails and ordinary noise does not.
+speed, and the units differed by 2x between them. The budget is about 2.3x the reference machine's value (2.5x to 2.9x the CI runner's, which
+reads 10 to 20% lower), so a 3x slowdown fails on both and a 2x one passes on both.
 
 | workload | what is timed | reference (units) | budget (units) |
 |---|---|---|---|
-| `rolling_origin_top_prob` | `rolling_origin_eval`, historical top-bin rule | 6.4 | 16 |
-| `rolling_origin_live_policy` | `rolling_origin_eval` with `TradePolicy.live(min_edge=0.02)` | 10.8 | 27 |
-| `build_panel` | `build_panel` on timing-stamped rows from a plugin | 4.3 | 11 |
+| `rolling_origin_top_prob` | `rolling_origin_eval`, historical top-bin rule | 6.4 | 15 |
+| `rolling_origin_live_policy` | `rolling_origin_eval` with `TradePolicy.live(min_edge=0.02)` | 10.8 | 25 |
+| `build_panel` | `build_panel` on timing-stamped rows from a plugin | 4.3 | 10 |
 
 The workloads are seeded and built in-process (no network, no files). Sizes are a season of daily
 decisions over a few hundred markets:
@@ -47,6 +47,14 @@ calibration loop takes about 63 ms:
 | `rolling_origin_top_prob` | 0.40 | 6.4 | 6.4 to 6.5 |
 | `rolling_origin_live_policy` | 0.68 | 10.8 | 10.7 to 10.9 |
 | `build_panel` | 0.28 | 4.3 | 4.3 to 4.4 |
+
+On the GitHub-hosted runner (`ubuntu-latest`, the `perf` job; calibration loop about 65 ms):
+
+| workload | seconds | units | budget (units) | 2x rows |
+|---|---|---|---|---|
+| `rolling_origin_top_prob` | 0.39 | 5.9 | 15 | 1.64x |
+| `rolling_origin_live_policy` | 0.59 | 9.0 | 25 | 1.86x |
+| `build_panel` | 0.22 | 3.5 | 10 | 2.02x |
 
 ## Scaling guard
 
@@ -126,7 +134,8 @@ A slowdown can be the right trade (a safety check, a new column in the trade log
 1. Run `uv run python examples/perf_budget.py` several times on a quiet machine and take the
    median `units` of the affected workload.
 2. In `examples/perf_budget.py`, set that workload's `reference_units` to it and `budget_units`
-   to about 2.5x (the headroom that lets a 3x slowdown fail and noise pass).
+   to about 2.3x (the headroom that lets a 3x slowdown fail and noise pass, and that holds on the
+   CI runner too: check the `perf` job's output, which prints the units it measured).
 3. Update the table above (a fast test fails if the page and the script disagree).
 4. Say why in the changelog and the PR: a budget raised without a reason is the regression the
    guard exists to catch.

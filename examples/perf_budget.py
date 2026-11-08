@@ -177,7 +177,7 @@ WORKLOADS: tuple[Workload, ...] = (
         _prepare_ro,
         _run_ro,
         reference_units=6.4,
-        budget_units=16.0,
+        budget_units=15.0,
     ),
     Workload(
         "rolling_origin_live_policy",
@@ -185,7 +185,7 @@ WORKLOADS: tuple[Workload, ...] = (
         _prepare_ro_live,
         _run_ro_live,
         reference_units=10.8,
-        budget_units=27.0,
+        budget_units=25.0,
     ),
     Workload(
         "build_panel",
@@ -193,7 +193,7 @@ WORKLOADS: tuple[Workload, ...] = (
         _prepare_bp,
         _run_bp,
         reference_units=4.3,
-        budget_units=11.0,
+        budget_units=10.0,
     ),
 )
 SCALING = tuple(w.name for w in WORKLOADS)  # all three are linear in the number of markets
