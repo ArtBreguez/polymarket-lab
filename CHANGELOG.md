@@ -25,6 +25,10 @@ is never mutated), typed and tested.
   - Unseen category -> prior; NaN/None category is its own category (prior if never seen
     while fitting); NaN targets are ignored; deterministic given `seed`. `enc.assign_folds(df)`
     exposes the fold ids.
+  - `output_col=` names the encoded column (default `f"{col}{suffix}"`). `rolling_origin_eval`
+    only feeds `feature_*` columns to the model, and renaming after the fact on the training
+    frame but not on the live frame is an easy way to ship mismatched columns; found by the
+    end-to-end run below.
 - **`add_missing_indicators(df, cols, suffix="_isna")`** — `int8` 0/1 flags.
 - **`add_interactions(df, pairs, op="mul")`** — `mul` / `div` / `add` / `sub` with
   deterministic names (`a_x_b`, `a_div_b`, `a_plus_b`, `a_minus_b`); division by zero is NaN,
@@ -32,6 +36,19 @@ is never mutated), typed and tested.
 
 All are exported from `pmlab.features` and `pmlab`. See `docs/features.md` for the leakage
 contract and a correct-usage example.
+
+### Added — end-to-end test of the public API on the installed wheel
+
+`examples/e2e_transforms.py` is a standalone user script (public imports only) that builds a
+multi-market synthetic panel with NaNs, adds missing indicators and interactions, target-encodes
+out-of-fold on the training period and with the fitted mapping on a later live period (unseen and
+NaN categories), trains `LGBMForecaster`, runs `rolling_origin_eval`, scores the live rows, and
+asserts the user-visible guarantees (inputs unchanged, no `inf`, live rows never use the OOF path,
+unseen category gets the prior, finite metrics). `tests/e2e/` builds the wheel, installs it into a
+fresh venv, and runs that script, every code block of `docs/features.md` (unmodified) and
+`pmlab backtest` on the resulting panel from outside the repo. Opt-in: `pytest -m e2e` (deselected
+by default); CI runs it in its own `e2e` job. Running every doc block unmodified found a
+syntactically invalid import line in `docs/features.md` (`import add_lags, ...`), now fixed.
 
 ### Fixed — `add_rolling_stats(group_by=...)` put values on the wrong rows
 

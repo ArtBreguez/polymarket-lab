@@ -14,7 +14,7 @@ from pmlab import (
     add_missing_indicators, add_interactions, TargetEncoder, FittedTargetEncoder,
 )
 # or
-from pmlab.features.transforms import add_lags, ...
+from pmlab.features.transforms import add_lags, add_rolling_stats  # the five originals live here
 from pmlab.features.target_encoding import TargetEncoder, FittedTargetEncoder
 ```
 
@@ -187,6 +187,12 @@ X_live = fitted.transform(live)      # adds city_te; unseen city -> prior
 # the fitted encoder is a frozen dataclass of plain floats + a dict: pickle it with the model
 ```
 
+`rolling_origin_eval` only feeds `feature_*` columns to the model, so name the encoded column accordingly (the same name is used by `fit_transform` and by the fitted `transform`, so the live frame matches the training frame):
+
+```python
+enc = TargetEncoder("city", "outcome", time_col="date", output_col="feature_city_te")
+```
+
 To inspect or align with your own CV, `enc.assign_folds(df)` returns each row's fold id. Wrong usage to avoid: encoding the whole panel with `fit(df).transform(df)` and *then* splitting train/test, or fitting on a window that includes the test rows.
 
 The train/serve distributions differ slightly (OOF statistics see less history than full-train ones, most visibly in the first folds); this is the standard cost of leakage-free target encoding, and the reason to keep `n_folds` moderate.
@@ -218,7 +224,7 @@ df["doy_sin"], df["doy_cos"] = encode_cyclical(df["day_of_year"], period=365)
 df = encode_onehot(df, cols=["city"], drop_first=True)
 ```
 
-Missing-value indicators and target encoding belong *before* step 5 (they read the raw categorical / NaNs), with the target-encoded column built out-of-fold as above:
+Missing-value indicators and target encoding belong *before* step 5 (they read the raw categorical / NaNs), with the target-encoded column built out-of-fold as above (imports as in the Installation section):
 
 ```python
 df = add_missing_indicators(df, cols=["humidity"])       # before any imputation
