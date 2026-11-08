@@ -2,8 +2,9 @@
 
 ## Reporting a vulnerability
 
-Please **do not open a public issue** for a security problem. Email the maintainer, Arthur Breguez,
-at <arthurbreguez@gmail.com> (the address in the package metadata) with:
+Please **do not open a public issue** for a security problem. Report it privately through
+[GitHub's private vulnerability reporting](https://github.com/ArtBreguez/polymarket-lab/security/advisories/new)
+(Security tab -> Report a vulnerability) with:
 
 - what you found and what it allows;
 - how to reproduce it;
