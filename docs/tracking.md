@@ -40,6 +40,16 @@ raised, so partial runs are never silently lost.
 
 ---
 
+## Making a run re-runnable
+
+`run.log_reproducibility(record)` stores a `ReproducibilityRecord` (seeds, library versions,
+resolved config, data fingerprint, metrics) in the run file, next to the params and metrics, so
+`pmlab reproduce <run_id> --runs-dir runs` can re-execute it. `pmlab backtest --runs-dir runs`
+does this for you. See [reproducibility.md](reproducibility.md). Runs written before 0.10.0
+have `run.reproducibility == {}`.
+
+---
+
 ## Reading runs back
 
 ```python
