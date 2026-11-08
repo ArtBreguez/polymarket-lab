@@ -2,6 +2,91 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+## [1.0.1] — 2026-11-08
+
+A documentation and repository clean-up. **No behaviour changes and no public API changes**
+(`tests/api/public_api.json` is identical). It is a release because the README is the PyPI page.
+
+### Documentation
+
+- **The README is rewritten** (863 lines to about 160): what pmlab is, the four guarantees (no
+  lookahead, a gate that cannot be bypassed, reproducibility, a frozen API), install, a quickstart
+  that runs on the bundled sample, the command line at a glance, and links into the docs site. What
+  was wrong in the old one, now gone:
+  - static badges and figures (`tests-3109 passing`, `coverage-96%`, "Tests: 3109 passing") that
+    were typed in by hand and go stale with every commit; the badges are now computed (CI status,
+    PyPI version, Python versions, license) and a test fails if a number comes back;
+  - the `pmlab backtest` example was missing the required `--panel`;
+  - the API tables had signatures that do not exist (`flat_stake_size(stake, price)`,
+    `compute_edge(model_prob, market_price, fee_bps)`, `estimate_fee(stake, bps)`,
+    `settle_position(pos, outcome)`);
+  - the quickstart used undefined names (`y_true`, `signals`, `result_diagnostics`, `plugin`) and
+    could not run; the new one does, from the installed wheel, and says it is synthetic data;
+  - relative links and images, which break on PyPI; a link to `polymarket-tmax-lab`, a private
+    repository; "active since 2025", which the repository's history does not show;
+  - `scripts/pmlab-workspace` presented as part of the installed package (it is not shipped), and
+    `settle-trades` listed as if it settled (it is a placeholder that prints instructions);
+  - a module status table whose per-package coverage ranges no longer matched the code (it said
+    `markets` 84-98% and `cli` 91%).
+- **Five new guide pages** take the useful parts of the old README, each with code that runs:
+  [Architecture](docs/architecture.md) (the pipeline and what each package owns),
+  [Command line](docs/cli.md) (every command, honestly, and a first offline session),
+  [Data layer](docs/data.md), [Modeling](docs/modeling.md) (ensembles, calibration, conformal
+  sets, multiclass, time-aware CV) and [Position sizing](docs/sizing.md). The plugin guide gains a
+  table of the bundled plugins and says `sports_f1` is a skeleton. Sections that duplicated a page
+  (feature engineering, async clients and the cache, the API tables) were removed in favour of it.
+- **`ROADMAP.md`** says the 1.0 roadmap is done (#15, #16, #17, #18 and the follow-ups #33, #35,
+  #36, #39), that nothing is scheduled, and keeps the known gaps as ideas. It was "as of v0.10.0".
+- **`CONTRIBUTING.md`** and **`AGENTS.md`** match the repository: the coverage gate is the 90% from
+  `pyproject.toml` (`CONTRIBUTING.md` said 70%), `ruff format --check`, the `e2e`/`notebook`/`perf`
+  suites and `api_surface.py` are listed, and a Releases section describes the version bump that
+  publishes. `CONTRIBUTING.md` no longer tells contributors to `pre-commit install` (there was no
+  configuration). In `AGENTS.md`, `pmlab scan-edge` (a command that does not exist) became
+  `scan-markets`, and the module table gains the packages it was missing (`features`, `monitoring`,
+  `tracking`, `reports`, `config`).
+- **`CHANGELOG.md`**: entries for 0.8.0, 0.8.1 and 0.8.2, which were published without one; the
+  dates of 0.1.0 to 0.3.0 are the PyPI release dates (0.2.0 was dated before 0.1.0); 0.5.0 and
+  0.6.1 say they were never released on their own; compare links for every tagged version;
+  an `[Unreleased]` section, which `CONTRIBUTING.md` already told contributors to use.
+
+### Changed
+
+- **Package metadata**: a description that says what it does, more keywords, classifiers
+  (`Operating System :: OS Independent`, `Topic :: Office/Business :: Financial`, `Python :: 3 ::
+  Only`, among others; the status was already `5 - Production/Stable`), and a `Security` URL.
+- **`publish.yml` no longer overrides the coverage gate**: it ran `--cov-fail-under=70`, below the 90%
+  that `pyproject.toml` sets and `CONTRIBUTING.md` calls the single source of truth.
+- **`pre-commit` removed from the `dev` extra**: no `.pre-commit-config.yaml` ever existed, so it
+  installed a tool nothing used. The lockfile loses it and the packages only it needed.
+- **An unused test fixture** (`tmp_workspace` in `tests/conftest.py`, referenced nowhere) is removed.
+- **`.gitignore`** covers what a local run writes (`coverage.xml`, `artifacts/`, `.pmlab_cache/`,
+  editor folders) and its comment is in English.
+
+### Added
+
+- `SECURITY.md` (how to report a vulnerability, and the two things to know about credentials and
+  pickled models), short issue and pull-request templates, and `.github/dependabot.yml` (weekly,
+  grouped, for the uv lockfile and the GitHub Actions).
+
+### Tests
+
+- `tests/test_readme.py` (default suite): no static badge or figure carries a number, every link
+  is absolute (PyPI cannot resolve a relative one) and points at a file or page that exists, every
+  `pmlab` command and option shown exists and every required option is shown, and the README's
+  `python` and `bash` blocks run as written from an empty directory.
+- `tests/test_docs_pages.py`: the command table of `docs/cli.md` is the command set of the
+  snapshot, and the package map of `docs/architecture.md` lists real packages and public names.
+- `tests/test_package_metadata.py`: classifiers, the Python versions CI tests, the changelog's
+  ordering, dates and links, and the repository files this release adds.
+- End-to-end (`pytest -m e2e`): the README, `docs/cli.md`, `docs/modeling.md`, `docs/data.md` and
+  `docs/sizing.md` run as written from the installed wheel, and the wheel's long description is the
+  README and passes `twine check --strict`. `run_doc_walkthrough.py` gains `--session`, which runs
+  a page's blocks in one namespace.
+
+---
+
 ## [1.0.0] — 2026-11-08
 
 ### Added — the stability guarantee: a frozen public API, a deprecation policy, and the docs site
@@ -1056,6 +1141,48 @@ not carry L2 depth in the training panel, so the model is explicit about
 approximating rather than pretending to measure. Coverage: 100% on `core/costs.py`,
 95% on `backtest/rolling_origin.py`.
 
+## [0.8.2] — 2026-09-13
+
+*This entry was written in 1.0.1: the release was published without one.*
+
+### Added — Stability report
+- `stability_report(trades)` bootstraps the trade log (resampling with replacement) to put a
+  confidence interval around total PnL, average PnL per trade and hit rate, plus
+  `prob_positive_pnl`, so a GO can be judged on a distribution and not a point estimate. A pure,
+  seeded function with a `to_dict()` for the tracker; it does not touch `rolling_origin_eval`.
+  It lives in `pmlab.backtest.stability` and is not part of the 1.0 public API.
+
+---
+
+## [0.8.1] — 2026-09-13
+
+*This entry was written in 1.0.1: the release was published without one.*
+
+### Added — Model registry
+- `ModelRegistry` versions every promoted champion (model, calibrator and manifest archived under
+  `registry/<version_id>/`) with `record`, `list`, `get`, `diff` and `rollback`, replacing the
+  single overwrite-in-place `champion.json` as the history. `record()` re-asserts the hard gate, so
+  a NO_GO manifest can never enter the registry, and a rollback preserves history: no version is
+  deleted. The existing `ChampionManifest.publish` flow is unchanged.
+
+### Fixed
+- Two champions promoted in the same instant no longer share a `version_id`: a numeric suffix is
+  appended until it is unique, so neither archive is overwritten.
+
+---
+
+## [0.8.0] — 2026-09-06
+
+*This entry was written in 1.0.1: the release was published without one.*
+
+### Added — Experiment tracking
+- An `ExperimentTracker` protocol with a zero-dependency `LocalJSONTracker` (one append-only JSON
+  record per run) and an optional `MLflowTracker` behind the new `track` extra
+  (`pip install "pmlab[track]"`). A backtest can log its params, metrics and gate decision, and
+  runs can be listed and loaded.
+
+---
+
 ## [0.7.1] — 2026-08-30
 
 ### Added — Closed training loop
@@ -1111,6 +1238,8 @@ feature (AUC 1.000, no warning).
 
 ## [0.6.1] — 2026-08-30
 
+*Merged, not released on its own: no tag, no PyPI release. It shipped inside 0.7.0.*
+
 ### Fixed — Lifecycle composition (found by dogfooding as a real user)
 - **`compute_metrics` now accepts the `rolling_origin_eval` trade log directly.**
   It derives the win/loss `outcome` from the sign of `realized_pnl` when the
@@ -1164,6 +1293,8 @@ feature (AUC 1.000, no warning).
 
 ## [0.5.0] — 2026-08-30
 
+*Merged, not released on its own: no tag, no PyPI release. It shipped inside 0.6.0.*
+
 ### Added — Modeling
 - `EnsembleForecaster` — weighted-average blend of any N `MarketForecaster` members
   behind the same interface (drop-in for backtest/champion/brokers). Validates
@@ -1210,7 +1341,7 @@ feature (AUC 1.000, no warning).
 
 ---
 
-## [0.3.0] — 2026-05-10
+## [0.3.0] — 2026-05-11
 
 ### Added
 - `SklearnForecaster` — scikit-learn wrapper implementing `MarketForecaster` ABC (LogisticRegression, RandomForest, etc.)
@@ -1225,7 +1356,7 @@ feature (AUC 1.000, no warning).
 
 ---
 
-## [0.2.0] — 2026-05-09
+## [0.2.0] — 2026-05-11
 
 ### Added
 - `PmlabSettings` — Pydantic settings class: `PMLAB_ARTIFACTS_DIR`, `PMLAB_LOG_LEVEL`, `PMLAB_DRY_RUN`, CLOB/Gamma API base URLs; `from_env()` classmethod
@@ -1238,7 +1369,7 @@ feature (AUC 1.000, no warning).
 
 ---
 
-## [0.1.0] — 2026-05-10
+## [0.1.0] — 2026-05-11
 
 ### Added — Core
 - `MarketSpec` + `OutcomeBin` — generic market descriptor with bin resolution logic
@@ -1311,3 +1442,30 @@ feature (AUC 1.000, no warning).
 - `docs/async-clients.md` — async API clients and DiskCache guide
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
+
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.12.1...v1.0.0
+[0.12.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.12.0...v0.12.1
+[0.12.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.11.2...v0.12.0
+[0.11.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.11.1...v0.11.2
+[0.11.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.11.0...v0.11.1
+[0.11.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.9.4...v0.10.0
+[0.9.4]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.9.3...v0.9.4
+[0.9.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.9.2...v0.9.3
+[0.9.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.8.5...v0.9.0
+[0.8.5]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.8.4...v0.8.5
+[0.8.4]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.8.3...v0.8.4
+[0.8.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.8.2...v0.8.3
+[0.8.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.8.1...v0.8.2
+[0.8.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.4.0...v0.6.0
+[0.4.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/ArtBreguez/polymarket-lab/releases/tag/v0.2.0

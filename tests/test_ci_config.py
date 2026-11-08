@@ -145,3 +145,12 @@ def test_the_notebook_executor_is_a_dev_dependency():
     dev = " ".join(_pyproject()["project"]["optional-dependencies"]["dev"])
     for dep in ("nbclient", "nbformat", "ipykernel", "optuna"):
         assert dep in dev
+
+
+def test_publish_workflow_uses_the_same_coverage_gate_as_ci():
+    """It once carried its own `--cov-fail-under=70`, quietly lower than the 90 in pyproject."""
+    path = Path(__file__).parent.parent / ".github" / "workflows" / "publish.yml"
+    steps = yaml.safe_load(path.read_text())["jobs"]["publish"]["steps"]
+    pytest_cmds = [s["run"] for s in steps if "pytest" in s.get("run", "")]
+    assert pytest_cmds and all("--cov-fail-under" not in c for c in pytest_cmds)
+    assert any("--cov" in c for c in pytest_cmds)
