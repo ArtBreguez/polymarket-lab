@@ -8,8 +8,8 @@ anyone who wants to know how fast pmlab is on *their* machine. Only needs an ins
     python examples/perf_budget.py --check   # same, exit 1 if a budget or a scaling limit is broken
 
 The workloads are fixed, seeded and built in-process (no network, no files). Time is reported in
-**calibration units**: seconds divided by the time of a small fixed pure-Python + pandas loop
-(:func:`calibration_seconds`) measured in the same run, so a slow CI runner and a fast laptop read
+**calibration units**: seconds divided by the time of a small fixed pandas + Python loop
+(:func:`calibration_seconds`: the hot paths' own pandas work in miniature) measured in the same run, so a slow CI runner and a fast laptop read
 alike. A budget is a number of units, generous enough to absorb runner noise and tight enough to
 catch a ~3x slowdown. See ``docs/performance.md`` for how to change one on purpose.
 """
@@ -176,24 +176,24 @@ WORKLOADS: tuple[Workload, ...] = (
         "rolling_origin_eval, historical top-bin rule, 72k rows, 29 refits",
         _prepare_ro,
         _run_ro,
-        reference_units=14.5,
-        budget_units=36.0,
+        reference_units=6.4,
+        budget_units=16.0,
     ),
     Workload(
         "rolling_origin_live_policy",
         "rolling_origin_eval, best-edge live policy, 28.8k rows, 27 refits",
         _prepare_ro_live,
         _run_ro_live,
-        reference_units=24.5,
-        budget_units=62.0,
+        reference_units=10.8,
+        budget_units=27.0,
     ),
     Workload(
         "build_panel",
         "build_panel on 2,000 timing-stamped markets, 120k rows",
         _prepare_bp,
         _run_bp,
-        reference_units=10.0,
-        budget_units=25.0,
+        reference_units=4.3,
+        budget_units=11.0,
     ),
 )
 SCALING = tuple(w.name for w in WORKLOADS)  # all three are linear in the number of markets
@@ -231,25 +231,36 @@ def best_of(
 
 
 @functools.cache
-def _calibration_inputs() -> tuple[pd.DataFrame, np.ndarray]:
-    rng = np.random.default_rng(SEED)
-    frame = pd.DataFrame(
-        {"k": rng.integers(0, 400, size=30_000), "v": rng.normal(size=30_000)},
-    )
-    return frame, rng.normal(size=200_000)
+def _calibration_inputs() -> pd.DataFrame:
+    return make_panel(n_dates=40, n_markets=60, n_bins=6)  # 14,400 rows, object + float columns
 
 
 def _calibration_unit() -> None:
-    """A fixed mix of what the hot paths do: interpreter loops, dict churn, group-by, masks."""
+    """The hot paths' own pandas/Python work in miniature, without a line of pmlab.
+
+    String-key masks and boolean takes on object columns, label comparison, a group-by on two
+    string keys, ``iterrows`` over the picked rows, dict records -> DataFrame, and a bare
+    interpreter loop: the mix that decides how fast a machine runs ``rolling_origin_eval`` and
+    ``build_panel``. A pure-Python loop alone does not: a CI runner with a fast interpreter and
+    slow memory reads very differently from a laptop with the opposite balance.
+    """
+    frame = _calibration_inputs()
+    features = [c for c in frame.columns if c.startswith("feature_")]
+    for day in ("2024-01-10", "2024-01-20", "2024-01-30"):
+        train = frame[frame["decision_date"] < day]
+        np.asarray((train["outcome_label"] == train["winning_label"]).astype(int))
+        train[features].to_numpy(dtype=float).mean(axis=0)
+        ev = frame[frame["decision_date"] == day].copy()
+        ev["_p"] = ev["market_price"] * 0.5
+        best = ev.groupby(["market_id", "decision_date"])["_p"].idxmax()
+        for _, row in ev.loc[best].iterrows():
+            float(row["market_price"])
+    pd.DataFrame(frame.head(6_000).to_dict("records"))
     acc = 0.0
     seen: dict[int, float] = {}
-    for i in range(120_000):
+    for i in range(40_000):
         acc += (i % 7) * 0.5
         seen[i % 997] = acc
-    frame, vec = _calibration_inputs()
-    frame.groupby("k")["v"].idxmax()
-    frame[frame["k"] < 200].copy()
-    np.sort(vec)
 
 
 def calibration_seconds(repeats: int = 5) -> float:

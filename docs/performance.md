@@ -16,15 +16,19 @@ the workloads use a deliberately cheap model so that what is timed is pmlab's ow
 ## The budget
 
 Time is in **calibration units**, i.e. wall seconds divided by the wall time of a small fixed
-loop (pure-Python arithmetic and dict churn, a pandas group-by and mask, a numpy sort) measured
-in the same run. That one division is what makes the budget hold on a laptop and on a shared CI
-runner alike. The budget is 2.5x the reference, so a 3x slowdown fails and ordinary noise does not.
+loop measured in the same run. The loop is the hot paths' own pandas work in miniature (string
+masks and boolean takes on object columns, a group-by on two string keys, `iterrows`, dict
+records to a DataFrame, an interpreter loop) with none of pmlab's code in it, so it tracks how
+fast a machine runs *this kind* of work. A first version that was only a pure-Python loop did
+not: the CI runner has a much faster interpreter than the reference VM but the same pandas
+speed, and the units differed by 2x between them. The budget is 2.5x the reference, so a 3x
+slowdown fails and ordinary noise does not.
 
 | workload | what is timed | reference (units) | budget (units) |
 |---|---|---|---|
-| `rolling_origin_top_prob` | `rolling_origin_eval`, historical top-bin rule | 14.5 | 36 |
-| `rolling_origin_live_policy` | `rolling_origin_eval` with `TradePolicy.live(min_edge=0.02)` | 24.5 | 62 |
-| `build_panel` | `build_panel` on timing-stamped rows from a plugin | 10 | 25 |
+| `rolling_origin_top_prob` | `rolling_origin_eval`, historical top-bin rule | 6.4 | 16 |
+| `rolling_origin_live_policy` | `rolling_origin_eval` with `TradePolicy.live(min_edge=0.02)` | 10.8 | 27 |
+| `build_panel` | `build_panel` on timing-stamped rows from a plugin | 4.3 | 11 |
 
 The workloads are seeded and built in-process (no network, no files). Sizes are a season of daily
 decisions over a few hundred markets:
@@ -36,13 +40,13 @@ decisions over a few hundred markets:
 | `build_panel` | 120,000 | 2,000 markets x 10 dates x 6 bins | `price_ts`/`decision_ts`/`market_close_ts` on every row |
 
 Measured on the reference machine (2 vCPU VM, Python 3.12, `uv run`, nothing else running), the
-calibration loop takes about 28 ms:
+calibration loop takes about 63 ms:
 
 | workload | seconds | units | spread over 6 rounds |
 |---|---|---|---|
-| `rolling_origin_top_prob` | 0.40 | 14.5 | 14.4 to 14.7 |
-| `rolling_origin_live_policy` | 0.68 | 24.7 | 24.5 to 24.9 |
-| `build_panel` | 0.28 | 9.9 | 9.8 to 10.0 |
+| `rolling_origin_top_prob` | 0.40 | 6.4 | 6.4 to 6.5 |
+| `rolling_origin_live_policy` | 0.68 | 10.8 | 10.7 to 10.9 |
+| `build_panel` | 0.28 | 4.3 | 4.3 to 4.4 |
 
 ## Scaling guard
 
