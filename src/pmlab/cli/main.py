@@ -100,7 +100,7 @@ def _load_reproducibility(path: str) -> ReproducibilityRecord:
     try:
         return load_record(path)
     except ReproduceError as e:
-        rprint(f"[red]{escape(str(e))}[/red]")
+        _say(str(e), "red")
         raise typer.Exit(1) from e
 
 
@@ -629,7 +629,7 @@ def backtest_cmd(
             policy=trade_policy,
         )
     except ValueError as e:
-        rprint(f"[red]{escape(str(e))}[/red]")
+        _say(str(e), "red")
         raise typer.Exit(1) from e
 
     rprint(f"[bold]Backtest[/bold] plugin={plugin} model={model} stride={stride}")

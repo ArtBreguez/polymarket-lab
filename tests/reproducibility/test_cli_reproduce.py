@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 from pmlab.backtest.holdout_gate import HoldoutGateResult
@@ -61,7 +62,9 @@ def test_backtest_logs_a_tracker_run_with_the_record(run):
     assert stored["metrics"]["total_trades"] == stored["reproducibility"]["metrics"]["total_trades"]
 
 
-def test_reproduce_a_metrics_file(run):
+def test_reproduce_a_metrics_file(run, monkeypatch):
+    # a table cell is ellipsised in a very narrow terminal: give the module's console room
+    monkeypatch.setattr("pmlab.cli.main.console", Console(width=120))
     result = runner.invoke(app, ["reproduce", str(run["metrics"])])
     assert result.exit_code == 0, result.output
     assert "REPRODUCED" in result.output and "NOT REPRODUCED" not in result.output
