@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "0.9.4"
+__version__ = "0.10.0"
 
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.expectation import BacktestExpectation, GroupExpectation, SegmentExpectation
@@ -92,6 +92,17 @@ from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
 from pmlab.reports.html_report import generate_report
+from pmlab.reproducibility import (
+    BacktestConfig,
+    DataFingerprint,
+    ReproducibilityRecord,
+    capture_backtest,
+    fingerprint_panel,
+    load_record,
+    reproduce,
+    resolve_seeds,
+    run_backtest,
+)
 from pmlab.tracking import ActiveRun, ExperimentTracker, LocalJSONTracker, RunRecord
 from pmlab.workspace.context import WorkspaceContext
 
@@ -162,6 +173,15 @@ __all__ = [
     # Modeling
     "MarketForecaster",
     "ChampionManifest",
+    "ReproducibilityRecord",
+    "DataFingerprint",
+    "BacktestConfig",
+    "capture_backtest",
+    "fingerprint_panel",
+    "load_record",
+    "reproduce",
+    "resolve_seeds",
+    "run_backtest",
     "LGBMForecaster",
     "SklearnForecaster",
     "EnsembleForecaster",

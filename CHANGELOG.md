@@ -2,6 +2,63 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.10.0] — 2026-11-08
+
+### Added — reproducibility capture and `pmlab reproduce`
+
+Closes #16. "A result you can't re-run isn't a result" (design principle #5) is now something
+the tool checks. Documented in [docs/reproducibility.md](docs/reproducibility.md), whose
+examples are executed as written by the end-to-end test.
+
+- **`ReproducibilityRecord`** (`pmlab.reproducibility`) — what a run records about itself:
+  every RNG seed used (`python_random`, `numpy`, `lightgbm`), the versions of pmlab, Python,
+  numpy, pandas, lightgbm, scikit-learn and optuna (`null` if absent) plus OS and CPU
+  architecture, the *resolved* config (every default spelled out: model params, stride, stake,
+  the full cost model and trade policy), a fingerprint of the input data (SHA-256 of the panel
+  content, row count, columns, source path), and the metrics the run produced.
+- **Stored where runs already live**, composing with the existing systems:
+  `ActiveRun.log_reproducibility()` and `RunRecord.reproducibility` (tracker run file, and an
+  MLflow artifact `reproducibility.json`); `ChampionManifest.reproducibility` /
+  `publish(..., reproducibility=)` (`"reproducibility"` in `champion.json`);
+  `ModelRegistry.record()` archives it and `rollback()` restores it; `pmlab backtest --output`
+  writes it. **Backward compatible**: every file written before 0.10.0 loads
+  (`reproducibility` is `None` / `{}`), and `reproduce` says plainly that such a run has no record.
+- **`pmlab reproduce <run>`** — `<run>` is a path to any file holding a record (metrics file,
+  tracker run file, `champion.json`, a directory with one), a tracker run id or unique prefix
+  (`--runs-dir`), or a registry version id (`--registry-dir`). It re-executes the recorded
+  backtest through the same code path as `pmlab backtest` and compares the metrics. Exit 0
+  reproduced, 1 ran but differs, 2 could not run.
+  - **Different data** (content hash) is refused, naming how it differs (hash, rows, columns),
+    unless `--allow-data-mismatch`; a run on other data is never reported as reproduced.
+  - **Different library versions** are warned about with a diff table; only the metrics decide
+    the verdict, and a miss with drift points at the drift.
+  - **Tolerance**: counts exactly; floats within `--rtol 1e-9 --atol 1e-12` (bit-for-bit on the
+    same machine and versions; `--rtol 0 --atol 0` is strict).
+  - Missing run, no record, unknown run kind, missing or moved panel (`--panel`), malformed or
+    newer-schema records: each a one-line error, never a traceback.
+- **`pmlab backtest`** gains `--seed` (default 0), `--lgbm-param KEY=VALUE` (repeatable),
+  `--runs-dir` / `--run-name` (also log a tracker run). `pmlab promote-champion` records the
+  record from the `--expectation` file, or `--reproducibility FILE`.
+- Library API: `BacktestConfig.resolve`, `resolve_seeds`, `run_backtest`, `capture_backtest`,
+  `fingerprint_panel`, `capture_environment`, `environment_drift`, `load_record`, `reproduce`
+  (all also exported from `pmlab`). `LGBMForecaster.resolved_params()`.
+
+### Changed — randomness that was not seeded now is
+
+- `SklearnForecaster` presets `random_forest` and `gradient_boosting` default to
+  `random_state=0`. They were unseeded: they drew from the global numpy state, so two processes
+  gave two different models. Pass `random_state=` to choose another seed. This changes the
+  output of code that relied on the old (arbitrary) behaviour.
+- `pmlab backtest` seeds python `random`, numpy and LightGBM from `--seed` (default 0). For the
+  default LightGBM parameters (no bagging or feature sub-sampling) the seed has no effect, so
+  existing backtests give the same numbers. `LGBMForecaster` itself is unchanged: unseeded it
+  uses LightGBM's own fixed internal seeds (deterministic, but not recordable).
+- `pmlab backtest --model` now rejects a name other than `lgbm_baseline`. It used to ignore the
+  option and run LightGBM whatever it said, which a reproducibility record would then have
+  recorded wrongly.
+- The backtest summary computation moved from the CLI body to `pmlab.reproducibility`
+  (`backtest_metrics`); the numbers are unchanged.
+
 ## [0.9.4] — 2026-11-08
 
 ### Added — a 90% coverage gate and a CI performance budget for the hot paths
