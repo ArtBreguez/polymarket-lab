@@ -5,6 +5,7 @@ from __future__ import annotations
 __version__ = "0.12.1"
 
 from pmlab import datasets
+from pmlab._deprecation import PmlabDeprecationWarning
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.expectation import BacktestExpectation, GroupExpectation, SegmentExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
@@ -112,6 +113,7 @@ from pmlab.workspace.context import WorkspaceContext
 __all__ = [
     "__version__",
     "datasets",
+    "PmlabDeprecationWarning",
     # Core
     "MarketSpec",
     "OutcomeBin",
