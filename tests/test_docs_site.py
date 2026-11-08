@@ -202,13 +202,38 @@ class TestStabilityPages:
         ):
             assert needle in text, needle
 
-    def test_every_deprecation_in_the_code_is_listed_in_the_policy_page(self) -> None:
+    @staticmethod
+    def _table_rows() -> list[list[str]]:
+        """The cells of each row of the "Currently deprecated" table, header and rule dropped."""
         text = (DOCS / "deprecation.md").read_text()
+        section = text.split("## Currently deprecated", 1)[1]
+        rows = [
+            [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in section.splitlines()
+            if line.startswith("|")
+        ]
+        return [row for row in rows[2:] if row]  # [name, since, removed_in, use instead]
+
+    def test_every_deprecation_in_the_code_is_a_row_of_the_policy_table(self) -> None:
+        rows = self._table_rows()
         registered = _deprecation.registered()
         assert registered, "the registry is empty: is anything deprecated?"
         for entry in registered:
-            assert entry.name in text, f"{entry.name} is deprecated but not in docs/deprecation.md"
-            assert entry.removed_in in text
+            matching = [r for r in rows if r[0] == f"`{entry.name}`"]
+            assert matching, f"{entry.name} is deprecated but has no row in docs/deprecation.md"
+            row = matching[0]
+            assert (row[1], row[2]) == (entry.since, entry.removed_in), (
+                f"{entry.name}: the table says since {row[1]}, removed in {row[2]}; the code "
+                f"says since {entry.since}, removed in {entry.removed_in}"
+            )
+
+    def test_the_table_lists_nothing_that_is_no_longer_deprecated(self) -> None:
+        # When a shim is deleted in the next major release its row goes with it.
+        in_code = {f"`{entry.name}`" for entry in _deprecation.registered()}
+        stale = [row[0] for row in self._table_rows() if row[0] not in in_code]
+        assert not stale, (
+            f"docs/deprecation.md lists deprecations that are not in the code: {stale}"
+        )
 
 
 class TestDocsExtra:
