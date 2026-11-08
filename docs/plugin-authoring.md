@@ -149,6 +149,12 @@ Rules for the rows of one market:
    `check_price_timing` refuses a row whose `decision_ts` is at or after it. A row with
    no readable `market_close_ts` is counted (`close_unknown` in the report) but not
    refused; a plugin that cannot show the market was open should not emit the row.
+
+   **The backtest reads it too.** `rolling_origin_eval` trains a fold only on rows whose
+   `market_close_ts` is at or before the fold's decision, because that is when their label is
+   known ([the rule](leakage.md#labels-arrive-after-the-decision)). Write the time your outcome
+   becomes known, not the time trading stops, if the two differ; a row without one is assumed to
+   resolve the day after its decision.
 4. **A bin with no usable price gets no row.** Never fill one in (0.5 included): the
    backtest would trade against a quote nobody made. Count what you drop, and say why.
 5. The model sees only `feature_*` columns. Features that are the same for every bin of a

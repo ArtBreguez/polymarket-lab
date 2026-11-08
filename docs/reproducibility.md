@@ -146,6 +146,13 @@ A different version is a warning, not a verdict: only the metrics decide. If the
 the run is reproduced and the drift is shown next to it; if they do not, the drift is the first
 place to look.
 
+One release is known to change results on purpose: **1.0.3** fixed a one-day label lookahead in
+`rolling_origin_eval` ([the rule](leakage.md#labels-arrive-after-the-decision)), so a backtest
+recorded by 1.0.2 or earlier on a panel with next-day labels (the `weather_tmax` plugin's) will
+usually not come back on 1.0.3 or later: `pmlab reproduce` exits 1 with `NOT REPRODUCED` and the drift
+table names `pmlab 1.0.2 → 1.0.3`. Re-run the backtest and record it again; the new numbers are the
+honest ones.
+
 ```bash
 pmlab reproduce metrics_older_lightgbm.json; echo "exit status: $?"
 ```

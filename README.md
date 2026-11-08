@@ -23,7 +23,8 @@ watchdog.
 
 These are enforced in code and checked by the test suite, not left to convention.
 
-- **No lookahead.** `rolling_origin_eval` trains only on rows from before the day it predicts.
+- **No lookahead.** `rolling_origin_eval` trains only on rows whose label was already known when the
+  fold decided: a decision for tomorrow's temperature is not a label until tomorrow is over.
   `build_panel` refuses a price observed at or after the decision it informs, and `check_no_leakage`
   raises when a feature gives the outcome away. [How the checks work](https://pmlab.hiddenterps.si/leakage/)
 - **A failed gate cannot ship.** `ChampionManifest.publish` raises unless the gate says GO, and that

@@ -20,7 +20,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
         build_panel(rows)                      schema check, price-timing check, leakage check
                 │
                 ▼
-        rolling_origin_eval(panel, model)      walk-forward: trains on decision_date < eval date
+        rolling_origin_eval(panel, model)      walk-forward: trains on rows whose label was known at the eval decision
                 │
                 ├── BacktestMetrics            (PnL, hit rate, average edge)
                 ├── brier_decomposition()      calibration diagnostics

@@ -83,7 +83,7 @@ resolved, which labels a panel and settles trades, and has nothing "open" to dis
 | 7. Report | `generate_report` | backtest vs paper, Brier score, an HTML report |
 
 The 150 days are split into three windows that never overlap: **tune** (days 1-60), **backtest**
-(61-120, trained on everything earlier, graded with the tuned parameters), **live** (121-150, paper
+(61-120, trained on every earlier day whose outcome was already in, graded with the tuned parameters), **live** (121-150, paper
 traded by a champion that never saw them).
 
 ### What a run prints
@@ -94,21 +94,22 @@ numpy/LightGBM; the sample is synthetic, so the PnL says nothing about real mark
 ```text
 decision: NO_GO
           num_trades  total_pnl  passes        reason
-Athens            60  33.724088    True            ok
-Istanbul          60  20.360557    True            ok
-Lisbon            58 -10.983657   False  negative_pnl
-Madrid            60  26.411228    True            ok
-Rome              60  26.145321    True            ok
+segment
+Athens            59  17.376437    True            ok
+Istanbul          59  22.985555    True            ok
+Lisbon            53 -16.278356   False  negative_pnl
+Madrid            59  51.306171    True            ok
+Rome              59  59.833593    True            ok
 
 refused: Cannot publish champion with NO_GO gate. Gate decision: NO_GO
 
 GO on ['Athens', 'Istanbul', 'Madrid', 'Rome']
 reproduced | 5 metrics compared | data matches the record: True
 
-signals worth trading: {'Athens': 29, 'Istanbul': 30, 'Lisbon': 23, 'Madrid': 30, 'Rome': 30}
-recorded: {'Athens': 29, 'Istanbul': 30, 'Madrid': 30, 'Rome': 30}
-on the morning of 2025-08-14 {'settled': 55, 'pending': 64, 'total_pnl': 31.069619}
-once the sample is complete: {'settled': 64, 'pending': 0, 'total_pnl': 36.159611}
+signals worth trading: {'Athens': 29, 'Istanbul': 28, 'Lisbon': 27, 'Madrid': 29, 'Rome': 30}
+recorded: {'Athens': 29, 'Istanbul': 28, 'Madrid': 29, 'Rome': 30}
+on the morning of 2025-08-14 {'settled': 54, 'pending': 62, 'total_pnl': 85.875132}
+once the sample is complete: {'settled': 62, 'pending': 0, 'total_pnl': 106.569796}
 ```
 
 Scoping the champion to the cities that cleared the gate is a choice made after looking at the
