@@ -2,6 +2,43 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.11.2] — 2026-11-08
+
+### Fixed — the leakage check no longer rejects a ranged-market panel
+
+Closes #35. `build_panel(rows, check_leakage=True)` raised `LeakageError` on panels with one row
+per outcome bin, which is what `MarketPlugin.build_training_rows` returns. On the bundled sample it
+flagged four of the eight forecast features (`feature_fcst_tmax` scored 0.999), features that were
+doing their job. The tutorial worked around it by handing the check a binary label of its own.
+Documented in [docs/leakage.md](docs/leakage.md).
+
+- **A false positive, not a leak.** `check_no_leakage` scored each feature against the multiclass
+  `winning_label`, taking the rarest label as the positive class. On a per-bin panel `winning_label`
+  is the same for every bin of a market, so the score asked which *market* resolved to the rarest
+  label (on the sample: the one market, 9 rows, that resolved to 38°C) and an accurate forecast of a
+  hot day answers that near-perfectly. Against `outcome_label == winning_label`, per row, the
+  label `rolling_origin_eval` actually fits (`y_train`), every forecast feature of the sample scores 0.5.
+- **The check scores what the model learns.** On a per-bin panel (some market has more than one
+  distinct `outcome_label` at one `decision_date`, the grouping the backtest chooses within) the
+  target is the per-row outcome. Any other panel (one row per market) is scored against
+  `winning_label` exactly as before, and an explicit `label_col` is used as given on any shape
+  (`label_col` now defaults to `None`, meaning "choose"; passing `"winning_label"` gets the old
+  target back). `LeakageReport` gains `target`, which says what was scored, and the error names it.
+- **Real leaks are still caught, on both shapes.** A per-bin feature copied from the outcome, or
+  derived from the realised value (a bin's distance to what happened), scores above 0.97 and
+  raises; a one-row-per-market feature that encodes the winner is still caught against
+  `winning_label`. Mutation-checked: disabling the check, reverting the target, skipping per-bin
+  panels and widening the per-bin rule to every shape each turn a test red.
+- **What it cannot see** (documented): a feature identical across a market's bins scores 0.5
+  against the per-row outcome by construction. It cannot leak on its own, and a label score cannot
+  tell an honest forecast from a copy of the realised value when both are constant across bins; it
+  becomes a leak once something makes it bin-relative, and that feature is scored.
+- **Tutorial notebook**: the `won` workaround is gone. Cell 12 calls
+  `build_panel(rows, check_leakage=True)` and cell 14 calls `check_no_leakage(panel)` on the full
+  feature set, with no label.
+- **Upgrading**: nothing to change. A call that passed `label_col=` keeps scoring that column; one that
+  did not now scores a per-bin panel against "did this bin win" and no longer raises on honest features.
+
 ## [0.11.1] — 2026-11-08
 
 ### Fixed — a registry round trip loses no manifest field
