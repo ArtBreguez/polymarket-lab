@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pmlab"
-version = "0.9.3"
+version = "0.9.4"
 description = "A generic, plugin-based ML framework for Polymarket prediction markets."
 readme = "README.md"
 license = { text = "MIT" }
@@ -84,9 +84,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short -m 'not e2e'"
+addopts = "-v --tb=short -m 'not e2e and not perf'"
 markers = [
     "e2e: builds the wheel and runs the public API in a fresh venv (needs uv + network); run with `pytest -m e2e`",
+    "perf: times the hot paths against the budget in docs/performance.md (about a minute, needs a quiet process); run with `pytest -m perf`",
 ]
 asyncio_mode = "auto"
 
@@ -96,7 +97,7 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 70
+fail_under = 90
 
 [tool.bandit]
 # Recurse the package; the test tree is assert-heavy and not shipped.

@@ -21,6 +21,7 @@ pytestmark = pytest.mark.e2e
 
 REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO / "examples" / "e2e_transforms.py"
+PERF_SCRIPT = REPO / "examples" / "perf_budget.py"
 DOC_RUNNER = REPO / "tests" / "e2e" / "run_doc_examples.py"
 OK_LINE = "pmlab e2e (as a user): OK"
 
@@ -139,3 +140,40 @@ def test_cli_backtests_a_panel_built_with_the_new_features(installed: Installed)
     assert data["total_trades"] > 0
     for key in ("total_pnl", "hit_rate", "avg_edge"):
         assert data[key] == data[key] and abs(data[key]) != float("inf"), key
+
+
+PERF_SMOKE = """
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("perf_budget", sys.argv[1])
+pb = importlib.util.module_from_spec(spec)
+sys.modules["perf_budget"] = pb
+spec.loader.exec_module(pb)
+import pmlab
+assert "site-packages" in pmlab.__file__, pmlab.__file__
+for w in pb.WORKLOADS:
+    out = w.run(w.prepare(1))  # one real run of each hot path, from the installed wheel
+    if w.name.startswith("rolling_origin"):
+        assert len(out.trades) > 500 and len(out.steps) >= 27, (w.name, len(out.trades))
+    else:
+        assert len(out) == 120_000 and out["market_price"].between(0, 1).all()
+    print("ran", w.name)
+print("calibration_ms", round(pb.calibration_seconds(repeats=2) * 1000, 1))
+print("perf workloads (as a user): OK")
+"""
+
+
+def test_perf_workloads_and_the_performance_doc_run_from_the_installed_wheel(
+    installed: Installed,
+) -> None:
+    """The public API the benchmarks use works from the wheel, and docs/performance.md runs as is.
+
+    Times are deliberately NOT asserted here (a fresh-venv CI job is no place for a budget):
+    the guard is ``pytest -m perf``, a dev-only test that is not shipped in the wheel. What a
+    user can run is ``examples/perf_budget.py`` (from a checkout) and the doc's snippet.
+    """
+    out = _ok(installed.py("-c", PERF_SMOKE, PERF_SCRIPT))
+    assert "perf workloads (as a user): OK" in out
+    assert out.count("ran ") == 3
+    doc = _ok(installed.py(DOC_RUNNER, REPO / "docs" / "performance.md"))
+    assert "FAIL" not in doc and "2/2 blocks ran" in doc
+    assert "build_panel:" in doc and "rolling_origin_eval:" in doc

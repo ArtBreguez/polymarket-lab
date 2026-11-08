@@ -36,13 +36,14 @@ jobs:
       - name: Type check (mypy)
         run: uv run mypy src/
 
+      # The gate (>= 90%) is `fail_under` in pyproject.toml, the single source of truth:
+      # pytest-cov reads it, and a miss exits non-zero and fails this step (and the job).
       - name: Run tests with coverage
         run: |
           uv run pytest \
             --cov=src/pmlab \
             --cov-report=term-missing \
-            --cov-report=xml:coverage.xml \
-            --cov-fail-under=70
+            --cov-report=xml:coverage.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -115,6 +116,33 @@ jobs:
 
       - name: End-to-end tests (build wheel, fresh venv, public API)
         run: uv run pytest -m e2e -p no:cacheprovider
+
+  # Performance budget of the hot paths (rolling_origin_eval, build_panel): a benchmark
+  # regression guard, see docs/performance.md. Own job, so nothing else competes for the runner's
+  # CPU while it times, and no coverage tracing (it would distort every wall time). Times are
+  # read in calibration units (normalised by a fixed loop measured in the same run).
+  perf:
+    name: Performance budget
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: Performance budget (hot paths)
+        run: uv run pytest -m perf -p no:cacheprovider -s
 
   # ── Security ───────────────────────────────────────────────────────────
   # SCA + SAST + secret-scanning, mirroring the backtesting-framework CI so both

@@ -2,6 +2,32 @@
 
 All notable changes are documented here. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.4] — 2026-11-08
+
+### Added — a 90% coverage gate and a CI performance budget for the hot paths
+
+Closes #18. No change to the library's behaviour; the guarantees are in the build.
+
+- **Coverage gate raised from 70% to 90%.** `fail_under = 90` in `pyproject.toml` is now the
+  single source of truth: the `--cov-fail-under=70` override in the CI pytest step (which would
+  have shadowed it) is gone, so `pytest --cov` exits non-zero below 90% and fails the `test` job.
+  Measured total at this release is 95.3%; 90 leaves a 5-point margin for the modules that are
+  only partly reachable in CI (the optional MLflow extra, the live Gamma client) while still
+  catching a module that ships untested. No test was added to reach it.
+- **Performance budget for `rolling_origin_eval` and `build_panel`**, asserted in CI by a new
+  `perf` job (`uv run pytest -m perf`, deselected from the default run like `e2e`). Three seeded,
+  in-process workloads (72k-row backtest, 28.8k-row backtest under the live best-edge policy,
+  120k-row `build_panel` with price-timing stamps) are timed as the best of 5 runs after a warm-up
+  and read in **calibration units** (seconds divided by a fixed loop of the hot paths' own pandas work, measured in the same run), so
+  the budget holds across machines; a round over budget is retried before it fails. Budgets are
+  about 2.3x the reference machine's value, so a 3x slowdown fails and 2x does not, on the CI
+  runner as well as on the reference VM. A scaling check (2x the rows must
+  cost < 3x) catches super-linear growth independently of the machine. Everything is in
+  `examples/perf_budget.py` (runnable by anyone: `python examples/perf_budget.py [--check]`),
+  documented in `docs/performance.md`, with the doc's table pinned to the script by a test.
+- `tests/e2e` also runs the workloads and `docs/performance.md` from the wheel installed in a
+  fresh venv.
+
 ## [0.9.3] — 2026-11-08
 
 ### Added — out-of-fold target encoding, interactions and missing-value indicators

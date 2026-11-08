@@ -3,7 +3,7 @@
 <img src="https://img.shields.io/pypi/v/pmlab?color=blue" alt="PyPI version">
 <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&logoColor=white" alt="Python 3.12">
 <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License">
-<img src="https://img.shields.io/badge/coverage-85%25-brightgreen" alt="Coverage 85%">
+<img src="https://img.shields.io/badge/coverage-95%25-brightgreen" alt="Coverage 95%">
 <img src="https://img.shields.io/badge/tests-433%20passing-brightgreen" alt="433 tests">
 <img src="https://img.shields.io/badge/code%20style-ruff-black" alt="Ruff">
 <img src="https://img.shields.io/badge/typed-py.typed-blue" alt="PEP 561 typed">
@@ -742,7 +742,8 @@ cd polymarket-lab
 uv sync --extra dev
 
 uv run pytest                              # all tests
-uv run pytest --cov=src/pmlab             # with coverage report
+uv run pytest --cov=src/pmlab             # with coverage report (gate: 90%)
+uv run pytest -m perf                      # performance budget of the hot paths (docs/performance.md)
 uv run ruff check src/ tests/             # lint
 uv run ruff check src/ tests/ --fix       # auto-fix
 uv run mypy src/                          # type check

@@ -6,13 +6,13 @@ tested, and reproducible.
 
 This roadmap is organized by the ML lifecycle. Each stage lists what **exists
 today** (✅) and what's **planned** (▢), with the target release. Status current
-as of **v0.9.3**.
+as of **v0.9.4**.
 
 ---
 
 ## Lifecycle coverage at a glance
 
-| Stage | Today (v0.9.3) | Biggest gap |
+| Stage | Today (v0.9.4) | Biggest gap |
 |---|---|---|
 | 1. Data & ingestion | Gamma/CLOB clients, DiskCache, plugins, point-in-time FeatureSnapshotStore | No panel versioning; no historical per-bin CLOB price (a weather panel's price is the discovery-time Gamma one) |
 | 2. Feature engineering | 8 transforms (incl. out-of-fold target encoding), per-plugin features, `build_panel`, leakage guards | No feature registry |
@@ -125,7 +125,9 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
   config into the manifest; `pmlab reproduce <run>` re-executes it.
 - ▢ **API stability** — freeze the public API, add deprecation policy, publish the
   docs site (mkdocs-material) from `docs/`.
-- ▢ **Coverage ≥ 90%** and a documented performance budget for the hot paths.
+- ✅ **Coverage ≥ 90%** and a documented performance budget for the hot paths *(shipped in
+  0.9.4, #18)* — the gate is 90% in `pyproject.toml`; `rolling_origin_eval` and `build_panel`
+  have a budget asserted in CI (`pytest -m perf`, [docs/performance.md](docs/performance.md)).
 
 ---
 
