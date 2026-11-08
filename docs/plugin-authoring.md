@@ -307,6 +307,13 @@ def test_truth_none_when_unresolved():
     assert plugin.fetch_truth(spec) is None
 ```
 
+## Bundled plugins
+
+| Family | Class | State |
+|---|---|---|
+| `weather_tmax` | `WeatherTmaxPlugin` (public: `from pmlab import WeatherTmaxPlugin`) | The reference implementation: `"Highest temperature in [city] on [date]?"` markets. Features are the forecast temperature, the ensemble spread, the lead time and a city baseline; the truth is the official observation. One training row per bin, at a price observed before the decision. Runs offline on the [bundled sample](tutorial.md#the-bundled-sample). |
+| `sports_f1` | `pmlab.plugins.sports_f1.SportsF1Plugin` (not part of the public API) | A **skeleton** for categorical outcomes (a driver or team name is the winning label). Its row has an untimed price (`metadata["market_price"]`, else 0.5) and no `outcome_label` or `decision_date`, so it cannot pass `build_panel` as it stands. Use it as a starting point, not as a finished plugin. |
+
 ## Reference implementation
 
 See `src/pmlab/plugins/weather_tmax/plugin.py` — the most complete plugin example.

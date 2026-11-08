@@ -4,18 +4,33 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pmlab"
-version = "1.0.0"
-description = "A generic, plugin-based ML framework for Polymarket prediction markets."
+version = "1.0.1"
+description = "A plugin-based ML framework for Polymarket prediction markets: no-lookahead backtests, a hard GO / NO_GO gate, paper trading."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.12"
 authors = [{ name = "Arthur Breguez", email = "arthurbreguez@gmail.com" }]
-keywords = ["polymarket", "prediction-markets", "machine-learning", "trading"]
+keywords = [
+  "polymarket",
+  "prediction-markets",
+  "machine-learning",
+  "backtesting",
+  "forecasting",
+  "calibration",
+  "lightgbm",
+  "paper-trading",
+]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
   "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
+  "Topic :: Office/Business :: Financial",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Typing :: Typed",
 ]
@@ -59,7 +74,6 @@ dev = [
   "respx>=0.21",
   "ruff>=0.9",
   "mypy>=1.14",
-  "pre-commit>=4.0",
   "pandas-stubs>=2.2",
   "types-pytz>=2025.1",
   "pytest-asyncio>=0.24",
@@ -81,6 +95,7 @@ Documentation = "https://artbreguez.github.io/polymarket-lab/"
 Repository = "https://github.com/ArtBreguez/polymarket-lab"
 Changelog = "https://github.com/ArtBreguez/polymarket-lab/blob/main/CHANGELOG.md"
 Issues = "https://github.com/ArtBreguez/polymarket-lab/issues"
+Security = "https://github.com/ArtBreguez/polymarket-lab/blob/main/SECURITY.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pmlab"]

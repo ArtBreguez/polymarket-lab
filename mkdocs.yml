@@ -90,9 +90,14 @@ nav:
   - Getting started:
       - Tutorial: tutorial.md
       - Tutorial notebook: https://github.com/ArtBreguez/polymarket-lab/blob/main/notebooks/tutorial.ipynb
+      - Architecture: architecture.md
+      - Command line: cli.md
       - Plugin authoring: plugin-authoring.md
   - Guides:
+      - Data layer: data.md
       - Features: features.md
+      - Modeling: modeling.md
+      - Position sizing: sizing.md
       - Async clients: async-clients.md
       - Backtest costs: costs.md
       - Leakage: leakage.md

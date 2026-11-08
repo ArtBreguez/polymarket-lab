@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -107,10 +108,61 @@ def test_docs_examples_run_unmodified(installed: Installed) -> None:
     assert "FAIL" not in out and "blocks ran from" in out
     n_ok = int(out.strip().splitlines()[-1].split("/")[0])
     assert n_ok >= 10
-    readme = _ok(
-        installed.py(DOC_RUNNER, REPO / "README.md", "--contains", "add_missing_indicators")
+
+
+def test_the_readme_runs_as_written_from_the_installed_wheel(installed: Installed) -> None:
+    """The first thing a user copies: the README quickstart, then its command-line block, then the
+    command-line page, which reads the panel the quickstart wrote. Nothing is edited."""
+    work = installed.workdir / "readme"
+    out = _ok(installed.py(WALKTHROUGH, REPO / "README.md", "--cwd", work, "--session"))
+    assert "FAIL" not in out and "3/3 blocks ran" in out
+    assert re.search(r"\d+ trades \| PnL -?[\d.]+ \| (GO|NO_GO)", out)
+    assert "refused: Cannot publish champion with NO_GO gate" in out
+    assert "REPRODUCED: 5 metrics match" in out
+    assert (work / "panel.parquet").exists() and not (work / "champion").exists()
+
+    cli_page = _ok(installed.py(WALKTHROUGH, REPO / "docs" / "cli.md", "--cwd", work, "--session"))
+    assert "FAIL" not in cli_page and "REPRODUCED: 5 metrics match" in cli_page
+    assert "pmlab " + _pyproject_version() in cli_page
+
+
+def test_the_guide_pages_run_as_written_from_the_installed_wheel(installed: Installed) -> None:
+    """Modeling, data layer and sizing: the examples that used to live in the README."""
+    modeling = _ok(installed.py(DOC_RUNNER, REPO / "docs" / "modeling.md"))
+    assert "FAIL" not in modeling and "7/7 blocks ran" in modeling
+
+    data = _ok(
+        installed.py(
+            WALKTHROUGH, REPO / "docs" / "data.md", "--cwd", installed.workdir / "data", "--session"
+        )
     )
-    assert "1/1 blocks ran" in readme
+    assert "leaked: none" in data and "rows (one per market and bin)" in data
+
+    sizing = _ok(
+        installed.py(
+            WALKTHROUGH, REPO / "docs" / "sizing.md", "--cwd", installed.workdir / "sz", "--session"
+        )
+    )
+    assert "14.29 shares" in sizing and "0.1154 of the bankroll" in sizing and "25.0 USDC" in sizing
+
+
+def test_the_package_description_is_the_readme_and_renders_on_pypi(installed: Installed) -> None:
+    """PyPI shows the wheel's long description. It must be the README, and `twine check --strict`
+    (which renders it with the library PyPI uses) must pass."""
+    with zipfile.ZipFile(installed.wheel) as wheel:
+        name = next(n for n in wheel.namelist() if n.endswith(".dist-info/METADATA"))
+        metadata = wheel.read(name).decode()
+    description = metadata.split("\n\n", 1)[1]
+    assert description.strip() == (REPO / "README.md").read_text().strip()
+    assert "Classifier: Development Status :: 5 - Production/Stable" in metadata
+    assert "Classifier: Typing :: Typed" in metadata
+
+    uv = shutil.which("uv")
+    assert uv is not None
+    checked = _run(
+        [uv, "tool", "run", "twine", "check", "--strict", installed.wheel], cwd=installed.workdir
+    )
+    assert checked.returncode == 0 and "PASSED" in checked.stdout, checked.stdout + checked.stderr
 
 
 def test_cli_backtests_a_panel_built_with_the_new_features(installed: Installed) -> None:

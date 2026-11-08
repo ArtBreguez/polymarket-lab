@@ -1,4 +1,4 @@
-# gitignore para Python library
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -11,12 +11,26 @@ build/
 .env
 *.lock
 !uv.lock
+
+# Tool caches and reports
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
+requirements-audit.txt
+.ipynb_checkpoints/
 *.log
+
+# What pmlab writes when it is run from the repository root
+artifacts/
+.pmlab_cache/
+
+# Editors and OS
+.idea/
+.vscode/
 .DS_Store
 
 # mkdocs build output

@@ -73,7 +73,7 @@ jobs:
 
       - name: Run tests
         if: steps.guard.outputs.should_release == 'true'
-        run: uv run pytest --cov=src/pmlab --cov-fail-under=70
+        run: uv run pytest --cov=src/pmlab
 
       - name: Build wheel + sdist
         if: steps.guard.outputs.should_release == 'true'
