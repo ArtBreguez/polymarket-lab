@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pmlab"
-version = "1.0.3"
+version = "1.1.0"
 description = "A plugin-based ML framework for Polymarket prediction markets: no-lookahead backtests, a hard GO / NO_GO gate, paper trading."
 readme = "README.md"
 license = { text = "MIT" }
