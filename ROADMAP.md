@@ -21,7 +21,7 @@ as of **v0.10.0**.
 | 5. Model management | ChampionManifest hard gate, experiment tracking, versioned model registry | No automated retrain trigger |
 | 6. Execution | Paper + Live broker, settlement, one cost model shared with the backtest | No latency model; costs are an approximation, not a book walk |
 | 7. Monitoring | cost assumptions and the backtest expectation travel with the champion; live calibration on realized trades; PSI/KL drift; `pmlab monitor` watchdog with cron-friendly exit codes | The watchdog reports, nothing acts on it (no pause or retrain trigger) |
-| 8. Reproducibility & DX | CLI (11 cmds), typed, docs, seeds/versions/config/data captured per run and `pmlab reproduce` | No end-to-end tutorial |
+| 8. Reproducibility & DX | CLI (11 cmds), typed, docs, seeds/versions/config/data captured per run and `pmlab reproduce`, an executed offline tutorial notebook | The tutorial runs on synthetic data, not a real market |
 
 ---
 
@@ -119,8 +119,10 @@ Turn the empty `pmlab.data` package into the backbone of reproducibility.
 
 ## v1.0.0 — Polish, DX, and stability guarantee
 
-- ▢ **End-to-end tutorial** — one notebook: discover → panel → tune → backtest →
-  gate → paper → report, on a bundled sample dataset (no network needed).
+- ✅ **End-to-end tutorial** *(shipped in 0.11.0, #15)* — one notebook: discover → panel →
+  tune → backtest → gate → paper → report, on a bundled synthetic sample (39 KB, no network),
+  executed offline in CI and from the installed wheel by the e2e
+  ([docs/tutorial.md](docs/tutorial.md)).
 - ✅ **Reproducibility capture** *(shipped in 0.10.0, #16)* — every run records seeds,
   library versions, resolved config and a data fingerprint into the run record and
   `champion.json`; `pmlab reproduce <run>` re-executes it

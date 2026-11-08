@@ -44,6 +44,20 @@ uv add pmlab
 
 **Requirements:** Python 3.12+
 
+### Try it offline: the tutorial notebook
+
+[`notebooks/tutorial.ipynb`](notebooks/tutorial.ipynb) runs the whole workflow (discover → panel →
+tune → backtest → gate → paper → report) on a small **synthetic** sample dataset bundled in the
+package (39 KB), with no network and no account. Start with
+[docs/tutorial.md](docs/tutorial.md); the notebook is executed in CI, so it cannot rot.
+
+```python
+from pmlab.datasets import load_sample
+
+sample = load_sample()                                  # 750 markets, verified against a checksum
+specs = sample.plugin(sample.days[0]).discover_markets()  # the real WeatherTmaxPlugin, offline
+```
+
 ---
 
 ## Quickstart
@@ -285,6 +299,7 @@ MarketPlugin.discover_markets()  ──►  list[MarketSpec]
 | `pmlab.reports` | `generate_report` — self-contained HTML report |
 | `pmlab.tracking` | `LocalJSONTracker`, `MLflowTracker` (extra), `ExperimentTracker` — log params/metrics/gate/reproducibility per run |
 | `pmlab.reproducibility` | `ReproducibilityRecord`, `BacktestConfig`, `run_backtest`, `capture_backtest`, `reproduce`, `load_record`, `fingerprint_panel` — seeds, versions, config, data hash; re-run and verify |
+| `pmlab.datasets` | `load_sample()` — a bundled synthetic weather sample and the offline clients that serve it (tutorial, tests) |
 | `pmlab.workspace` | `WorkspaceContext` — multi-workspace path isolation |
 
 ---
@@ -752,6 +767,7 @@ uv sync --extra dev
 uv run pytest                              # all tests
 uv run pytest --cov=src/pmlab             # with coverage report (gate: 90%)
 uv run pytest -m perf                      # performance budget of the hot paths (docs/performance.md)
+uv run pytest -m notebook                  # executes notebooks/tutorial.ipynb offline (docs/tutorial.md)
 uv run ruff check src/ tests/             # lint
 uv run ruff check src/ tests/ --fix       # auto-fix
 uv run mypy src/                          # type check

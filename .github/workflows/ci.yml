@@ -144,6 +144,33 @@ jobs:
       - name: Performance budget (hot paths)
         run: uv run pytest -m perf -p no:cacheprovider -s
 
+  # Executes notebooks/tutorial.ipynb top to bottom in a fresh kernel, offline, from outside the
+  # repo (tests/notebooks), so the tutorial cannot rot: a renamed function, a changed signature or
+  # a damaged sample dataset turns this job red. Own job, deselected from the default run by the
+  # `notebook` marker. About a minute including the kernel start-up; the test asserts a 120 s budget.
+  notebook:
+    name: Tutorial notebook (executed)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: Execute the tutorial notebook
+        run: uv run pytest -m notebook -p no:cacheprovider
+
   # ── Security ───────────────────────────────────────────────────────────
   # SCA + SAST + secret-scanning, mirroring the backtesting-framework CI so both
   # repos share one security bar. pmlab publishes to PyPI, so the supply-chain

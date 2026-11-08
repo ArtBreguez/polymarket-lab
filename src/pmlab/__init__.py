@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"
 
+from pmlab import datasets
 from pmlab.backtest.cv import embargoed_split, purged_kfold
 from pmlab.backtest.expectation import BacktestExpectation, GroupExpectation, SegmentExpectation
 from pmlab.backtest.holdout_gate import HoldoutGateResult, SegmentGateResult
 from pmlab.backtest.metrics import BacktestMetrics, compute_metrics
+from pmlab.backtest.rolling_origin import RollingOriginResult, rolling_origin_eval
 from pmlab.config import PmlabSettings, get_settings
 from pmlab.core.costs import CostModel
 from pmlab.core.edge import DEFAULT_MIN_EDGE, QuoteEdges, compute_edge, quote_edges
@@ -91,6 +93,7 @@ from pmlab.monitoring.watchdog import (
 from pmlab.plugins.base import MarketPlugin
 from pmlab.plugins.discovery import discover_plugins, load_plugins_from_entry_points
 from pmlab.plugins.registry import PluginRegistry
+from pmlab.plugins.weather_tmax.plugin import WeatherTmaxPlugin
 from pmlab.reports.html_report import generate_report
 from pmlab.reproducibility import (
     BacktestConfig,
@@ -108,6 +111,7 @@ from pmlab.workspace.context import WorkspaceContext
 
 __all__ = [
     "__version__",
+    "datasets",
     # Core
     "MarketSpec",
     "OutcomeBin",
@@ -201,6 +205,8 @@ __all__ = [
     "HoldoutGateResult",
     "SegmentGateResult",
     "BacktestMetrics",
+    "RollingOriginResult",
+    "rolling_origin_eval",
     "compute_metrics",
     "purged_kfold",
     "embargoed_split",
@@ -224,6 +230,7 @@ __all__ = [
     # Plugins / Workspace
     "MarketPlugin",
     "PluginRegistry",
+    "WeatherTmaxPlugin",
     "discover_plugins",
     "load_plugins_from_entry_points",
     "WorkspaceContext",

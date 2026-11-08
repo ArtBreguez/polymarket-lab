@@ -25,6 +25,7 @@ Use this file as the shared contract for all agents (Codex, Claude, etc).
 | `src/pmlab/modeling/` | MarketForecaster ABC, LGBMForecaster, calibration, ChampionManifest |
 | `src/pmlab/execution/` | EdgeSignal, PaperBroker, SettlementEngine |
 | `src/pmlab/reproducibility/` | ReproducibilityRecord (seeds, versions, resolved config, data fingerprint), backtest runner shared by `backtest` and `reproduce`, `pmlab reproduce` |
+| `src/pmlab/datasets/` | The bundled synthetic sample (`load_sample`) and the offline clients that feed the real weather plugin; nothing else may depend on its numbers except the tutorial notebook and its tests |
 | `src/pmlab/workspace/` | WorkspaceContext — multi-workspace path isolation |
 | `src/pmlab/markets/` | Polymarket Gamma API client, CLOB price client (Phase 4) |
 | `src/pmlab/cli/` | Typer CLI entry points |
@@ -89,6 +90,9 @@ uv run pytest -m perf
 # End-to-end: build the wheel, install it in a fresh venv, run the public API (needs uv + network)
 uv run pytest -m e2e
 
+# Tutorial notebook: execute notebooks/tutorial.ipynb top to bottom, offline (~15 s; docs/tutorial.md)
+uv run pytest -m notebook
+
 # Lint
 uv run ruff check src/ tests/
 
@@ -132,6 +136,12 @@ runs `pytest --cov` without an override, so a miss fails the job).
 Performance budget: `rolling_origin_eval` and `build_panel` are timed against a budget in
 calibration units by `uv run pytest -m perf` (own CI job, deselected by default). A slowdown
 that is intended means updating the budget on purpose: see `docs/performance.md`.
+
+Tutorial notebook: `notebooks/tutorial.ipynb` is executed by `uv run pytest -m notebook` (own CI
+job, deselected by default) and is committed with its outputs stripped. Changing a public API the
+notebook uses means updating the notebook in the same PR; regenerating the sample
+(`scripts/make_sample_dataset.py`) changes its numbers, so re-run the notebook, e2e and default
+suites. See `docs/tutorial.md`.
 
 ---
 
