@@ -8,7 +8,7 @@ name: Docs
 #                                            site (broken link, missing anchor, unrenderable entry)
 #
 # Pages is set to "GitHub Actions" as its source (Settings -> Pages, or the API). The site URL is
-# https://artbreguez.github.io/polymarket-lab/ . Every action is pinned to a commit SHA.
+# https://pmlab.hiddenterps.si/ . Every action is pinned to a commit SHA.
 
 "on":
   push:

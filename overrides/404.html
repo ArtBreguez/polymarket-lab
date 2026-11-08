@@ -1,0 +1,23 @@
+{# avoid-ai-design-ignore-file: K7 (reason follows) :focus-visible is styled for the whole site in pmlab.css #}
+{% extends "main.html" %}
+{% block site_nav %}{% endblock %}
+{% block container %}
+<div class="pm-home pm-console pm-404">
+  <div class="pm-wrap">
+    <p class="pm-status"><span class="pm-dot is-bad" aria-hidden="true"></span><b>404</b> · no market at this address</p>
+    {# avoid-ai-design-ignore: SD5 (reason follows) two whole lines, solid then outlined, the hiddenterps.si headline pattern #}
+    <h1 class="pm-h1">
+      <span class="pm-h1__line"><span>No route.</span></span>
+      <span class="pm-h1__line pm-h1__line--outline"><span>No fill.</span></span>
+    </h1>
+    <p class="pm-lead pm-rise" style="--d: 200ms">This page does not exist, or it moved. Search the docs, or start from one of the places below.</p>
+    <div class="pm-404__links pm-rise" style="--d: 300ms">
+      <a class="pm-btn pm-btn--primary" href="{{ '' | url }}">Home</a>
+      <a class="pm-btn" href="{{ 'tutorial/' | url }}">Tutorial</a>
+      <a class="pm-btn" href="{{ 'cli/' | url }}">Command line</a>
+      <a class="pm-btn" href="{{ 'reference/' | url }}">API reference</a>
+      <label class="pm-btn" for="__search" tabindex="0" role="button">Search the docs</label>
+    </div>
+  </div>
+</div>
+{% endblock %}

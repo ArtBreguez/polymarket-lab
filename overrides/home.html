@@ -1,0 +1,202 @@
+{# avoid-ai-design-ignore-file: K7 (reason follows) :focus-visible is styled for the whole site in pmlab.css #}
+{#- The home page. Every number on it comes from docs/assets/data/sample-run.json (see
+    scripts/make_site_data.py), read by scripts/mkdocs_hooks.py; the quickstart is the code block of
+    docs/index.md, which is the README's, which CI runs. Nothing here is typed in by hand. -#}
+{% extends "main.html" %}
+{% set s = config.extra.sample %}
+{% set h = config.extra.home %}
+{% set gate = s.gate %}
+
+{% block site_nav %}{% endblock %}
+
+{% block container %}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="pm-arrow" viewBox="0 0 16 16"><path d="M3 13 13 3M5 3h8v8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/></symbol>
+  <symbol id="pm-next" viewBox="0 0 16 16"><path d="M2 8h12M9 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"/></symbol>
+</svg>
+
+<div class="pm-home">
+
+  <section class="pm-hero pm-console" aria-labelledby="pm-title">
+    <div class="pm-hero__grid" aria-hidden="true"></div>
+    <div class="pm-wrap pm-hero__inner">
+      <p class="pm-status pm-rise"><span class="pm-dot" aria-hidden="true"></span><b>pmlab {{ config.extra.pmlab_version }}</b><span>stable API · MIT · Python 3.12+</span></p>
+      {# avoid-ai-design-ignore: SD5 (reason follows) two whole lines, solid then outlined, the hiddenterps.si headline pattern; no single word is accented #}
+      <h1 class="pm-h1" id="pm-title">
+        <span class="pm-h1__line"><span>Prediction markets,</span></span>
+        <span class="pm-h1__line pm-h1__line--outline"><span>without lookahead.</span></span>
+      </h1>
+
+      <div class="pm-hero__body">
+        <div>
+          <p class="pm-lead pm-rise" style="--d: 180ms"><strong>pmlab is a plugin-based ML framework for Polymarket.</strong> Write four methods for a market family; pmlab does the rest: edge and cost arithmetic, walk-forward backtests, a hard GO&nbsp;/&nbsp;NO_GO gate before anything is promoted, paper trading, and settlement that waits until the truth is final.</p>
+
+          <div class="pm-install pm-rise" style="--d: 260ms" data-install>
+            <div class="pm-install__tabs" role="tablist" aria-label="Installer">
+              <button class="pm-install__tab" role="tab" aria-selected="true" type="button" data-install-tab="pip install pmlab">pip</button>
+              <button class="pm-install__tab" role="tab" aria-selected="false" type="button" data-install-tab="uv add pmlab">uv</button>
+            </div>
+            <code class="pm-install__cmd" data-install-cmd>pip install pmlab</code>
+            <button class="pm-install__copy" type="button" data-install-copy aria-label="Copy the install command">copy</button>
+            <span class="pm-sr" data-install-live role="status" aria-live="polite"></span>
+          </div>
+
+          <div class="pm-cta pm-rise" style="--d: 340ms">
+            <a class="pm-btn pm-btn--primary" href="{{ 'tutorial/' | url }}">Start the tutorial <svg width="16" height="16" aria-hidden="true"><use href="#pm-next"/></svg></a>
+            <a class="pm-btn" href="{{ 'reference/' | url }}">API reference</a>
+            <a class="pm-btn" href="{{ config.repo_url }}">GitHub <svg width="16" height="16" aria-hidden="true"><use href="#pm-arrow"/></svg></a>
+          </div>
+        </div>
+
+        <figure class="pm-hud pm-rise" style="--d: 220ms" aria-labelledby="pm-hud-title">
+          <figcaption class="pm-hud__bar" id="pm-hud-title">
+            <span><b>rolling origin</b> · bundled sample</span>
+            <span>{{ s.backtest.folds }} folds</span>
+          </figcaption>
+          <div class="pm-hud__body">
+            <ol class="pm-folds" aria-label="Six of the {{ s.backtest.folds }} folds. Each one trains on every day before the day it tests, never on or after it.">
+              {% for r in h.rows %}
+              <li class="pm-fold">
+                <span>fold {{ r.n }}</span>
+                <span class="pm-track" title="fold {{ r.n }}: train {{ s.backtest.train_start }} to {{ r.train_end }} ({{ r.rows }} rows), test {{ r.test_day }}">
+                  <i class="pm-train" style="width:{{ r.train }}%;--d:{{ 350 + loop.index0 * 80 }}ms"></i>
+                  <i class="pm-test" style="left:{{ r.test }}%;--d:{{ 350 + loop.index0 * 80 }}ms"></i>
+                  <i class="pm-future" style="left:{{ r.test + 1 }}%"></i>
+                </span>
+                <span class="pm-fold__b">{{ '%.3f' | format(r.brier) }}</span>
+              </li>
+              {% endfor %}
+            </ol>
+            <div class="pm-axis" aria-hidden="true">
+              <span></span>
+              <span class="pm-axis__ticks">{% for t in h.ticks %}<span style="left:{{ t.at }}%">{{ t.label }}</span>{% endfor %}</span>
+              <span>brier</span>
+            </div>
+            <p class="pm-legend"><span><i></i>train</span><span><i class="is-test"></i>test day</span><span><i class="is-future"></i>not seen</span></p>
+
+            <hr class="pm-hud__rule">
+            <p class="pm-hud__note" style="margin:0 0 8px">brier by fold, lower is better ({{ '%.3f' | format(h.spark_range[0]) }} to {{ '%.3f' | format(h.spark_range[1]) }})</p>
+            <ul class="pm-spark" aria-hidden="true">
+              {% for v in h.spark %}<li style="height:{{ v }}%;--i:{{ loop.index0 }}"></li>{% endfor %}
+            </ul>
+
+            <dl class="pm-hud__stats">
+              <div class="pm-stat"><dt>folds</dt><dd>{{ s.backtest.folds }}</dd></div>
+              <div class="pm-stat"><dt>trades</dt><dd>{{ s.backtest.trades }}</dd></div>
+              <div class="pm-stat"><dt>brier</dt><dd>{{ '%.4f' | format(s.backtest.brier) }}</dd></div>
+              <div class="pm-stat"><dt>gate</dt><dd class="{{ 'is-good' if gate.decision == 'GO' else 'is-bad' }}">{{ gate.decision }}</dd></div>
+            </dl>
+            <p class="pm-hud__note">Synthetic sample: {{ s.sample.markets }} markets, {{ s.sample.cities }} cities, {{ s.sample.days }} days, no network. It says nothing about real markets.</p>
+          </div>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <div class="pm-ticker pm-console" role="region" aria-label="Edge signals found on the last days of the sample">
+    <span class="pm-ticker__label"><span class="pm-dot" aria-hidden="true"></span>signals</span>
+    <div class="pm-ticker__view">
+      <ul class="pm-ticker__track">
+        {% for copy in range(2) %}{% for g in s.signals %}
+        <li{% if copy == 1 %} aria-hidden="true"{% endif %}>
+          <b>{{ g.city }}</b> {{ g.target_date[5:] }} <span>{{ g.bin | e }}</span>
+          <span>mkt {{ '%.3f' | format(g.market_price) }}</span> <span>model {{ '%.3f' | format(g.model_prob) }}</span>
+          {% if g.allowed %}<span class="{{ 'is-yes' if g.side == 'yes' else 'is-no' }}">+{{ '%.3f' | format(g.edge) }} {{ g.side | upper }}</span>
+          {% else %}<span class="is-blocked">not traded: {{ g.city }} failed the gate</span>{% endif %}
+        </li>
+        {% endfor %}{% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <section class="pm-section" id="guarantees" aria-labelledby="pm-guarantees">
+    <div class="pm-wrap pm-split">
+      <div class="pm-split__head pm-reveal">
+        <h2 id="pm-guarantees">It will not look ahead, or ship a loser.</h2>
+        <p class="pm-section__intro">Enforced in code and checked by the test suite, not left to convention. Each claim below links to the page that shows how.</p>
+      </div>
+
+      <ol class="pm-rules">
+        <li class="pm-rule pm-reveal">
+          <h3>No lookahead.</h3>
+          <p><code>rolling_origin_eval</code> trains only on rows from before the day it predicts. <code>build_panel</code> refuses a price seen at or after the decision it informs, and <code>check_no_leakage</code> raises when a feature gives the outcome away.</p>
+          <pre class="pm-proof"><span class="k">fold</span>  1  train {{ s.backtest.train_start }} → {{ h.first_fold.train_end }}  test <span class="good">{{ h.first_fold.test }}</span>
+<span class="k">fold</span> {{ s.backtest.folds }}  train {{ s.backtest.train_start }} → {{ h.last_fold.train_end }}  test <span class="good">{{ h.last_fold.test }}</span>  <span class="k">({{ h.last_fold.train_rows }} rows)</span></pre>
+          <a class="pm-more" href="{{ 'leakage/' | url }}">How the checks work <svg width="14" height="14" aria-hidden="true"><use href="#pm-next"/></svg></a>
+        </li>
+
+        <li class="pm-rule pm-reveal">
+          <h3>A failed gate cannot ship.</h3>
+          <p><code>ChampionManifest.publish</code> raises unless the gate says GO, and that is not configurable. On the sample the gate reads every city, one of them loses money, and publishing is refused. Scope the champion to the cities that pass and it publishes, with that scope recorded in <code>champion.json</code>.</p>
+          <ul class="pm-gate" style="--zero:{{ h.zero }}%" aria-label="Gate result per city on the bundled sample, profit and loss in stake units">
+            {% for c in h.cities %}
+            <li>
+              <span>{{ c.segment }}</span>
+              <span class="pm-gate__bar" aria-hidden="true"><i class="{{ 'is-neg' if c.negative }}" style="left:{{ c.left }}%;width:{{ c.width }}%"></i></span>
+              <span class="pm-gate__pnl">{{ '%+.2f' | format(c.pnl) }}</span>
+              <span class="pm-gate__state {{ 'is-ok' if c.passes else 'is-bad' }}">{{ 'ok' if c.passes else c.reason }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+          <pre class="pm-proof"><span class="bad">ValueError</span>: {{ gate.publish_refused }}</pre>
+          <a class="pm-more" href="{{ 'registry/' | url }}">The champion registry <svg width="14" height="14" aria-hidden="true"><use href="#pm-next"/></svg></a>
+        </li>
+
+        <li class="pm-rule pm-reveal">
+          <h3>Reproducible.</h3>
+          <p>Every backtest records its seeds, library versions, resolved config and a fingerprint of the data. <code>pmlab reproduce</code> re-runs it and verifies that the metrics come back.</p>
+          <pre class="pm-proof"><span class="k">reproduce</span> → <span class="good">{{ s.reproduce.status }}</span>  <span class="k">data match:</span> {{ 'yes' if s.reproduce.data_match else 'no' }}  <span class="k">metrics compared:</span> <span class="num">{{ s.reproduce.metrics_compared }}</span></pre>
+          <a class="pm-more" href="{{ 'reproducibility/' | url }}">Reproducibility <svg width="14" height="14" aria-hidden="true"><use href="#pm-next"/></svg></a>
+        </li>
+
+        <li class="pm-rule pm-reveal">
+          <h3>Frozen API.</h3>
+          <p>From 1.0 pmlab follows semantic versioning. What is public is compared with a checked-in snapshot on every change, and nothing public is removed before 2.0 without a deprecation warning that names the replacement.</p>
+          <pre class="pm-proof"><span class="num">{{ s.api.names }}</span> <span class="k">public names in</span> <span class="num">{{ s.api.modules }}</span> <span class="k">modules ·</span> <span class="num">{{ s.api.commands }}</span> <span class="k">CLI commands ·</span> tests/api/public_api.json</pre>
+          <a class="pm-more" href="{{ 'api-stability/' | url }}">What is public <svg width="14" height="14" aria-hidden="true"><use href="#pm-next"/></svg></a>
+        </li>
+
+        <li class="pm-rule pm-reveal">
+          <h3>Five rules, in code.</h3>
+          <p>A champion is never published with a NO_GO gate. Canonical training data is never overwritten without an explicit flag. Workspaces are never mixed: live forward evidence and training data stay apart. The champion's segment gate is always read from <code>champion.json</code>, the record made at promotion. A trade is never settled before <code>MarketPlugin.is_truth_final</code> says the truth is final.</p>
+          <a class="pm-more" href="{{ 'architecture/' | url }}">Architecture <svg width="14" height="14" aria-hidden="true"><use href="#pm-next"/></svg></a>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="pm-section pm-quick" id="quickstart" aria-labelledby="pm-quick">
+    <div class="pm-wrap pm-split">
+      <div class="pm-split__head pm-reveal">
+        <h2 id="pm-quick">Run it in a minute.</h2>
+        <p class="pm-section__intro">Offline, on a small synthetic sample that ships in the package: no network, no account, no order placed. The code is the README's, and CI runs it.</p>
+      </div>
+      <div class="pm-reveal md-typeset">
+        {{ page.content }}
+      </div>
+    </div>
+  </section>
+
+  <section class="pm-section" id="docs" aria-labelledby="pm-docs">
+    <div class="pm-wrap">
+      <div class="pm-reveal" style="margin-bottom:2rem">
+        <h2 id="pm-docs">Where to go.</h2>
+      </div>
+      <ul class="pm-map pm-reveal">
+        <li><a href="{{ 'tutorial/' | url }}"><strong>Tutorial</strong><span>Discover, panel, tune, backtest, gate, paper, report: offline, in one notebook that CI executes.</span><svg width="22" height="22" aria-hidden="true"><use href="#pm-next"/></svg></a></li>
+        <li><a href="{{ 'architecture/' | url }}"><strong>Architecture</strong><span>The pipeline from market discovery to settlement, and what each package owns.</span><svg width="22" height="22" aria-hidden="true"><use href="#pm-next"/></svg></a></li>
+        <li><a href="{{ 'cli/' | url }}"><strong>Command line</strong><span>Every <code>pmlab</code> command and a first offline session.</span><svg width="22" height="22" aria-hidden="true"><use href="#pm-next"/></svg></a></li>
+        <li><a href="{{ 'plugin-authoring/' | url }}"><strong>Plugin authoring</strong><span>The four methods a market family implements.</span><svg width="22" height="22" aria-hidden="true"><use href="#pm-next"/></svg></a></li>
+        <li><a href="{{ 'live-trading/' | url }}"><strong>Running it live</strong><span>Live trading, drift monitoring, live calibration and the watchdog behind <code>pmlab monitor</code>.</span><svg width="22" height="22" aria-hidden="true"><use href="#pm-next"/></svg></a></li>
+        <li><a href="{{ 'reference/' | url }}"><strong>API reference</strong><span>Every public name, generated from its docstring.</span><svg width="22" height="22" aria-hidden="true"><use href="#pm-next"/></svg></a></li>
+      </ul>
+      <p class="pm-section__intro pm-reveal" style="margin-top:1.6rem;max-width:none">
+        Source and issues on <a href="{{ config.repo_url }}">GitHub</a> · <a href="https://pypi.org/project/pmlab/">PyPI</a> · <a href="{{ config.repo_url }}/blob/main/CHANGELOG.md">Changelog</a> · <a href="{{ config.repo_url }}/blob/main/ROADMAP.md">Roadmap</a> · <a href="{{ 'deprecation/' | url }}">Deprecation policy</a>.
+        pmlab is research software and not financial advice: trading prediction markets can lose all the money you put in, and no <code>pmlab</code> command places an order.
+      </p>
+    </div>
+  </section>
+
+  <div class="pm-mark" aria-hidden="true"><span>PMLAB</span></div>
+</div>
+{% endblock %}

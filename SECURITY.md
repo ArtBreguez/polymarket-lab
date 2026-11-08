@@ -16,7 +16,7 @@ you in the changelog unless you prefer otherwise. A confirmed problem is fixed i
 ## Supported versions
 
 The latest release on [PyPI](https://pypi.org/project/pmlab/) is supported. pmlab follows
-[semantic versioning](https://semver.org) (see [Public API and stability](https://artbreguez.github.io/polymarket-lab/api-stability/)),
+[semantic versioning](https://semver.org) (see [Public API and stability](https://pmlab.hiddenterps.si/api-stability/)),
 so a fix lands in the current 1.x line without breaking the public API.
 
 ## What to keep in mind when you use it

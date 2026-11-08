@@ -4,7 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/pmlab)](https://pypi.org/project/pmlab/)
 [![Python](https://img.shields.io/pypi/pyversions/pmlab)](https://pypi.org/project/pmlab/)
 [![License: MIT](https://img.shields.io/pypi/l/pmlab)](https://github.com/ArtBreguez/polymarket-lab/blob/main/LICENSE)
-[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://artbreguez.github.io/polymarket-lab/)
+[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://pmlab.hiddenterps.si/)
 
 **A plugin-based ML framework for Polymarket prediction markets.** Build, backtest and paper-trade
 models for any market family (weather, sports, politics, crypto) with a backtest that cannot look
@@ -25,17 +25,17 @@ These are enforced in code and checked by the test suite, not left to convention
 
 - **No lookahead.** `rolling_origin_eval` trains only on rows from before the day it predicts.
   `build_panel` refuses a price observed at or after the decision it informs, and `check_no_leakage`
-  raises when a feature gives the outcome away. [How the checks work](https://artbreguez.github.io/polymarket-lab/leakage/)
+  raises when a feature gives the outcome away. [How the checks work](https://pmlab.hiddenterps.si/leakage/)
 - **A failed gate cannot ship.** `ChampionManifest.publish` raises unless the gate says GO, and that
   is not configurable. Paper trading reads its allowed segments from `champion.json`, the record made
   at promotion, and a trade is never settled before the plugin says the truth is final.
 - **Reproducible.** Every backtest records its seeds, library versions, resolved config and a
   fingerprint of the data; `pmlab reproduce` re-runs it and verifies the metrics come back.
-  [Reproducibility](https://artbreguez.github.io/polymarket-lab/reproducibility/)
+  [Reproducibility](https://pmlab.hiddenterps.si/reproducibility/)
 - **Stable.** From 1.0 pmlab follows [semantic versioning](https://semver.org). The public API (the
   names, the `pmlab` command and its options, the file formats) is frozen and compared with a checked-in
   snapshot on every change; nothing public is removed before 2.0 without a deprecation warning first.
-  [What is public](https://artbreguez.github.io/polymarket-lab/api-stability/)
+  [What is public](https://pmlab.hiddenterps.si/api-stability/)
 
 ## Install
 
@@ -99,7 +99,7 @@ pmlab backtest --plugin weather_tmax --panel panel.parquet \
 pmlab reproduce metrics.json     # re-runs the backtest and verifies the same metrics come back
 ```
 
-The [tutorial](https://artbreguez.github.io/polymarket-lab/tutorial/) continues from here: tuning,
+The [tutorial](https://pmlab.hiddenterps.si/tutorial/) continues from here: tuning,
 a per-city gate, a published champion, paper trading, settlement and an HTML report, in one notebook
 that CI executes.
 
@@ -117,7 +117,7 @@ that CI executes.
 | `pmlab settle-trades` | A placeholder: prints how to settle with `SettlementEngine`; it settles nothing |
 | `pmlab version` | Print the version |
 
-`pmlab --help` and `pmlab <command> --help` list every option. [Command line reference](https://artbreguez.github.io/polymarket-lab/cli/)
+`pmlab --help` and `pmlab <command> --help` list every option. [Command line reference](https://pmlab.hiddenterps.si/cli/)
 
 ## Bring your own market family
 
@@ -134,18 +134,18 @@ class MyPlugin(MarketPlugin):
     def build_training_row(self, spec, horizon, **kwargs): ...
 ```
 
-[Plugin authoring guide](https://artbreguez.github.io/polymarket-lab/plugin-authoring/)
+[Plugin authoring guide](https://pmlab.hiddenterps.si/plugin-authoring/)
 
 ## Documentation
 
-Everything else lives on the [documentation site](https://artbreguez.github.io/polymarket-lab/).
+Everything else lives on the [documentation site](https://pmlab.hiddenterps.si/).
 
 | | |
 |---|---|
-| Start here | [Tutorial](https://artbreguez.github.io/polymarket-lab/tutorial/) · [Architecture](https://artbreguez.github.io/polymarket-lab/architecture/) · [Command line](https://artbreguez.github.io/polymarket-lab/cli/) · [Plugin authoring](https://artbreguez.github.io/polymarket-lab/plugin-authoring/) |
-| Build models | [Data layer](https://artbreguez.github.io/polymarket-lab/data/) · [Features](https://artbreguez.github.io/polymarket-lab/features/) · [Modeling](https://artbreguez.github.io/polymarket-lab/modeling/) · [Tuning](https://artbreguez.github.io/polymarket-lab/tuning/) · [Costs](https://artbreguez.github.io/polymarket-lab/costs/) · [Position sizing](https://artbreguez.github.io/polymarket-lab/sizing/) |
-| Run it | [Live trading](https://artbreguez.github.io/polymarket-lab/live-trading/) · [Drift monitoring](https://artbreguez.github.io/polymarket-lab/drift-monitoring/) · [Watchdog](https://artbreguez.github.io/polymarket-lab/watchdog/) · [Champion registry](https://artbreguez.github.io/polymarket-lab/registry/) |
-| Reference | [API reference](https://artbreguez.github.io/polymarket-lab/reference/) · [Public API and stability](https://artbreguez.github.io/polymarket-lab/api-stability/) · [Deprecation policy](https://artbreguez.github.io/polymarket-lab/deprecation/) |
+| Start here | [Tutorial](https://pmlab.hiddenterps.si/tutorial/) · [Architecture](https://pmlab.hiddenterps.si/architecture/) · [Command line](https://pmlab.hiddenterps.si/cli/) · [Plugin authoring](https://pmlab.hiddenterps.si/plugin-authoring/) |
+| Build models | [Data layer](https://pmlab.hiddenterps.si/data/) · [Features](https://pmlab.hiddenterps.si/features/) · [Modeling](https://pmlab.hiddenterps.si/modeling/) · [Tuning](https://pmlab.hiddenterps.si/tuning/) · [Costs](https://pmlab.hiddenterps.si/costs/) · [Position sizing](https://pmlab.hiddenterps.si/sizing/) |
+| Run it | [Live trading](https://pmlab.hiddenterps.si/live-trading/) · [Drift monitoring](https://pmlab.hiddenterps.si/drift-monitoring/) · [Watchdog](https://pmlab.hiddenterps.si/watchdog/) · [Champion registry](https://pmlab.hiddenterps.si/registry/) |
+| Reference | [API reference](https://pmlab.hiddenterps.si/reference/) · [Public API and stability](https://pmlab.hiddenterps.si/api-stability/) · [Deprecation policy](https://pmlab.hiddenterps.si/deprecation/) |
 | Project | [Changelog](https://github.com/ArtBreguez/polymarket-lab/blob/main/CHANGELOG.md) · [Roadmap](https://github.com/ArtBreguez/polymarket-lab/blob/main/ROADMAP.md) · [Contributing](https://github.com/ArtBreguez/polymarket-lab/blob/main/CONTRIBUTING.md) · [Security](https://github.com/ArtBreguez/polymarket-lab/blob/main/SECURITY.md) |
 
 ## Development

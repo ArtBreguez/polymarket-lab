@@ -20,7 +20,7 @@ README = REPO / "README.md"
 SNAPSHOT = REPO / "tests" / "api" / "public_api.json"
 WALKTHROUGH = REPO / "tests" / "e2e" / "run_doc_walkthrough.py"
 REPO_URL = "https://github.com/ArtBreguez/polymarket-lab"
-SITE_URL = "https://artbreguez.github.io/polymarket-lab/"
+SITE_URL = "https://pmlab.hiddenterps.si/"
 
 TEXT = README.read_text()
 FENCE = re.compile(r"^```(\w*)[^\n]*\n(.*?)^```", re.DOTALL | re.MULTILINE)

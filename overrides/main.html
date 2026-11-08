@@ -1,0 +1,27 @@
+{# avoid-ai-design-ignore-file: K7 (reason follows) :focus-visible is styled for the whole site in pmlab.css #}
+{#- The base of every page of the pmlab site: Material, plus the family strip, the font preloads
+    and the one script flag. Colour, type and layout live in docs/assets/stylesheets/pmlab.css. -#}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  <meta name="theme-color" content="#0a0a0b">
+  <meta property="og:site_name" content="{{ config.site_name }}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{% if page and page.title and not page.is_homepage %}{{ page.title | striptags }} - {{ config.site_name }}{% else %}{{ config.site_name }}: {{ config.site_description }}{% endif %}">
+  <meta property="og:description" content="{% if page and page.meta and page.meta.description %}{{ page.meta.description }}{% else %}{{ config.site_description }}{% endif %}">
+  {% if page and page.canonical_url %}<meta property="og:url" content="{{ page.canonical_url }}">{% endif %}
+  <meta name="twitter:card" content="summary">
+  <link rel="preload" href="{{ 'assets/fonts/manrope-latin-wght-normal.woff2' | url }}" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="{{ 'assets/fonts/barlow-condensed-latin-800-normal.woff2' | url }}" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="{{ 'assets/fonts/ibm-plex-mono-latin-400-normal.woff2' | url }}" as="font" type="font/woff2" crossorigin>
+  <script>document.documentElement.classList.add("js")</script>
+{% endblock %}
+
+{% block announce %}
+  <div class="pm-strip">
+    <div class="pm-strip__inner">
+      <span><a href="https://hiddenterps.si/">hiddenterps.si</a> / pmlab</span>
+      <span class="pm-strip__meta">{% if config.extra.pmlab_version %}v{{ config.extra.pmlab_version }} · {% endif %}MIT · Python 3.12+</span>
+    </div>
+  </div>
+{% endblock %}

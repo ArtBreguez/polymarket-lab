@@ -13,4 +13,4 @@ body:
     id: proposal
     attributes:
       label: What would you like pmlab to do?
-      description: "Mind the [public API promise](https://artbreguez.github.io/polymarket-lab/api-stability/). Additions are welcome; changes to existing names need a deprecation."
+      description: "Mind the [public API promise](https://pmlab.hiddenterps.si/api-stability/). Additions are welcome; changes to existing names need a deprecation."
