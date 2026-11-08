@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -37,6 +38,8 @@ def rolling_origin_eval(
     taker_bps: float | None = None,
     costs: CostModel | None = None,
     policy: TradePolicy | None = None,
+    *,
+    embargo_days: int | None = None,
 ) -> RollingOriginResult:
     """Walk-forward evaluation on a panel dataset.
 
@@ -79,6 +82,15 @@ def rolling_origin_eval(
     A fold therefore starts one decision day later. Backtests run before this rule (release
     1.0.2 and earlier) carried a day of lookahead.
 
+    **A longer hold-back, on request.** ``embargo_days=N`` adds a second condition to the rule
+    above: a row trains a fold only if its ``decision_date`` is at least ``N`` days before the
+    fold's. Use it when you want a margin the labels do not give you (a model that must not see
+    the last week, say). The two conditions are AND-ed: a row must have its label known *and* be at
+    least ``N`` days old, so the embargo can only take rows out of a fold, never put one in. It
+    cannot make a label that is not yet known trainable, whatever ``N``, and ``0`` or ``1`` change
+    nothing (a fold already trains only on rows decided on an earlier day). ``None``, the default,
+    is the rule above exactly: the results of release 1.0.3 are reproduced to the last bit.
+
     Args:
         panel: Training/eval panel (see column contract above).
         model: Anything with sklearn-style ``fit`` / ``predict_proba``.
@@ -95,6 +107,12 @@ def rolling_origin_eval(
             per market the (bin, side) with the best after-fee edge, YES or NO, taken if
             that edge is at least ``min_edge``. Both price the trade the way the broker
             and settlement do: a NO trade is a buy of the NO token at ``1 - market_price``.
+        embargo_days: Keyword-only. ``None`` (default) trains on every row the label rule above
+            allows. An int ``N >= 0`` also requires the row's ``decision_date`` to be at least
+            ``N`` days before the fold's, so folds can only get smaller (``min_train_rows`` counts
+            what is left, so the first fold may come later). A negative ``N`` raises
+            ``ValueError``; a value that is not an int (a float, a string, a bool) raises
+            ``TypeError``.
 
     Returns:
         RollingOriginResult with all trade records and step metadata.
@@ -103,8 +121,10 @@ def rolling_origin_eval(
         ValueError: If both ``taker_bps`` and ``costs`` are supplied, which would
             give the fee two conflicting sources of truth. Also if a ``decision_date`` is not a
             real ``YYYY-MM-DD`` date (e.g. ``2026-01-32``), since which labels were known
-            when a fold decided cannot be told without it.
+            when a fold decided cannot be told without it. Also if ``embargo_days`` is negative.
+        TypeError: If ``embargo_days`` is neither ``None`` nor an int (``True`` is not one).
     """
+    embargo = _validate_embargo_days(embargo_days)
     if taker_bps is not None and costs is not None:
         raise ValueError(
             "pass either taker_bps or costs, not both — costs.taker_bps already carries the fee"
@@ -125,6 +145,7 @@ def rolling_origin_eval(
     day_start = _day_starts(panel["decision_date"])
     label_known_at = _label_known_at(panel, day_start)
     decision_cutoffs = _decision_cutoffs(panel, day_start)
+    fold_day_start = day_start.groupby(panel["decision_date"]).first()
 
     all_trades: list[dict[str, Any]] = []
     steps: list[dict[str, Any]] = []
@@ -136,6 +157,11 @@ def rolling_origin_eval(
         train_mask = (panel["decision_date"] < eval_date) & (
             label_known_at <= decision_cutoffs[eval_date]
         )
+        if embargo is not None:
+            # On top of the label rule, never instead of it: the masks are AND-ed, so a row whose
+            # label is unknown stays out whatever the embargo, and the embargo only removes rows.
+            age_days = (fold_day_start[eval_date] - day_start).dt.days
+            train_mask &= age_days >= min(embargo, _MAX_EMBARGO_DAYS)
         train_df = panel[train_mask]
 
         if len(train_df) < min_train_rows:
@@ -255,6 +281,30 @@ def rolling_origin_eval(
 #: Decision days a label is assumed to lag its decision when the panel does not say: the next
 #: day's value, as for every shipped plugin. A row decided on D then trains from D + 2 days.
 _DEFAULT_LABEL_LAG_DAYS = 1
+
+
+#: No decision date is this many days before another (pandas' timestamps span about 2.6e5 days),
+#: so a larger ``embargo_days`` means "train on nothing" all the same; clamped for the comparison.
+_MAX_EMBARGO_DAYS = 10**9
+
+
+def _validate_embargo_days(embargo_days: object) -> int | None:
+    """``None`` or a non-negative whole number of days; ``TypeError`` / ``ValueError`` otherwise.
+
+    A bool is refused although Python counts it as an int: ``embargo_days=True`` is far more likely
+    a flag mistaken for a number of days than a one-day embargo. A float is refused too, even
+    ``2.0``: days are whole, and silently truncating ``2.5`` would hold back less than asked.
+    """
+    if embargo_days is None:
+        return None
+    if isinstance(embargo_days, bool) or not isinstance(embargo_days, numbers.Integral):
+        raise TypeError(
+            f"embargo_days must be a whole number of days (an int) or None; got {embargo_days!r}"
+        )
+    days = int(embargo_days)
+    if days < 0:
+        raise ValueError(f"embargo_days must be >= 0 (or None for no embargo); got {days}")
+    return days
 
 
 def _utc_times(values: pd.Series) -> pd.Series:

@@ -40,8 +40,8 @@ would close them. None of those is a commitment or has a date. The exact history
 
 Ideas, in no order, each a candidate for a minor release that keeps the public API:
 
-- **Close the paper-trading loop from the command line.** `pmlab settle-trades` is a placeholder
-  (settlement needs a plugin wired to real data) and nothing writes the signals file that
+- **Close the paper-trading loop from the command line.** `pmlab settle-trades` is a placeholder that
+  exits 1 (settlement needs a plugin wired to real data) and nothing writes the signals file that
   `pmlab record-trades` reads, so both steps are done from Python today.
 - **A second reference plugin.** `sports_f1` is a skeleton (untimed price, one row per market). A
   finished categorical plugin would exercise the per-bin machinery on something other than weather.

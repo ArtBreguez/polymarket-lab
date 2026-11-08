@@ -94,14 +94,15 @@ def test_cli_record_trades_no_champion(tmp_path):
 
 
 def test_cli_settle_trades():
-    """settle-trades always exits 0 (it just prints a guide message)."""
+    """settle-trades settles nothing, so it exits 1 and says so on stderr (issue #43)."""
     from typer.testing import CliRunner
 
     from pmlab.cli.main import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["settle-trades", "--plugin", "weather_tmax"])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
+    assert "SettlementEngine" in result.stderr
 
 
 def test_cli_backtest_stride_guard():

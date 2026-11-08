@@ -4,6 +4,64 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-11-08
+
+Two changes. `rolling_origin_eval` gets an **optional extra hold-back, `embargo_days`** (the follow-up
+to #47 that 1.0.3 left out because a patch adds nothing public), and `pmlab settle-trades`, which
+settled nothing and exited 0, **now exits 1 and says so** (#43). Every addition is optional and its
+default is the old behaviour: **no backtest number changes** (the sample's is still 59 folds, 289 trades,
+PnL +135.22). The one behaviour change is the exit status of `settle-trades`, below.
+
+### Added
+
+- **`embargo_days` for `rolling_origin_eval`** (keyword-only, default `None`). A fold trains only on the
+  rows whose label was known at its decision (the 1.0.3 rule, from `market_close_ts`). With
+  `embargo_days=N` (an int, `N >= 0`) a row must *also* have a `decision_date` at least `N` days before
+  the fold's. The two conditions are AND-ed, so **the embargo can only make training stricter, never
+  looser**: it cannot make trainable a row whose label is not yet known, whatever `N` is, `0` included.
+  `0` and `1` change nothing (a fold already trains only on earlier days), and with the sample's
+  next-day labels neither does `2`. `min_train_rows` counts the rows left after the embargo, so a long
+  one can move the first fold later. `None` is the 1.0.3 rule, bit for bit.
+  - A negative value raises `ValueError`; a value that is not a whole number (`2.5`, `"2"`, `True`)
+    raises `TypeError`. It is checked before anything is fitted, even if no fold would run.
+  - It is threaded through the three public places that already carry the walk-forward's shape, and
+    nowhere else: `TunedForecaster(..., embargo_days=N)` (a search is scored under the hold-back the
+    backtest will use), `BacktestConfig.resolve(..., embargo_days=N)` (and the field
+    `BacktestConfig.embargo_days`, last, default `None`), and `pmlab backtest --embargo-days N`, which the
+    CLI offers because it already takes `--stride` and `--min-train-rows`.
+  - **Records only change when it is used.** `config.embargo_days` is written to the reproducibility
+    record (and `TunedForecaster.tuning_config()` carries it) only when set, so every record, tuner
+    pickle and champion that does not use it is byte-for-byte what 1.0.3 wrote, and still reads back
+    and reproduces. `pmlab reproduce` replays a recorded embargo.
+  - API snapshot (`tests/api/public_api.json`): additive only. New: `rolling_origin_eval(..., *,
+    embargo_days=None)`, `TunedForecaster(..., *, embargo_days=None)`, `BacktestConfig` field and
+    `BacktestConfig.resolve(..., embargo_days=None)`, and the `backtest --embargo-days` option.
+
+### Changed
+
+- **`pmlab settle-trades` exits 1 and says why on stderr (issue #43).** It printed four lines and
+  exited **0** without opening the trades file, so `pmlab record-trades ... && pmlab settle-trades ...`
+  in a cron entry looked healthy forever: exit 0, trades stay open, and `pmlab monitor` then reports
+  "insufficient" because nothing realises. Settling needs a plugin instance wired to real data (it must
+  say when a market's truth is final and which bin won), which a command cannot build from a name, so
+  the command stays a placeholder and no longer pretends: it prints nothing on stdout, writes
+  `pmlab settle-trades: error: this command cannot settle trades ...` and the exact call that does
+  settle (`SettlementEngine(plugin, Path("<this workspace's forward_paper_trades.json>")).settle_all(specs)`)
+  on stderr, and **exits 1**. It still reads and writes nothing. Its options are unchanged.
+  - **This is a change of behaviour of a frozen command, made in a minor release on purpose**, because
+    the old exit status was the defect (`docs/api-stability.md#the-command-line`). A script that relied
+    on the 0 now stops at that step, which is where it was not settling anything; settle from Python
+    (the tutorial's step 6 and `docs/architecture.md` show the call) and drop the CLI step.
+
+### Documentation
+
+- `docs/leakage.md` has a section, *Holding back more: `embargo_days`*, with a runnable demonstration
+  on the sample (rows trained per fold under `None`, 2, 7 and 14) and the rules above. `docs/cli.md`,
+  `docs/tuning.md` and the API reference (generated from the docstrings) describe the option;
+  `docs/api-stability.md` records the exit status change and the new option; the README, `docs/cli.md`,
+  `docs/watchdog.md`, the ROADMAP and the tutorial's *Where next* no longer present `settle-trades` as
+  a step that works.
+
 ## [1.0.3] — 2026-11-08
 
 A fix to `rolling_origin_eval` that **changes the numbers of every backtest on a panel with next-day
@@ -1531,7 +1589,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.0...v1.0.1

@@ -190,7 +190,8 @@ adds is *how the parameters were chosen*, so you can run the search again and la
 
 * `BacktestConfig.resolve(..., tuning=tuner.tuning_config())` stores the objective, every default
   spelled out: `metric`, `n_trials`, `policy`, `costs`, `stride`, `min_train_rows`, `flat_stake` and
-  the `best_score`. A run that was not tuned has no `tuning` key at all: its record is byte-for-byte
+  the `best_score` (plus `embargo_days` when the search was run with one: see
+  [the leakage page](leakage.md#holding-back-more-embargo_days); a tuner without one records no such key). A run that was not tuned has no `tuning` key at all: its record is byte-for-byte
   what it was before.
 * `resolve_seeds(seed, optuna=tuner.random_state)` records the sampler seed beside the others, in
   `seeds`, the one place a run's randomness is written down.

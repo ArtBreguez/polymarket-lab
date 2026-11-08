@@ -339,8 +339,13 @@ def test_leakage_check_accepts_a_ranged_panel_and_still_catches_a_leak(
     out = _ok(installed.py(WALKTHROUGH, REPO / "docs" / "leakage.md", "--cwd", work))
     assert "FAIL" not in out
     done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
-    assert done == total and int(done) == 7
+    assert done == total and int(done) == 8
     assert "2700 rows, 300 markets, 9 bins each" in out
+    # 1.1.0: the page's embargo_days demonstration (rows trained per fold, by embargo)
+    assert "embargo_days=None  04-11: 405  04-21: 855  05-01: 1305  05-11: 1755" in out
+    assert "embargo_days=2     04-11: 405  04-21: 855  05-01: 1305  05-11: 1755" in out
+    assert "embargo_days=7     04-21: 630  05-01: 1080  05-11: 1530" in out
+    assert "embargo_days=14    04-21: 315  05-01: 765  05-11: 1215" in out
     # issue #47: the page's own demonstration of which labels are known when a model decides
     assert "810 of 900 rows are labelled by 2025-04-20 12:00 UTC" in out
     assert (
@@ -972,3 +977,199 @@ def test_a_backtest_never_trains_on_a_label_from_the_future(installed: Installed
     assert "Steps evaluated" in _ok(backtest)
     reproduced = _ok(_run([installed.pmlab, "reproduce", metrics], cwd=work))
     assert "REPRODUCED" in reproduced and "NOT REPRODUCED" not in reproduced
+
+
+_SETTLE_PROBE = """
+import json, sys
+from pathlib import Path
+from typing import Any
+
+from pmlab import MarketPlugin, MarketSpec, OutcomeBin
+
+message, log = Path(sys.argv[1]).read_text(), Path(sys.argv[2])
+lines = message.splitlines()
+start = next(i for i, ln in enumerate(lines) if ln.strip() == "from pathlib import Path")
+block = []
+for ln in lines[start:]:
+    if ln.strip() and not ln.startswith("    "):
+        break
+    block.append(ln)
+code = "\\n".join(ln[4:] for ln in block)  # the message's own call, as printed, dedented
+
+
+class Truth(MarketPlugin):
+    family = "fake"
+    final = True
+
+    def discover_markets(self, **kw: Any) -> list[MarketSpec]:
+        return []
+
+    def fetch_features(self, spec: MarketSpec, horizon: str, **kw: Any) -> dict[str, float]:
+        return {}
+
+    def fetch_truth(self, spec: MarketSpec, **kw: Any) -> str | None:
+        return "YES"
+
+    def build_training_row(self, spec: MarketSpec, horizon: str, **kw: Any) -> dict | None:
+        return None
+
+    def is_truth_final(self, spec: MarketSpec, **kw: Any) -> bool:
+        return self.final
+
+
+spec = MarketSpec(
+    market_id="m1", slug="s", question="q",
+    outcome_bins=[OutcomeBin(label="YES"), OutcomeBin(label="NO")],
+    close_time="2024-01-15T20:00:00Z", market_family="binary",
+    metadata={"city": "Chicago", "target_date": "2024-01-15"},
+)
+trade = {
+    "recorded_at": "2024-01-14T10:00:00+00:00", "city_or_segment": "Chicago",
+    "target_date": "2024-01-15", "outcome_label": "YES", "direction": "yes",
+    "gamma_price": 0.6, "edge_after_fee": 0.12, "horizon": "morning_of",
+    "flat_stake": 1.0, "size": 1.666667, "fee_paid": 0.003, "outcome": None, "realized_pnl": None,
+}
+
+log.parent.mkdir(parents=True, exist_ok=True)
+log.write_text(json.dumps({"trades": [trade]}))
+not_final = Truth()
+not_final.final = False
+exec(code, {"plugin": not_final, "specs": [spec]})
+assert json.loads(log.read_text())["trades"][0]["realized_pnl"] is None, "settled before final"
+exec(code, {"plugin": Truth(), "specs": [spec]})
+settled = json.loads(log.read_text())["trades"][0]
+assert settled["outcome"] == "won" and settled["realized_pnl"] is not None, settled
+print("settle-trades call OK, pnl", round(settled["realized_pnl"], 4))
+"""
+
+
+def test_settle_trades_refuses_and_the_call_it_prints_settles(installed: Installed) -> None:
+    """Issue #43, from the installed wheel: the command exits 1 on stderr with nothing on stdout,
+    leaves the workspace untouched, and the Python it prints (run as printed) settles a trade."""
+    work = installed.workdir / "settle_trades"
+    work.mkdir()
+    artifacts = work / "artifacts"
+    proc = _run(
+        [installed.pmlab, "settle-trades", "--plugin", "weather_tmax", "-a", artifacts, "-w", "ws"],
+        cwd=work,
+    )
+    assert proc.returncode == 1, (proc.returncode, proc.stdout, proc.stderr)
+    assert proc.stdout == ""
+    assert "cannot settle trades" in proc.stderr and "nothing was settled" in proc.stderr
+    assert "SettlementEngine(plugin," in proc.stderr and ".settle_all(specs)" in proc.stderr
+    log = artifacts / "workspaces" / "ws" / "signals" / "v2" / "forward_paper_trades.json"
+    assert str(log) in proc.stderr
+    assert not artifacts.exists()  # the command writes nothing, not even the directory
+
+    # a pipeline that chains it now stops at it
+    chained = _run(
+        ["bash", "-c", f"{installed.pmlab} settle-trades -p weather_tmax -a {artifacts} && echo went-on"],
+        cwd=work,
+    )  # fmt: skip
+    assert chained.returncode == 1 and "went-on" not in chained.stdout
+
+    message = work / "message.txt"
+    message.write_text(proc.stderr)
+    probe = work / "probe.py"
+    probe.write_text(_SETTLE_PROBE)
+    out = _ok(installed.py(probe, message, log))
+    assert "settle-trades call OK" in out
+
+
+_EMBARGO_PROBE = """
+import json, sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import pmlab
+from pmlab import BacktestConfig, build_panel, rolling_origin_eval
+from pmlab.datasets import load_sample
+
+assert "site-packages" in pmlab.__file__
+work = Path(sys.argv[1])
+s = load_sample()
+r = s.plugin()
+rows = [r.build_training_rows(sp, "previous_evening", decision_time=f"{d}T12:00:00+00:00")
+        for d in s.days[:60] for sp in s.plugin(d).discover_markets()]
+panel = build_panel(rows).reset_index(drop=True)
+panel.to_parquet(work / "panel.parquet")
+
+
+class Rec:
+    def __init__(self):
+        self.folds = []
+    def fit(self, X, y):
+        self.train = X.index
+    def predict_proba(self, X):
+        self.folds.append((self.train, X.index))
+        return np.full((len(X), 2), 0.5)
+
+
+def folds(**kw):
+    m = Rec()
+    rolling_origin_eval(panel, m, min_train_rows=200, stride=5, **kw)
+    return {panel.loc[e, "decision_date"].iloc[0]: set(t) for t, e in m.folds}
+
+
+base, none = folds(), folds(embargo_days=None)
+assert base == none and len(base) >= 8, len(base)
+assert folds(embargo_days=0) == base and folds(embargo_days=2) == base
+held = folds(embargo_days=7)
+assert held.keys() <= base.keys() and any(held[d] < base[d] for d in held)
+for day, train in held.items():
+    ages = [(pd.Timestamp(day) - pd.Timestamp(panel.loc[i, "decision_date"])).days for i in train]
+    assert min(ages) >= 7, (day, min(ages))
+    known = pd.to_datetime(panel.loc[list(train), "market_close_ts"], utc=True)
+    assert (known <= pd.Timestamp(panel.loc[panel["decision_date"] == day, "decision_ts"].min())).all()
+
+for bad, exc in ((-1, ValueError), (2.5, TypeError), (True, TypeError), ("3", TypeError)):
+    try:
+        rolling_origin_eval(panel, Rec(), embargo_days=bad)
+    except exc:
+        pass
+    else:
+        raise AssertionError(f"embargo_days={bad!r} was accepted")
+assert "embargo_days" not in BacktestConfig.resolve(plugin="weather_tmax").to_dict()
+assert BacktestConfig.resolve(plugin="weather_tmax", embargo_days=3).to_dict()["embargo_days"] == 3
+print("embargo probe OK", pmlab.__version__, len(base), "folds", len(held), "with a 7-day embargo")
+"""
+
+
+def test_embargo_days_from_the_installed_wheel(installed: Installed) -> None:
+    """1.1.0, from the installed wheel: ``embargo_days`` only ever removes training rows, never
+    pulls in an unknown label; the CLI option is recorded, replayed and refused when invalid."""
+    work = installed.workdir / "embargo_days"
+    work.mkdir()
+    probe = work / "probe.py"
+    probe.write_text(_EMBARGO_PROBE)
+    out = _ok(installed.py(probe, work))
+    assert f"embargo probe OK {_pyproject_version()}" in out
+
+    def backtest(out_file: Path, *extra: str | Path) -> subprocess.CompletedProcess[str]:
+        return _run(
+            [
+                installed.pmlab, "backtest", "--plugin", "weather_tmax", "--panel", work / "panel.parquet",
+                "--stride", "10", "--min-train-rows", "400", "--min-edge", "0.05",
+                "--output", out_file, *extra,
+            ],
+            cwd=work,
+        )  # fmt: skip
+
+    plain, held = work / "plain.json", work / "held.json"
+    _ok(backtest(plain))
+    shown = _ok(backtest(held, "--embargo-days", "7"))
+    assert "Embargo: a fold trains on rows decided at least 7 days before it" in shown
+    plain_rec = json.loads(plain.read_text())["reproducibility"]
+    held_rec = json.loads(held.read_text())["reproducibility"]
+    assert "embargo_days" not in plain_rec["config"]  # a run without it records what 1.0.3 did
+    assert held_rec["config"]["embargo_days"] == 7
+    assert held_rec["metrics"]["steps"] < plain_rec["metrics"]["steps"]
+    for record in (plain, held):
+        replay = _ok(_run([installed.pmlab, "reproduce", record], cwd=work))
+        assert "REPRODUCED" in replay and "NOT REPRODUCED" not in replay
+
+    refused = backtest(work / "bad.json", "--embargo-days", "-1")
+    assert refused.returncode == 1 and "embargo_days" in refused.stdout + refused.stderr
+    assert backtest(work / "bad.json", "--embargo-days", "2.5").returncode == 2

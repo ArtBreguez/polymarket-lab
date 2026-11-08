@@ -35,9 +35,10 @@ class TestCommandLinePage:
         assert named <= _commands(), sorted(named - _commands())
 
     def test_the_placeholder_is_called_one(self) -> None:
-        """settle-trades prints instructions and settles nothing: the page must say so."""
+        """settle-trades settles nothing and exits 1: the page must say both (issue #43)."""
         row = next(r for r in self.TEXT.splitlines() if r.startswith("| `settle-trades`"))
         assert "placeholder" in row.lower() and "settles nothing" in row
+        assert "exits 1" in row and "stderr" in row and "SettlementEngine" in row
 
 
 class TestArchitecturePage:

@@ -923,7 +923,7 @@ user's side of it is ordinary Python written for the guide and not part of the l
 generator (three segments `A`, `B`, `C`; the market's price strays from the true probability by a noise the
 model can exploit), a LightGBM model trained on a 450-day panel, the gate, a scan-edge step that turns the
 model and the live prices into `EdgeSignal`s (`EdgeSignal.from_quote`), and a settlement step (the CLI's
-`settle-trades` is a stub, so settlement calls `SettlementEngine`). Everything else goes through the
+`settle-trades` refuses and exits 1, so settlement calls `SettlementEngine`). Everything else goes through the
 installed `pmlab`: a backtest of the live policy under a cost model, a champion promoted on it, paper
 trades recorded under the champion's costs and policy, then watched.
 

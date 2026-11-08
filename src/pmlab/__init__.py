@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.0.3"
+__version__ = "1.1.0"
 
 from pmlab import datasets
 from pmlab._deprecation import PmlabDeprecationWarning

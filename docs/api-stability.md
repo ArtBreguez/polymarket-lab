@@ -69,8 +69,20 @@ additions. The full list as of 1.0.0:
 | `status` | `--artifacts-dir`, `-a`; `--workspace`, `-w` |
 | `version` | (none) |
 
+Added since 1.0.0: `backtest --embargo-days` (1.1.0). `tests/api/public_api.json` always holds the
+current list.
+
 The text a command prints (tables, log lines, help strings) is for people and may change in any
 release. What is scripted should use `--json` (`monitor`) or the files below.
+
+**Exit codes.** A command that cannot do what its name says must not exit 0. One command changed on
+those grounds: `settle-trades` settles nothing (settlement needs a plugin wired to real data, which a
+bare command cannot build) yet always exited 0, so `pmlab record-trades ... && pmlab settle-trades ...`
+looked healthy while every trade stayed open ([#43](https://github.com/ArtBreguez/polymarket-lab/issues/43)).
+From **1.1.0** it exits **1**, says on stderr what it cannot do and prints the `SettlementEngine` call
+that does settle. Its options are unchanged (see the table above). This is a change of behaviour of a
+frozen command, made in a minor release on purpose because the old status was the defect: a script that
+relied on that 0 now stops at that step, which is where it was not settling anything.
 
 ### Environment variables
 

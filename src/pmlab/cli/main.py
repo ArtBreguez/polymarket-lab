@@ -492,13 +492,41 @@ def settle_trades_cmd(
         "artifacts", "--artifacts-dir", "-a", envvar="PMLAB_ARTIFACTS_DIR"
     ),
 ) -> None:
-    """Settle open paper trades against resolved market truth."""
-    rprint(f"[bold]settle-trades[/bold] plugin={plugin} workspace={workspace}")
-    rprint("[dim]Settlement requires a plugin instance with real data connections.[/dim]")
-    rprint("[dim]Use your plugin's workspace script or call SettlementEngine directly.[/dim]")
-    rprint(
-        '[dim]Example: scripts/pmlab-workspace ops_daily python -c "from pmlab import SettlementEngine; ..."[/dim]'
-    )
+    """Refuse, and say how to settle: this command cannot settle trades (exits 1).
+
+    Settling needs a plugin instance wired to real data, which a bare command cannot build from
+    a name, so the trades are settled from Python with `SettlementEngine`. The command exists so
+    that a pipeline which still calls it fails loudly instead of looking healthy (issue #43).
+    """
+    from pmlab.config import PmlabSettings
+
+    settings = PmlabSettings()
+    settings.artifacts_dir = Path(artifacts_dir)
+    settings.workspace = workspace
+
+    lines = [
+        f"pmlab settle-trades: error: this command cannot settle trades (--plugin {plugin}, "
+        f"workspace {workspace}); nothing was settled.",
+        "",
+        "Settling needs a plugin instance wired to real data: one that can say when a market's",
+        "truth is final and which bin won. A command line cannot build that from a name.",
+        "Nothing was read and nothing was written: the open trades are still open.",
+        "",
+        "Settle from Python instead, with your plugin instance and the MarketSpec of each market",
+        "you traded:",
+        "",
+        "    from pathlib import Path",
+        "    from pmlab import SettlementEngine",
+        "",
+        f'    engine = SettlementEngine(plugin, Path("{settings.trades_path}"))',
+        "    summary = engine.settle_all(specs)",
+        "",
+        "A trade stays open until plugin.is_truth_final(spec) is True for its market.",
+        "Details: https://pmlab.hiddenterps.si/cli/",
+    ]
+    for line in lines:
+        typer.echo(line, err=True)
+    raise typer.Exit(1)
 
 
 @app.command("backtest")
@@ -514,6 +542,15 @@ def backtest_cmd(
     stride: int = typer.Option(30, "--stride"),
     min_train_rows: int = typer.Option(20, "--min-train-rows"),
     flat_stake: float = typer.Option(1.0, "--flat-stake"),
+    embargo_days: int | None = typer.Option(
+        None,
+        "--embargo-days",
+        help=(
+            "Hold back more: a fold trains only on rows decided at least this many days before "
+            "it, on top of the rule that a row's label must already be known (never instead of "
+            "it). Default: no extra hold-back. Recorded, so `pmlab reproduce` replays it."
+        ),
+    ),
     costs_path: str | None = typer.Option(
         None,
         "--costs",
@@ -627,6 +664,7 @@ def backtest_cmd(
             flat_stake=flat_stake,
             costs=costs or CostModel(),
             policy=trade_policy,
+            embargo_days=embargo_days,
         )
     except ValueError as e:
         _say(str(e), "red")
@@ -646,6 +684,8 @@ def backtest_cmd(
     )
 
     rprint(f"Policy: {_describe_policy(trade_policy)}")
+    if embargo_days is not None:
+        rprint(f"Embargo: a fold trains on rows decided at least {embargo_days} days before it")
 
     seeds = resolve_seeds(seed)
     with console.status("Running walk-forward backtest..."):
