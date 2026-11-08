@@ -410,7 +410,8 @@ panel = build_panel(
 )
 
 # 3. Guard against label leakage — the silent killer. Raises LeakageError on any
-#    feature that separates the outcome suspiciously well.
+#    feature that separates the outcome suspiciously well. On a one-row-per-bin panel
+#    the outcome is "did this bin win": the label the backtest trains on.
 check_no_leakage(panel)                    # or build_panel(rows, check_leakage=True)
 
 # 4. Close the loop: when markets resolve, build a no-lookahead panel by joining
@@ -422,6 +423,9 @@ resolutions = pd.DataFrame([
 ])
 train = build_panel_from_snapshots(store, "politics", resolutions)  # uses snapshot < decision_date
 ```
+
+What the leakage check scores against on a ranged-market panel, what it can and cannot see, and how
+to pick the target yourself: [docs/leakage.md](docs/leakage.md).
 
 ---
 
