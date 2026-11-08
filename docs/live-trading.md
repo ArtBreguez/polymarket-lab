@@ -134,7 +134,7 @@ with LiveBroker(...) as broker:
 | `max_exposure` | 0.05 (5% of bankroll max per trade) |
 | `bankroll` | Available USDC balance — call `get_balance()` before sizing |
 
-Quarter-Kelly is standard for real markets. Full Kelly (`fraction=1.0`) maximizes long-run growth but produces large drawdowns in practice.
+Quarter-Kelly is standard for real markets. Full Kelly (`fraction=1.0`) maximizes long-run growth but produces large drawdowns in practice. The functions and the arithmetic behind them: [Position sizing](sizing.md).
 
 ---
 

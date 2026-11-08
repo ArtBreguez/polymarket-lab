@@ -23,6 +23,8 @@ specs = sample.plugin(sample.days[0]).discover_markets()  # the real WeatherTmax
 
 - **[Tutorial](tutorial.md)**: discover → panel → tune → backtest → gate → paper → report, offline,
   in one notebook that CI executes.
+- **[Architecture](architecture.md)**: the pipeline and what each package owns.
+- **[Command line](cli.md)**: every `pmlab` command and a first offline session.
 - **[Plugin authoring](plugin-authoring.md)**: the four methods a market family implements.
 - **[Running it live](live-trading.md)**: live trading, drift monitoring, live calibration and the
   watchdog behind `pmlab monitor`.
