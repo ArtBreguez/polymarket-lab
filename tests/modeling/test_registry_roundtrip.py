@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from pmlab.modeling.champion import ChampionManifest
 from pmlab.modeling.registry import ModelRegistry
 from tests.modeling.manifest_helpers import (
@@ -90,3 +92,31 @@ def test_registry_entries_written_by_older_versions_still_load_and_roll_back(
         assert restored.gate == original.gate and restored.published_at == original.published_at
         assert (restored.costs is None) == ("costs" in dropped)
         assert (restored.reproducibility is None) == ("reproducibility" in dropped)
+
+
+def test_a_relative_registry_rolls_back_from_another_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A registry opened with a relative path archives paths relative to where it was recorded
+    from. Rolling back from elsewhere must find the artifacts where the registry keeps them."""
+    project, elsewhere = tmp_path / "project", tmp_path / "elsewhere"
+    project.mkdir()
+    elsewhere.mkdir()
+    monkeypatch.chdir(project)
+    original = full_manifest(project / "live")
+    version = ModelRegistry("registry").record(original)
+
+    monkeypatch.chdir(elsewhere)
+    restored = ModelRegistry(project / "registry").rollback(version, tmp_path / "restored")
+
+    assert_manifest_survived(original, restored)
+
+
+def test_a_moved_registry_still_rolls_back(tmp_path: Path) -> None:
+    original = full_manifest(tmp_path / "live")
+    version = ModelRegistry(tmp_path / "registry").record(original)
+    (tmp_path / "registry").rename(tmp_path / "moved")
+
+    restored = ModelRegistry(tmp_path / "moved").rollback(version, tmp_path / "restored")
+
+    assert_manifest_survived(original, restored)

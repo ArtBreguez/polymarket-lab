@@ -177,10 +177,20 @@ class ModelRegistry:
 
     def get(self, version_id: str) -> ChampionManifest:
         """Load the archived manifest for a version_id."""
-        json_path = self.registry_dir / version_id / "champion.json"
+        vdir = self.registry_dir / version_id
+        json_path = vdir / "champion.json"
         if not json_path.exists():
             raise KeyError(f"Unknown registry version: {version_id!r}")
-        return ChampionManifest.load(json_path)
+        manifest = ChampionManifest.load(json_path)
+        # The artifacts are archived next to the manifest, so point at them there. The paths
+        # stored in the file are only as good as the directory they were recorded from: a
+        # registry opened with a relative path stored a relative one, and a registry that has
+        # been moved stored one that no longer exists.
+        return replace(
+            manifest,
+            model_path=vdir / "champion.pkl",
+            calibrator_path=vdir / "calibrator.pkl" if manifest.calibrator_path else None,
+        )
 
     def diff(self, version_a: str, version_b: str) -> dict[str, object]:
         """Compare two versions field by field.
