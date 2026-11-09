@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from pmlab.markets.clob_client import parse_midpoint
+
 CLOB_API_BASE = "https://clob.polymarket.com"
 __all__ = ["AsyncClobClient"]
 
@@ -25,6 +27,11 @@ class AsyncClobClient:
     def __init__(
         self, base_url: str = CLOB_API_BASE, timeout: float = 15.0, concurrency: int = 10
     ) -> None:
+        if isinstance(concurrency, bool) or not isinstance(concurrency, int):
+            raise TypeError(f"concurrency must be an int >= 1, got {concurrency!r}")
+        if concurrency < 1:
+            # asyncio.Semaphore(0) would make every request wait for ever.
+            raise ValueError(f"concurrency must be >= 1, got {concurrency}")
         self.base_url = base_url
         self._client = httpx.AsyncClient(timeout=timeout)
         self._sem = asyncio.Semaphore(concurrency)
@@ -53,10 +60,9 @@ class AsyncClobClient:
                     f"{self.base_url}/midpoint", params={"token_id": token_id}
                 )
                 resp.raise_for_status()
-                data = resp.json()
-                mid = data.get("mid")
+                mid = parse_midpoint(resp.json())
                 if mid is not None:
-                    results[token_id] = float(mid)
+                    results[token_id] = mid
             except (httpx.HTTPError, ValueError, KeyError):
                 pass
 

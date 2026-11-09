@@ -10,6 +10,25 @@ import httpx
 CLOB_API_BASE = "https://clob.polymarket.com"
 
 
+def parse_midpoint(data: Any) -> float | None:
+    """The midpoint of a ``/midpoint`` reply, or ``None`` if it is not a probability.
+
+    A reply that is not an object, has no ``mid``, or whose ``mid`` is NaN, infinite or outside
+    [0, 1] is a failed request, not a price: stored, it failed later in the middle of a backtest
+    or was traded on (#63).
+    """
+    if not isinstance(data, dict):
+        return None
+    mid = data.get("mid")
+    if mid is None:
+        return None
+    try:
+        value = float(mid)
+    except (TypeError, ValueError):
+        return None
+    return value if 0.0 <= value <= 1.0 else None
+
+
 def fetch_token_prices(
     token_ids: list[str],
     base_url: str = CLOB_API_BASE,
@@ -28,10 +47,9 @@ def fetch_token_prices(
             try:
                 resp = _client.get(f"{base_url}/midpoint", params={"token_id": token_id})
                 resp.raise_for_status()
-                data: dict[str, Any] = resp.json()
-                mid = data.get("mid")
+                mid = parse_midpoint(resp.json())
                 if mid is not None:
-                    prices[token_id] = float(mid)
+                    prices[token_id] = mid
             except (httpx.HTTPError, ValueError, KeyError):
                 continue
     finally:

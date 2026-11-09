@@ -9,6 +9,7 @@ import httpx
 from pmlab.markets.gamma_client import (
     TmaxMarketInfo,
     _build_tmax_market_info,
+    _check_page_size,
     _is_tmax_market,
 )
 
@@ -82,6 +83,7 @@ class AsyncGammaClient:
         Returns:
             List of parsed `TmaxMarketInfo` for every matching market.
         """
+        _check_page_size(page_size)
         results: list[TmaxMarketInfo] = []
         offset = 0
 
