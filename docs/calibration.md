@@ -24,7 +24,9 @@ The Brier score is the mean squared error between predicted probabilities and bi
 BS = (1/N) * Σ (f_i - o_i)²
 ```
 
-Where `f_i` is the forecast probability and `o_i` is 0 or 1.
+Where `f_i` is the forecast probability and `o_i` is 0 or 1. The functions check that: `y_true` must hold
+only 0 and 1, `y_prob` must be finite numbers in [0, 1] (both 1-D, the same length) and `n_bins` a positive
+int, else `ValueError`; a multiclass `y_prob` must be an `(n, k)` matrix whose rows sum to 1.
 
 - **BS = 0**: perfect calibration
 - **BS = 0.25**: climatological forecast (always predicting base rate)
@@ -100,8 +102,8 @@ If your reliability diagram shows a systematic curve (overconfident or underconf
 from pmlab import IsotonicCalibrator
 
 cal = IsotonicCalibrator()
-cal.fit(y_true_val, raw_probs_val)
-calibrated_probs = cal.predict(raw_probs_test)
+cal.fit(raw_probs_val, y_true_val)        # fit(probs, labels), in that order
+calibrated_probs = cal.transform(raw_probs_test)
 
 # Compare before/after
 before = brier_decomposition(y_true_test, raw_probs_test)
