@@ -139,3 +139,29 @@ class TestMarketSpec:
         )
         assert "weather" in spec.tags
         assert spec.metadata["city"] == "NYC"
+
+
+class TestNonFiniteTruth:
+    """A NaN observation belongs to no bin (#52); before 1.1.1 it fell into the first one."""
+
+    def test_nan_is_in_no_bin(self) -> None:
+        nan = float("nan")
+        for b in (
+            OutcomeBin(label="lo", upper=27.0),
+            OutcomeBin(label="mid", lower=28.0, upper=30.0),
+            OutcomeBin(label="hi", lower=31.0),
+            OutcomeBin(label="any"),
+        ):
+            assert b.contains(nan) is False
+
+    def test_nan_resolves_to_no_winner(self) -> None:
+        spec = MarketSpec(
+            market_id="m",
+            slug="s",
+            question="q",
+            outcome_bins=[OutcomeBin(label="lo", upper=27.0), OutcomeBin(label="hi", lower=31.0)],
+            close_time="2026-01-01T00:00:00Z",
+            market_family="f",
+        )
+        assert spec.resolve_winning_bin(float("nan")) is None
+        assert spec.resolve_winning_bin(20.0) == "lo"
