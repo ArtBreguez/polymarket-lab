@@ -108,6 +108,12 @@ def test_report_names_and_tracker_hold_in_the_wheel(installed: Installed) -> Non
     assert "audit report names: OK" in out
 
 
+def test_boundary_arguments_are_refused_in_the_wheel(installed: Installed) -> None:
+    """The 1.1.3 audit fixes (#58-#63): bad arguments are refused early, with a clear error."""
+    out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_inputs.py"))
+    assert "audit inputs: OK" in out
+
+
 def test_user_workflow_script(installed: Installed) -> None:
     panel = installed.workdir / "panel.parquet"
     out = _ok(installed.py(EXAMPLE, "--panel-out", panel))

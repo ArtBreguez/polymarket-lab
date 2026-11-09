@@ -23,6 +23,9 @@ InteractionOp = Literal["mul", "div", "add", "sub"]
 _INTERACTION_INFIX: dict[str, str] = {"mul": "x", "div": "div", "add": "plus", "sub": "minus"}
 
 
+_ROLLING_STATS = ("mean", "std", "min", "max", "median")
+
+
 def add_lags(
     df: pd.DataFrame,
     cols: list[str],
@@ -47,6 +50,12 @@ def add_lags(
     Raises:
         KeyError: A column in ``cols`` is not in ``df``.
     """
+    for lag in lags:
+        if lag < 0:
+            raise ValueError(
+                f"lag must be >= 0, got {lag}: a negative lag shifts the future into the "
+                "present, a lookahead feature"
+            )
     out = df.copy()
     for col in cols:
         if col not in out.columns:
@@ -91,6 +100,12 @@ def add_rolling_stats(
     """
     if stats is None:
         stats = ["mean", "std"]
+    for window in windows:
+        if window < 1:
+            raise ValueError(f"window must be >= 1, got {window}")
+    for stat in stats:
+        if stat not in _ROLLING_STATS:
+            raise ValueError(f"unknown stat {stat!r}; choose from {list(_ROLLING_STATS)}")
     out = df.copy()
     for col in cols:
         if col not in out.columns:
@@ -191,6 +206,11 @@ def clip_outliers(
     Raises:
         KeyError: A column in ``cols`` is not in ``df``.
     """
+    if method not in ("iqr", "zscore"):
+        raise ValueError(f"method must be 'iqr' or 'zscore', got {method!r}")
+    for name, factor in (("iqr_factor", iqr_factor), ("zscore_threshold", zscore_threshold)):
+        if not (factor >= 0 and factor != float("inf")):
+            raise ValueError(f"{name} must be a finite number >= 0, got {factor!r}")
     out = df.copy()
     for col in cols:
         if col not in out.columns:

@@ -60,6 +60,12 @@ def _parse_tmax_date(date_str: str, reference_year: int | None = None) -> str:
     return date_str
 
 
+def _check_page_size(page_size: int) -> None:
+    """The API serves at most 100 per page; asking for more stopped the paging after one page."""
+    if isinstance(page_size, bool) or not isinstance(page_size, int) or not 1 <= page_size <= 100:
+        raise ValueError(f"page_size must be an int between 1 and 100, got {page_size!r}")
+
+
 def _parse_json_list(raw: Any) -> list[Any]:
     """Return a Python list from a JSON string or existing list."""
     if isinstance(raw, list):
@@ -250,6 +256,7 @@ class GammaClient:
         from pmlab.logging import get_logger
 
         _log = get_logger(__name__)
+        _check_page_size(page_size)
 
         all_markets: list[dict[str, Any]] = []
         offset = 0
@@ -305,6 +312,7 @@ class GammaClient:
         from pmlab.logging import get_logger
 
         _log = get_logger(__name__)
+        _check_page_size(page_size)
 
         results: list[TmaxMarketInfo] = []
         offset = 0

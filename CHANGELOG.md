@@ -4,6 +4,50 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.1.3] — 2026-11-09
+
+The last of the fixes from the 1.1.0 audit (stacked on 1.1.2): boundary arguments that were accepted
+silently, or failed late with an unhelpful error. Every value that worked before still works; what
+changes is that NaN, infinities, the wrong type and out-of-range numbers are refused **before** a
+number is computed from them. The API snapshot is untouched.
+
+### Fixed
+
+- **Calibration helpers check their inputs** (#58). `brier_decomposition` and `reliability_data` raise
+  `ValueError` for labels that are not 0/1, probabilities that are not finite numbers in [0, 1], inputs
+  that are not 1-D and an `n_bins` below 1 (it used to return `reliability=0` for `n_bins=0` and a
+  negative uncertainty for labels 0/2); `multiclass_brier` needs an `(n, k)` matrix whose rows sum to 1;
+  `IsotonicCalibrator.fit(probs, labels)` refuses labels that are not 0/1 or probabilities outside
+  [0, 1], so the swapped call fails instead of fitting nonsense. `docs/calibration.md` called
+  `cal.fit(y_true, probs)` and `cal.predict(...)`; the API is `fit(probs, labels)` and `transform`.
+- **Costs, fees and sizing refuse NaN, infinity and negatives** (#59). `CostModel(taker_bps=nan)`
+  passed (`nan < 0` is false) and made every fill NaN; `estimate_fee` returned a negative fee for a
+  negative stake; `kelly_stake_size` returned a negative stake for a negative bankroll or
+  `max_exposure`. `rolling_origin_eval` checks `stride` (int >= 1), `min_train_rows` (int >= 0),
+  `flat_stake` (finite, > 0), `policy`, `costs`, `model` and the panel's columns before the first fold,
+  naming the argument (`stride=0` was "range() arg 3 must not be zero", `stride=-1` ran nothing,
+  `flat_stake=nan` returned NaN trades). A fold is never fitted on zero rows, whatever `min_train_rows`.
+- **`build_panel` refuses an impossible date and an out-of-range price** (#60). `2025-13-45` passed
+  the pattern and failed in the middle of the backtest; so did a `market_price` of 1.5.
+- **`pmlab backtest` and `promote-champion` fail in one line** (#61). A bad `--flat-stake`,
+  `--min-train-rows`, `--seed` or `--lgbm-param`, or a gate file that is not a gate, printed a traceback.
+  They exit 1 with a message. `--output` with no trades says the file was not written (the exit status
+  is unchanged). `--help` and `docs/cli.md` now state that `--stride` must be at least 10.
+- **`add_lags` refuses a negative lag** (#62), which shifts the *next* row into this one, a lookahead
+  feature; `clip_outliers` raises for an unknown `method` (it used to return the data unchanged) and a
+  negative factor; `add_rolling_stats` names an unknown `stat` and a window below 1.
+- **The market clients validate** (#63). `AsyncClobClient(concurrency=0)` hung for ever; both CLOB
+  clients returned a NaN, infinite or out-of-[0, 1] midpoint as a price and the sync one crashed on a
+  JSON array reply (a reply that is not a probability is now a failed request, absent from the result);
+  `fetch_markets_all(page_size=500)` stopped after one page and returned 100 of 250 markets
+  (`page_size` must be 1..100).
+- **`repr(PmlabSettings)` no longer prints the Polymarket credentials** (#67). The API key, secret and
+  passphrase were part of the repr, so logging or printing the settings wrote them to the log. They are
+  excluded from it; the attributes and `model_dump()` are unchanged.
+- **`docs/tracking.md` no longer shows the MLflow file store** (doc fix). `MLflowTracker(tracking_uri="file:./mlruns")`
+  raises `MlflowException` with MLflow 3.18 (the `track` extra installs it: the filesystem backend is in
+  maintenance mode); the example uses `sqlite:///mlflow.db`, which works.
+
 ## [1.1.2] — 2026-11-09
 
 More fixes from the 1.1.0 audit (stacked on 1.1.1): the HTML report, the names that become paths, and
@@ -1639,7 +1683,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.2...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.3...HEAD
+[1.1.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.3...v1.1.0

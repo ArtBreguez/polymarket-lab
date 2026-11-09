@@ -138,3 +138,31 @@ class TestOnlyThePmlabVariablesNameTheWorkspace:
 
     def test_the_field_can_still_be_given_by_name(self):
         assert PmlabSettings(workspace="paper").workspace == "paper"
+
+
+class TestCredentialsStayOutOfTheRepr:
+    """Printing or logging the settings must not print the Polymarket credentials (#67)."""
+
+    def _settings(self):
+        from pmlab.config import PmlabSettings
+
+        return PmlabSettings(
+            POLY_API_KEY="key-123", POLY_API_SECRET="sekrit-456", POLY_API_PASSPHRASE="pass-789"
+        )
+
+    def test_repr_and_str_hide_the_credentials(self):
+        s = self._settings()
+        for text in (repr(s), str(s)):
+            assert not any(v in text for v in ("key-123", "sekrit-456", "pass-789"))
+
+    def test_the_values_are_still_there(self):
+        s = self._settings()
+        assert (s.poly_api_key, s.poly_api_secret, s.poly_api_passphrase) == (
+            "key-123",
+            "sekrit-456",
+            "pass-789",
+        )
+        assert s.model_dump()["poly_api_secret"] == "sekrit-456"
+
+    def test_the_other_settings_are_still_shown(self):
+        assert "workspace='ops_daily'" in repr(self._settings())

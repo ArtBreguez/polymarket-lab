@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numbers
 from dataclasses import dataclass
 
 import numpy as np
@@ -27,18 +28,46 @@ class BrierDecomposition:
     n_samples: int
 
 
+_PROB_TOL = 1e-9
+
+
+def _check_n_bins(n_bins: object) -> int:
+    if isinstance(n_bins, bool) or not isinstance(n_bins, numbers.Integral):
+        raise TypeError(f"n_bins must be an int >= 1, got {n_bins!r}")
+    if n_bins < 1:
+        raise ValueError(f"n_bins must be >= 1, got {n_bins}")
+    return int(n_bins)
+
+
+def _binary_inputs(
+    y_true: ArrayLike, y_prob: ArrayLike, *, allow_empty: bool
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """``(y_true, y_prob)`` as float vectors, or ``ValueError``: labels 0/1, probabilities in [0, 1]."""
+    yt = np.asarray(y_true, dtype=float)
+    yp = np.asarray(y_prob, dtype=float)
+    if yt.ndim != 1 or yp.ndim != 1:
+        raise ValueError(f"y_true and y_prob must be 1-D, got shapes {yt.shape} and {yp.shape}")
+    if len(yt) == 0 and len(yp) == 0:
+        if allow_empty:
+            return yt, yp
+        raise ValueError("Empty arrays - cannot compute Brier decomposition")
+    if len(yt) != len(yp):
+        raise ValueError("y_true and y_prob must have the same length")
+    if not np.isin(yt, (0.0, 1.0)).all():
+        raise ValueError("y_true must hold only the labels 0 and 1 (no NaN, no other value)")
+    if not (np.isfinite(yp).all() and yp.min() >= -_PROB_TOL and yp.max() <= 1.0 + _PROB_TOL):
+        raise ValueError("y_prob must be probabilities: finite numbers in [0, 1]")
+    return yt, yp
+
+
 def brier_decomposition(
     y_true: ArrayLike,
     y_prob: ArrayLike,
     n_bins: int = 10,
 ) -> BrierDecomposition:
     """Murphy (1973) Brier score decomposition."""
-    yt = np.asarray(y_true, dtype=float)
-    yp = np.asarray(y_prob, dtype=float)
-    if len(yt) == 0:
-        raise ValueError("Empty arrays - cannot compute Brier decomposition")
-    if len(yt) != len(yp):
-        raise ValueError("y_true and y_prob must have the same length")
+    n_bins = _check_n_bins(n_bins)
+    yt, yp = _binary_inputs(y_true, y_prob, allow_empty=False)
     n = len(yt)
     clim = float(yt.mean())
     bins = np.linspace(0, 1, n_bins + 1)
@@ -76,8 +105,8 @@ def reliability_data(
     n_bins: int = 10,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """Reliability diagram data: (bin_centers, mean_predicted_prob, fraction_positive)."""
-    yt = np.asarray(y_true, dtype=float)
-    yp = np.asarray(y_prob, dtype=float)
+    n_bins = _check_n_bins(n_bins)
+    yt, yp = _binary_inputs(y_true, y_prob, allow_empty=True)
     bins = np.linspace(0, 1, n_bins + 1)
     bin_indices = np.clip(np.digitize(yp, bins) - 1, 0, n_bins - 1)
     bin_centers_list: list[float] = []
@@ -119,8 +148,14 @@ def multiclass_brier(y_true: ArrayLike, y_prob: ArrayLike) -> MulticlassBrier:
     yp = np.asarray(y_prob, dtype=float)
     if yt.size == 0 or yp.size == 0:
         raise ValueError("Empty arrays - cannot compute multiclass Brier score")
+    if yp.ndim != 2:
+        raise ValueError(f"y_prob must be a 2-D (n, k) probability matrix, got shape {yp.shape}")
     if len(yt) != len(yp):
         raise ValueError("y_true and y_prob must have the same length")
+    if not (np.isfinite(yp).all() and yp.min() >= -_PROB_TOL and yp.max() <= 1.0 + _PROB_TOL):
+        raise ValueError("y_prob must be probabilities: finite numbers in [0, 1]")
+    if not np.allclose(yp.sum(axis=1), 1.0, atol=1e-4):
+        raise ValueError("each row of y_prob must sum to 1")
     n, k = yp.shape
     # Map labels to column indices (handles non-0-based / unsorted label sets).
     classes = np.unique(yt)

@@ -37,7 +37,9 @@ pmlab backtest --plugin weather_tmax --panel panel.parquet \
 pmlab reproduce metrics.json
 ```
 
-`--min-train-rows` counts panel **rows**. A panel has one row per market bin, nine bins per market in
+`--stride` must be at least 10 (the command refuses a smaller one; the library accepts any positive
+stride). A bad value of `--flat-stake`, `--min-train-rows`, `--seed` or `--lgbm-param` is one line and exit 1,
+like `--costs`. `--min-train-rows` counts panel **rows**. A panel has one row per market bin, nine bins per market in
 the sample, so 2700 rows is 300 markets of history before the first prediction.
 
 `--embargo-days N` holds the walk-forward back further: a fold then trains only on rows decided at least

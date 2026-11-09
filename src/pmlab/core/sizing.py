@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import math
+
 __all__ = ["flat_stake_size", "kelly_fraction", "kelly_stake_size"]
+
+
+def _require_range(name: str, value: float, lo: float, hi: float) -> None:
+    """``ValueError`` unless ``value`` is finite and ``lo <= value <= hi``."""
+    if not (math.isfinite(value) and lo <= value <= hi):
+        raise ValueError(f"{name} must be a finite number in [{lo}, {hi}], got {value!r}")
 
 
 def flat_stake_size(flat_stake: float, entry_price: float) -> float:
@@ -41,6 +49,8 @@ def kelly_fraction(
     Returns:
         Fraction of bankroll to wager (0-1, floored at 0).
     """
+    _require_range("win_prob", win_prob, 0.0, 1.0)
+    _require_range("fraction", fraction, 0.0, math.inf)
     if entry_price <= 0.0 or entry_price >= 1.0:
         return 0.0
     b = (1.0 - entry_price) / entry_price  # net odds
@@ -68,6 +78,8 @@ def kelly_stake_size(
     Returns:
         USDC stake amount (>= 0).
     """
+    _require_range("bankroll", bankroll, 0.0, math.inf)
+    _require_range("max_exposure", max_exposure, 0.0, 1.0)
     kf = kelly_fraction(win_prob, entry_price, fraction)
     capped = min(kf, max_exposure)
     return capped * bankroll

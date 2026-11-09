@@ -111,6 +111,13 @@ def build_panel(
         raise PanelSchemaError(
             f"decision_date must be 'YYYY-MM-DD'; got e.g. {bad_dates.iloc[0]!r}."
         )
+    # The pattern lets 2025-13-45 through; the backtest refuses it later, so refuse it here (#60).
+    parsed = pd.to_datetime(df["decision_date"].astype(str), format="%Y-%m-%d", errors="coerce")
+    if bool(parsed.isna().any()):
+        impossible = df.loc[parsed.isna(), "decision_date"].iloc[0]
+        raise PanelSchemaError(
+            f"decision_date must be a real calendar date 'YYYY-MM-DD'; got e.g. {impossible!r}."
+        )
 
     for col in feature_cols:
         original = df[col]
@@ -133,6 +140,12 @@ def build_panel(
         raise PanelSchemaError(
             "Column 'market_price' is entirely missing/NaN — it drives PnL and edge; "
             "a panel cannot be backtested without it."
+        )
+    out_of_range = price.notna() & ~((price >= 0.0) & (price <= 1.0))
+    if bool(out_of_range.any()):
+        raise PanelSchemaError(
+            "Column 'market_price' must be a probability in [0, 1]; "
+            f"got e.g. {price[out_of_range].iloc[0]!r}."
         )
     df["market_price"] = price.astype(float)
 

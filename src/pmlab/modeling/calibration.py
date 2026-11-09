@@ -32,7 +32,19 @@ class IsotonicCalibrator:
         self._model: IsotonicRegression | None = None
 
     def fit(self, probs: np.ndarray, labels: np.ndarray) -> None:
-        """Fit isotonic regression on raw probabilities and true labels."""
+        """Fit isotonic regression on raw probabilities and true labels.
+
+        Raises:
+            ValueError: ``probs`` are not finite numbers in [0, 1], or ``labels`` are not 0/1
+                (the usual cause is the arguments the wrong way round: the order is
+                ``fit(probs, labels)``).
+        """
+        p = np.asarray(probs, dtype=float)
+        y = np.asarray(labels, dtype=float)
+        if p.size and not (np.isfinite(p).all() and p.min() >= 0.0 and p.max() <= 1.0):
+            raise ValueError("probs must be finite probabilities in [0, 1]; fit(probs, labels)")
+        if y.size and not np.isin(y, (0.0, 1.0)).all():
+            raise ValueError("labels must be 0 or 1; fit(probs, labels), not fit(labels, probs)")
         self._model = IsotonicRegression(out_of_bounds="clip")
         self._model.fit(probs, labels)
 
