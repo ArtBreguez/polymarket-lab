@@ -41,6 +41,9 @@ number is computed from them. The API snapshot is untouched.
   JSON array reply (a reply that is not a probability is now a failed request, absent from the result);
   `fetch_markets_all(page_size=500)` stopped after one page and returned 100 of 250 markets
   (`page_size` must be 1..100).
+- **`repr(PmlabSettings)` no longer prints the Polymarket credentials** (#67). The API key, secret and
+  passphrase were part of the repr, so logging or printing the settings wrote them to the log. They are
+  excluded from it; the attributes and `model_dump()` are unchanged.
 
 ## [1.1.2] — 2026-11-09
 

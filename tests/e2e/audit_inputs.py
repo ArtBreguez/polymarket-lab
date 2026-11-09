@@ -20,6 +20,7 @@ from pmlab import (
     CostModel,
     IsotonicCalibrator,
     LGBMForecaster,
+    PmlabSettings,
     PanelSchemaError,
     add_lags,
     brier_decomposition,
@@ -91,6 +92,14 @@ for extra in (["--flat-stake", "0"], ["--seed", "-1"], ["--lgbm-param", "n_estim
         r.stdout[-300:],
         r.stderr[-300:],
     )
+
+# credentials stay out of the repr (#67)
+shown = repr(
+    PmlabSettings(
+        POLY_API_KEY="key-123", POLY_API_SECRET="sekrit-456", POLY_API_PASSPHRASE="pass-789"
+    )
+)
+assert not any(v in shown for v in ("key-123", "sekrit-456", "pass-789")), shown
 
 # the clients (#63): a hang and a silent truncation are refused up front
 refused(ValueError, AsyncClobClient, concurrency=0)

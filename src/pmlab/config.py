@@ -72,9 +72,9 @@ class PmlabSettings(BaseSettings):
     log_level: str = Field(default="INFO", description="Log level: DEBUG, INFO, WARNING, ERROR")
 
     # Polymarket API credentials (no PMLAB_ prefix for these)
-    poly_api_key: str = Field(default="", alias="POLY_API_KEY")
-    poly_api_secret: str = Field(default="", alias="POLY_API_SECRET")
-    poly_api_passphrase: str = Field(default="", alias="POLY_API_PASSPHRASE")
+    poly_api_key: str = Field(default="", alias="POLY_API_KEY", repr=False)
+    poly_api_secret: str = Field(default="", alias="POLY_API_SECRET", repr=False)
+    poly_api_passphrase: str = Field(default="", alias="POLY_API_PASSPHRASE", repr=False)
 
     # API base URLs (for testing / staging overrides)
     gamma_api_base: str = Field(
