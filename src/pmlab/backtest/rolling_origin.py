@@ -131,6 +131,9 @@ def rolling_origin_eval(
         )
     if costs is None:
         costs = CostModel() if taker_bps is None else CostModel(taker_bps=taker_bps)
+    min_train_rows, stride, flat_stake = _validate_arguments(
+        panel, model, min_train_rows, stride, flat_stake, policy, costs
+    )
 
     # A clean index: `_top_prob_decisions` reads rows back by label, and a panel stacked
     # market by market repeats labels (K rows each starting at 0) and would match them all.
@@ -164,7 +167,8 @@ def rolling_origin_eval(
             train_mask &= age_days >= min(embargo, _MAX_EMBARGO_DAYS)
         train_df = panel[train_mask]
 
-        if len(train_df) < min_train_rows:
+        # Never fit on nothing, whatever min_train_rows says (0 means "no minimum").
+        if len(train_df) < max(min_train_rows, 1):
             continue
 
         eval_df = panel[panel["decision_date"] == eval_date]
@@ -286,6 +290,57 @@ _DEFAULT_LABEL_LAG_DAYS = 1
 #: No decision date is this many days before another (pandas' timestamps span about 2.6e5 days),
 #: so a larger ``embargo_days`` means "train on nothing" all the same; clamped for the comparison.
 _MAX_EMBARGO_DAYS = 10**9
+
+
+_REQUIRED_PANEL_COLUMNS = (
+    "market_id",
+    "decision_date",
+    "outcome_label",
+    "winning_label",
+    "market_price",
+)
+
+
+def _validate_arguments(
+    panel: object,
+    model: object,
+    min_train_rows: object,
+    stride: object,
+    flat_stake: object,
+    policy: object,
+    costs: object,
+) -> tuple[int, int, float]:
+    """Refuse a bad argument before anything is fitted, with a message that names it.
+
+    ``range()`` / ``fit()`` / the first fold used to be what noticed: ``stride=0`` was "range()
+    arg 3 must not be zero", ``stride=-1`` silently ran no fold, ``min_train_rows=None`` was a
+    ``TypeError`` about ``<``, and ``flat_stake=nan`` produced trades with NaN PnL (#59).
+    """
+    if not isinstance(panel, pd.DataFrame):
+        raise TypeError(f"panel must be a pandas DataFrame, got {type(panel).__name__}")
+    missing = [c for c in _REQUIRED_PANEL_COLUMNS if c not in panel.columns]
+    if missing:
+        raise ValueError(
+            f"panel is missing required column(s) {missing}: {list(_REQUIRED_PANEL_COLUMNS)}"
+        )
+    if not (
+        callable(getattr(model, "fit", None)) and callable(getattr(model, "predict_proba", None))
+    ):
+        raise TypeError("model must have sklearn-style fit(X, y) and predict_proba(X) methods")
+    if policy is not None and not isinstance(policy, TradePolicy):
+        raise TypeError(f"policy must be a TradePolicy or None, got {type(policy).__name__}")
+    if not isinstance(costs, CostModel):
+        raise TypeError(f"costs must be a CostModel or None, got {type(costs).__name__}")
+    for name, value, minimum in (("min_train_rows", min_train_rows, 0), ("stride", stride, 1)):
+        if isinstance(value, bool) or not isinstance(value, numbers.Integral):
+            raise TypeError(f"{name} must be an int, got {value!r}")
+        if value < minimum:
+            raise ValueError(f"{name} must be >= {minimum}, got {value}")
+    if isinstance(flat_stake, bool) or not isinstance(flat_stake, numbers.Real):
+        raise TypeError(f"flat_stake must be a number, got {flat_stake!r}")
+    if not math.isfinite(flat_stake) or flat_stake <= 0:
+        raise ValueError(f"flat_stake must be a finite number > 0, got {flat_stake!r}")
+    return int(min_train_rows), int(stride), float(flat_stake)  # type: ignore[call-overload]
 
 
 def _validate_embargo_days(embargo_days: object) -> int | None:

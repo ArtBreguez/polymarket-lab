@@ -30,11 +30,18 @@ friction improves a trade.
 
 from __future__ import annotations
 
+import math
+import numbers
 from dataclasses import asdict, dataclass
 
 from pmlab.core.fees import DEFAULT_TAKER_BPS
 
 _BPS = 10_000.0
+
+
+def _is_finite_number(value: object) -> bool:
+    """A real number that is not NaN or infinite (a bool or a string is not one here)."""
+    return isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
 
 
 @dataclass(frozen=True)
@@ -63,10 +70,11 @@ class CostModel:
     def __post_init__(self) -> None:
         for name in ("taker_bps", "slippage_bps", "slippage_fixed", "depth_bps_per_unit"):
             value = getattr(self, name)
-            if value < 0:
-                raise ValueError(f"{name} must be >= 0, got {value}")
-        if self.depth_reference_stake <= 0:
-            raise ValueError(f"depth_reference_stake must be > 0, got {self.depth_reference_stake}")
+            if not _is_finite_number(value) or value < 0:
+                raise ValueError(f"{name} must be a finite number >= 0, got {value!r}")
+        stake = self.depth_reference_stake
+        if not _is_finite_number(stake) or stake <= 0:
+            raise ValueError(f"depth_reference_stake must be a finite number > 0, got {stake!r}")
 
     @classmethod
     def frictionless(cls) -> CostModel:
