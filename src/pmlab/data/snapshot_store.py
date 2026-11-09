@@ -18,6 +18,8 @@ from typing import Any
 
 import pandas as pd
 
+from pmlab.workspace.context import validate_path_segment
+
 __all__ = ["FeatureSnapshotStore"]
 
 _MARKET_ID = "market_id"
@@ -33,6 +35,7 @@ class FeatureSnapshotStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, family: str) -> Path:
+        validate_path_segment(family, "snapshot family")
         return self.root / f"{family}.parquet"
 
     def append(self, family: str, snapshots: list[dict[str, Any]]) -> int:

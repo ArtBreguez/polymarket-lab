@@ -30,6 +30,9 @@ def resolve_workspace_dir(artifacts_dir: Path, workspace: str) -> Path:
     again would look for the trade log in a directory nobody wrote, so ``pmlab -a artifacts
     -w ws`` and ``scripts/pmlab-workspace ws pmlab`` name the same files.
     """
+    from pmlab.workspace.context import validate_path_segment
+
+    validate_path_segment(workspace, "workspace name")
     if artifacts_dir.name == workspace and artifacts_dir.parent.name == "workspaces":
         return artifacts_dir
     return artifacts_dir / "workspaces" / workspace

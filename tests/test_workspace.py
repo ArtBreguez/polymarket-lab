@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from pmlab.config import resolve_workspace_dir
 from pmlab.workspace.context import WorkspaceContext
 
 FAKE_REPO = Path("/fake/repo")
@@ -67,3 +68,40 @@ class TestFromEnv:
         monkeypatch.delenv("PMLAB_DUCKDB_PATH")
         with pytest.raises(EnvironmentError, match="PMLAB_DUCKDB_PATH"):
             WorkspaceContext.from_env()
+
+
+BAD_NAMES = ["", ".", "..", "../x", "a/b", "a\\b", "/abs", "../../etc", "x\x00y"]
+
+
+class TestWorkspaceNames:
+    """A workspace name is one path segment (#56): it cannot reach another workspace or leave the
+    repository, and the empty name cannot stand for the directory that holds every workspace."""
+
+    @pytest.mark.parametrize("name", BAD_NAMES)
+    def test_from_name_rejects(self, name):
+        with pytest.raises(ValueError, match="workspace"):
+            WorkspaceContext.from_name(name, FAKE_REPO)
+
+    @pytest.mark.parametrize("name", BAD_NAMES)
+    def test_resolve_workspace_dir_rejects(self, name):
+        with pytest.raises(ValueError, match="workspace"):
+            resolve_workspace_dir(FAKE_REPO / "artifacts", name)
+
+    @pytest.mark.parametrize("name", ["ops_daily", "historical_real", "my ws", "w-1.2", "Étude"])
+    def test_ordinary_names_still_work(self, name):
+        ctx = WorkspaceContext.from_name(name, FAKE_REPO)
+        assert ctx.artifacts_root == FAKE_REPO / "artifacts" / "workspaces" / name
+        assert resolve_workspace_dir(FAKE_REPO / "artifacts", name).name == name
+
+    @pytest.mark.parametrize("name", ["..", "../x", "a/b", "/abs"])
+    def test_cli_refuses_with_a_usage_error(self, name, tmp_path):
+        from typer.testing import CliRunner
+
+        from pmlab.cli.main import app
+
+        result = CliRunner().invoke(
+            app, ["status", "--artifacts-dir", str(tmp_path), "--workspace", name]
+        )
+        assert result.exit_code == 2
+        assert "workspace" in result.output.lower()
+        assert "Traceback" not in result.output

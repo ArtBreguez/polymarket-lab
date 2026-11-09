@@ -117,3 +117,15 @@ class TestAsOf:
         got = store.as_of("politics", "2025-01-06T00:00:00Z")
         assert set(got["market_id"]) == {"m1", "m2"}
         assert len(got) == 2
+
+
+@pytest.mark.parametrize("family", ["", ".", "..", "../esc", "a/b", "/abs"])
+def test_family_must_be_one_path_segment(tmp_path, family):
+    """A family names a file inside the store; it cannot point out of it (#56)."""
+    store = FeatureSnapshotStore(tmp_path / "store")
+    snap = [{"market_id": "m", "captured_at": "2025-01-09T00:00:00Z", "feature_x": 1.0}]
+    with pytest.raises(ValueError, match="family"):
+        store.append(family, snap)
+    with pytest.raises(ValueError, match="family"):
+        store.load(family)
+    assert not list(tmp_path.glob("esc*"))
