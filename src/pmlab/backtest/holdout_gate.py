@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
@@ -15,6 +16,27 @@ class SegmentGateResult:
     total_pnl: float
     passes: bool
     reason: str
+
+
+def _grade(pnl: pd.Series, min_trades: int, min_pnl: float) -> tuple[int, float, bool, str]:
+    """(trades, total PnL, passes, reason) of one set of trades.
+
+    A trade without a finite ``realized_pnl`` (still open, or its cost was NaN) is no evidence:
+    ``Series.sum`` would skip it, so it would count towards ``min_trades`` and add nothing to the
+    PnL, and sixty open trades would be a GO (#51). Such a set fails instead, saying why.
+    """
+    num = len(pnl)
+    values = pd.to_numeric(pnl, errors="coerce").to_numpy(dtype=float)
+    if np.isnan(values).any():
+        return num, float(np.nansum(values)), False, "unsettled_trades"
+    if np.isinf(values).any():
+        return num, float(values.sum()), False, "non_finite_pnl"
+    total_pnl = float(values.sum())
+    if num < min_trades:
+        return num, total_pnl, False, "insufficient_trades"
+    if total_pnl < min_pnl:
+        return num, total_pnl, False, "negative_pnl"
+    return num, total_pnl, True, "ok"
 
 
 @dataclass
@@ -48,14 +70,10 @@ class HoldoutGateResult:
         # to the segment loop would yield zero results and all([]) == True → GO,
         # which would let a losing model be published (champion hard-gate breach).
         if not required_segments:
-            num = len(trades)
-            total_pnl = float(trades["realized_pnl"].sum()) if not trades.empty else 0.0
-            if num < min_trades_per_segment:
-                passes, reason = False, "insufficient_trades"
-            elif total_pnl < min_pnl_per_segment:
-                passes, reason = False, "negative_pnl"
-            else:
-                passes, reason = True, "ok"
+            pnl_all = trades["realized_pnl"] if not trades.empty else pd.Series([], dtype=float)
+            num, total_pnl, passes, reason = _grade(
+                pnl_all, min_trades_per_segment, min_pnl_per_segment
+            )
             seg_result = SegmentGateResult(
                 segment="all",
                 num_trades=num,
@@ -89,18 +107,9 @@ class HoldoutGateResult:
                 )
                 continue
 
-            num = len(seg_trades)
-            total_pnl = float(seg_trades["realized_pnl"].sum())
-
-            if num < min_trades_per_segment:
-                reason = "insufficient_trades"
-                passes = False
-            elif total_pnl < min_pnl_per_segment:
-                reason = "negative_pnl"
-                passes = False
-            else:
-                reason = "ok"
-                passes = True
+            num, total_pnl, passes, reason = _grade(
+                seg_trades["realized_pnl"], min_trades_per_segment, min_pnl_per_segment
+            )
 
             segment_results.append(
                 SegmentGateResult(
@@ -114,7 +123,11 @@ class HoldoutGateResult:
 
         all_pass = all(r.passes for r in segment_results)
         decision = "GO" if all_pass else "NO_GO"
-        agg_pnl = float(trades["realized_pnl"].sum()) if not trades.empty else 0.0
+        agg_pnl = (
+            float(np.nansum(pd.to_numeric(trades["realized_pnl"], errors="coerce")))
+            if not trades.empty
+            else 0.0
+        )
         agg_trades = len(trades)
 
         return cls(

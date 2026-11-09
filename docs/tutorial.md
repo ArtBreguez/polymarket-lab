@@ -112,6 +112,10 @@ on the morning of 2025-08-14 {'settled': 54, 'pending': 62, 'total_pnl': 85.8751
 once the sample is complete: {'settled': 62, 'pending': 0, 'total_pnl': 106.569796}
 ```
 
+A segment's `reason` is `ok`, `negative_pnl`, `insufficient_trades`, `missing` (no trade of that segment
+in the log), `unsettled_trades` (a trade has no realized PnL, so it is still open or its cost was NaN:
+the gate refuses to count it) or `non_finite_pnl`. Pass the gate a log of *settled* trades.
+
 Scoping the champion to the cities that cleared the gate is a choice made after looking at the
 backtest, so the notebook says so and leaves the live window to check it. Fifty or a hundred paper
 trades cannot tell a good strategy from a lucky one; that is what paper trading first, and

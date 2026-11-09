@@ -261,6 +261,24 @@ Return `True` when the truth from `fetch_truth()` is **final** (not preliminary)
 Default: `True` whenever `fetch_truth()` returns non-None.
 Override when your data source has a finalization lag (e.g. weather stations).
 
+## Settlement
+
+`SettlementEngine.settle_all(specs)` settles the open trades of a paper-trade log, and it finds a
+trade's market by **the spec's metadata, not by `market_id`** (a trade records no market id): the
+trade's `city_or_segment` and `target_date` must equal the spec's **`metadata["city"]`** and
+**`metadata["target_date"]`** (`YYYY-MM-DD`). Whatever your segment is (an asset, a league, a
+station), store it under `metadata["city"]`. A spec without those keys is never matched, its trades
+stay pending, and `settle_all` logs a warning saying how many trades matched nothing.
+
+- **One market per segment, date and horizon.** `PaperBroker.record` de-duplicates on
+  `(city_or_segment, target_date, horizon)`, so a second market with the same three is skipped
+  without a message, and `settle_all` keeps the last spec for a `(city, target_date)`. If your family
+  has several markets per day, give each its own segment name (`"BTC>60k"`, `"BTC>70k"`).
+- **A truth that is not a number is not a result.** `fetch_truth` returns a float (resolved to a bin
+  with `MarketSpec.resolve_winning_bin`), a winning label, or `None`. A NaN belongs to no bin, so it
+  leaves the trade pending, as `None` does (before 1.1.1 it was settled against the first bin).
+  A trade settles only once `is_truth_final(spec)` is true.
+
 ## Registering your plugin
 
 ```python

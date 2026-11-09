@@ -304,3 +304,54 @@ def test_realized_pnl_is_float_after_settlement(tmp_path: Path) -> None:
     data = json.loads(trades_file.read_text())
     pnl = data["trades"][0]["realized_pnl"]
     assert isinstance(pnl, float)
+
+
+def test_nan_truth_leaves_the_trade_open(tmp_path):
+    """A plugin that reports NaN for a missing observation must not settle anything (#52)."""
+    trades_file = tmp_path / "trades.json"
+    write_trades(
+        trades_file,
+        [base_trade(outcome_label="lo", direction="yes", gamma_price=0.4)],
+    )
+    spec = MarketSpec(
+        market_id="m",
+        slug="s",
+        question="q",
+        outcome_bins=[OutcomeBin(label="lo", upper=27.0), OutcomeBin(label="hi", lower=31.0)],
+        close_time="2024-01-15T20:00:00Z",
+        market_family="numeric",
+        metadata={"city": "Chicago", "target_date": "2024-01-15"},
+    )
+    plugin = DummyPlugin(truth=float("nan"))  # type: ignore[arg-type]
+    result = SettlementEngine(plugin=plugin, trades_path=trades_file).settle_all(
+        specs=[spec], today_str="2024-01-16"
+    )
+    assert result == {"settled": 0, "pending": 1, "total_pnl": 0.0}
+    assert json.loads(trades_file.read_text())["trades"][0]["outcome"] is None
+
+
+def test_unmatched_trades_are_warned_about(tmp_path, caplog):
+    """Trades are matched to specs on metadata['city'] and ['target_date'] (#53): say so when
+    nothing matches instead of leaving every trade pending in silence."""
+    import logging
+
+    trades_file = tmp_path / "trades.json"
+    write_trades(trades_file, [base_trade(city="BTC", target_date="2024-01-15")])
+    spec = make_spec(city="x", target_date="2024-01-15")
+    spec = spec.model_copy(update={"metadata": {"segment": "BTC", "target_date": "2024-01-15"}})
+    engine = SettlementEngine(plugin=DummyPlugin(), trades_path=trades_file)
+    with caplog.at_level(logging.WARNING):
+        result = engine.settle_all(specs=[spec], today_str="2024-02-01")
+    assert result["settled"] == 0 and result["pending"] == 1
+    assert any("metadata" in r.getMessage() and "city" in r.getMessage() for r in caplog.records)
+
+
+def test_matched_trades_do_not_warn(tmp_path, caplog):
+    import logging
+
+    trades_file = tmp_path / "trades.json"
+    write_trades(trades_file, [base_trade()])
+    engine = SettlementEngine(plugin=DummyPlugin(), trades_path=trades_file)
+    with caplog.at_level(logging.WARNING):
+        engine.settle_all(specs=[make_spec()], today_str="2024-02-01")
+    assert not [r for r in caplog.records if "metadata" in r.getMessage()]

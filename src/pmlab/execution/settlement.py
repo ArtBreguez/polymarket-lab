@@ -11,6 +11,7 @@ from typing import Any
 
 from pmlab.core.market_spec import MarketSpec
 from pmlab.core.pnl import Position, settle_position
+from pmlab.logging import get_logger
 from pmlab.plugins.base import MarketPlugin
 
 # Stamped on every trade this engine settles. Logs settled by 0.9.0 or earlier have
@@ -126,6 +127,7 @@ class SettlementEngine:
         settled_count = 0
         pending_count = 0
         total_pnl = 0.0
+        unmatched: list[tuple[str, str]] = []
         updated_trades: list[dict[str, Any]] = []
 
         for trade in trades:
@@ -145,6 +147,7 @@ class SettlementEngine:
 
             maybe_spec: MarketSpec | None = spec_map.get((city_or_segment, target_date))
             if maybe_spec is None:
+                unmatched.append((city_or_segment, target_date))
                 pending_count += 1
                 updated_trades.append(trade)
                 continue
@@ -174,6 +177,20 @@ class SettlementEngine:
             settled_count += 1
             total_pnl += float(settled_trade["realized_pnl"])
             updated_trades.append(settled_trade)
+
+        if unmatched:
+            # A trade is matched to its market by the spec's metadata, not by market id (#53).
+            # A plugin that keeps its segment under another key matched nothing, and every
+            # trade then stayed pending without a word.
+            get_logger(__name__).warning(
+                "%d due trade(s) matched no market spec (first: segment=%r, target_date=%r). "
+                "SettlementEngine matches a trade's city_or_segment and target_date to "
+                "spec.metadata['city'] and spec.metadata['target_date']; a spec without those "
+                "keys is never matched. See docs/plugin-authoring.md#settlement.",
+                len(unmatched),
+                unmatched[0][0],
+                unmatched[0][1],
+            )
 
         self.trades_path.write_text(json.dumps({"trades": updated_trades}, indent=2))
 

@@ -30,7 +30,13 @@ class OutcomeBin(BaseModel):
     upper_inclusive: bool = True
 
     def contains(self, value: float) -> bool:
-        """Return True if *value* falls inside this bin's numeric range."""
+        """Return True if *value* falls inside this bin's numeric range.
+
+        NaN is in no bin: every comparison with it is False, so without this check no bound
+        would reject it and it would land in the first bin (#52).
+        """
+        if value != value:
+            return False
         if self.lower is not None:
             if self.lower_inclusive and value < self.lower:
                 return False
