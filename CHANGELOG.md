@@ -4,6 +4,32 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-11-09
+
+Fixes from an end-to-end audit of the 1.1.0 wheel, used from outside the repository. The first four
+are on the money path: a gate that said GO without evidence, a settlement against a missing
+observation, trades that silently never settled, and a model that mis-predicted on reordered
+columns. No public name, option or file format changes (the API snapshot is untouched); the new gate
+reasons `unsettled_trades` and `non_finite_pnl` are additive strings.
+
+### Fixed
+
+- **The holdout gate no longer passes trades that have no PnL** (#51). `HoldoutGateResult.evaluate`
+  counted a trade whose `realized_pnl` is NaN/None (still open, or its cost was NaN) towards
+  `min_trades_per_segment` while `sum()` skipped it, so sixty open trades were a **GO**. A segment with
+  any such trade now fails with `reason="unsettled_trades"` (or `"non_finite_pnl"` for an infinite PnL).
+  `compute_metrics` no longer counts those trades either. Evaluate the gate on settled trades.
+- **A NaN truth settles nothing** (#52). `OutcomeBin.contains(nan)` was true for every bin, so
+  `MarketSpec.resolve_winning_bin(nan)` returned the first bin and `SettlementEngine.settle_all` booked
+  PnL against it. NaN is now in no bin; the trade stays pending, as for a `None` truth.
+- **Unmatched trades are no longer silent** (#53). `SettlementEngine` matches a trade to its market on
+  `spec.metadata["city"]` and `["target_date"]`, which the guide never said; a plugin using another key
+  had every trade pending forever. `settle_all` now logs a warning naming the count, and
+  `docs/plugin-authoring.md#settlement` documents the keys and the `PaperBroker` de-duplication key.
+- **`LGBMForecaster.predict_proba` selects columns by name** (#54). LightGBM matches a DataFrame by
+  position, so a champion fed the same features in another order returned wrong probabilities without
+  an error. Extra columns are ignored and a missing one raises a `ValueError` naming it.
+
 ## [1.1.0] — 2026-11-08
 
 Two changes. `rolling_origin_eval` gets an **optional extra hold-back, `embargo_days`** (the follow-up
@@ -1589,7 +1615,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.1...v1.0.2

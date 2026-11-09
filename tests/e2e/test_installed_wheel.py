@@ -96,6 +96,12 @@ def test_the_wheel_is_installed_for_real_not_the_checkout(installed: Installed) 
     assert f'version = "{version}"' in pyproject
 
 
+def test_money_path_guards_hold_in_the_wheel(installed: Installed) -> None:
+    """The 1.1.1 audit fixes (#51-#54), through public names only, from outside the repo."""
+    out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_money_path.py"))
+    assert "audit money path: OK" in out
+
+
 def test_user_workflow_script(installed: Installed) -> None:
     panel = installed.workdir / "panel.parquet"
     out = _ok(installed.py(EXAMPLE, "--panel-out", panel))
