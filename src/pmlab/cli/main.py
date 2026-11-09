@@ -555,9 +555,19 @@ def backtest_cmd(
         "-m",
         help="Model to backtest. Only lgbm_baseline exists; any other name is refused.",
     ),
-    stride: int = typer.Option(30, "--stride"),
-    min_train_rows: int = typer.Option(20, "--min-train-rows"),
-    flat_stake: float = typer.Option(1.0, "--flat-stake"),
+    stride: int = typer.Option(
+        30,
+        "--stride",
+        help="Evaluate every Nth decision date. The command refuses a stride below 10.",
+    ),
+    min_train_rows: int = typer.Option(
+        20,
+        "--min-train-rows",
+        help="Training rows (panel rows, not markets) a fold needs before it runs.",
+    ),
+    flat_stake: float = typer.Option(
+        1.0, "--flat-stake", help="USDC risked per trade (a finite number above 0)."
+    ),
     embargo_days: int | None = typer.Option(
         None,
         "--embargo-days",
@@ -704,13 +714,21 @@ def backtest_cmd(
         rprint(f"Embargo: a fold trains on rows decided at least {embargo_days} days before it")
 
     seeds = resolve_seeds(seed)
-    with console.status("Running walk-forward backtest..."):
-        outcome = run_backtest(panel, config, seeds)
+    try:
+        with console.status("Running walk-forward backtest..."):
+            outcome = run_backtest(panel, config, seeds)
+    except (ValueError, TypeError) as e:
+        # A bad --flat-stake, --min-train-rows, --seed or --lgbm-param value is the operator's
+        # input, not a crash: one line and exit 1, like --costs (#61).
+        _say(f"Backtest could not run: {e}", "red")
+        raise typer.Exit(1) from e
 
     trades = outcome.trades
     if trades.empty:
         hint = " or lowering --min-edge" if trade_policy.selection == "best_edge" else ""
         rprint(f"[yellow]No trades produced. Try reducing stride or min_train_rows{hint}.[/yellow]")
+        if output:
+            _say(f"Nothing to record: {output} was not written.", "yellow")
         raise typer.Exit(0)
 
     total_pnl = outcome.metrics["total_pnl"]
@@ -829,8 +847,11 @@ def promote_champion_cmd(
         rprint(f"[red]Gate file not found: {gate_path}[/red]")
         raise typer.Exit(1)
 
-    gate_data = json.loads(gate_file.read_text())
-    gate = HoldoutGateResult.from_dict(gate_data)
+    try:
+        gate = HoldoutGateResult.from_dict(json.loads(gate_file.read_text()))
+    except (ValueError, KeyError, TypeError) as e:
+        rprint(f"[red]Not a valid gate file ({escape(gate_path)}): {escape(repr(e))}[/red]")
+        raise typer.Exit(1) from e
 
     rprint(
         f"Gate decision: [{'green' if gate.decision == 'GO' else 'red'}]{gate.decision}[/{'green' if gate.decision == 'GO' else 'red'}]"
