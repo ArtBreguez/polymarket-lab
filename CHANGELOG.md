@@ -4,6 +4,30 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-11-09
+
+More fixes from the 1.1.0 audit (stacked on 1.1.1): the HTML report, the names that become paths, and
+the experiment tracker. Nothing public is renamed or removed; the API snapshot is untouched.
+
+### Fixed
+
+- **`generate_report` / `pmlab report` escape what they print and create the folder** (#55). The title,
+  segment names, outcome labels and directions went into the HTML raw, so a market whose name is markup
+  (segment names come from Gamma question text) became live markup in the report. They are escaped now.
+  The folders of `output_path` are created: the example in `docs/reports.md`
+  (`output_path="reports/may_2026.html"`) raised `FileNotFoundError` in a clean directory, and
+  `pmlab report -o "out dir/rep.html"` printed a traceback.
+- **A workspace name or a snapshot family is one path component** (#56). `WorkspaceContext.from_name`
+  and `pmlab.config.resolve_workspace_dir` accepted `..`, `../x`, `a/b`, an absolute path and the empty
+  name, which resolve to a folder shared by every workspace or outside the repository; and
+  `FeatureSnapshotStore.append("../../x", ...)` wrote `x.parquet` outside the store. They raise
+  `ValueError` now, and `pmlab ... --workspace/-w` (or `PMLAB_WORKSPACE`) with such a name is a usage
+  error (exit 2).
+- **`LocalJSONTracker` stores what an experiment logs** (#57). `log_params`/`log_metrics` raised
+  `TypeError` for a `Path`, a `date`/`datetime`/`pd.Timestamp`, an `Enum` or a set, and the run stayed
+  `"running"` for ever. Paths are stored as strings, dates as ISO-8601, enums as their value, sets as
+  sorted lists, any other object as its `str()`.
+
 ## [1.1.1] — 2026-11-09
 
 Fixes from an end-to-end audit of the 1.1.0 wheel, used from outside the repository. The first four
@@ -1615,7 +1639,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.0.2...v1.0.3

@@ -102,6 +102,12 @@ def test_money_path_guards_hold_in_the_wheel(installed: Installed) -> None:
     assert "audit money path: OK" in out
 
 
+def test_report_names_and_tracker_hold_in_the_wheel(installed: Installed) -> None:
+    """The 1.1.2 audit fixes (#55-#57), through public names and the CLI, from outside the repo."""
+    out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_report_names.py"))
+    assert "audit report names: OK" in out
+
+
 def test_user_workflow_script(installed: Installed) -> None:
     panel = installed.workdir / "panel.parquet"
     out = _ok(installed.py(EXAMPLE, "--panel-out", panel))
