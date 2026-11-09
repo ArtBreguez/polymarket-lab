@@ -44,6 +44,9 @@ number is computed from them. The API snapshot is untouched.
 - **`repr(PmlabSettings)` no longer prints the Polymarket credentials** (#67). The API key, secret and
   passphrase were part of the repr, so logging or printing the settings wrote them to the log. They are
   excluded from it; the attributes and `model_dump()` are unchanged.
+- **`docs/tracking.md` no longer shows the MLflow file store** (doc fix). `MLflowTracker(tracking_uri="file:./mlruns")`
+  raises `MlflowException` with MLflow 3.18 (the `track` extra installs it: the filesystem backend is in
+  maintenance mode); the example uses `sqlite:///mlflow.db`, which works.
 
 ## [1.1.2] — 2026-11-09
 

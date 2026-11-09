@@ -78,8 +78,9 @@ uv sync --extra track     # or: pip install pmlab[track]
 ```python
 from pmlab.tracking import MLflowTracker
 
-tracker = MLflowTracker(tracking_uri="file:./mlruns")  # or a remote server
+tracker = MLflowTracker(tracking_uri="sqlite:///mlflow.db")  # or a remote server
 # same run(...) / log_params / log_metrics / log_gate / list_runs API
+# (MLflow 3's `file:./mlruns` store is in maintenance mode and raises MlflowException: use a database URI)
 ```
 
 The module always imports safely; MLflow is only needed when you construct
