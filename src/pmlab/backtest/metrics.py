@@ -20,7 +20,8 @@ def compute_metrics(trades: pd.DataFrame) -> BacktestMetrics:
     """Compute backtest metrics from a trades DataFrame.
 
     Args:
-        trades: DataFrame with column ``realized_pnl`` (float). Optional columns:
+        trades: DataFrame with column ``realized_pnl`` (float). A trade whose ``realized_pnl``
+            is missing (NaN/None: still open) is not counted. Optional columns:
             - ``outcome`` ("won" | "lost") — if absent, derived from the sign of
               ``realized_pnl`` so the output of ``rolling_origin_eval`` composes
               here directly.
@@ -29,6 +30,10 @@ def compute_metrics(trades: pd.DataFrame) -> BacktestMetrics:
     Returns:
         BacktestMetrics with aggregated stats. All zeros if trades is empty.
     """
+    # A trade with no realized PnL (still open, or NaN) has not happened yet: it is not counted
+    # (#51). ``sum()`` skipped it while ``len()`` counted it, so the average was diluted.
+    if not trades.empty:
+        trades = trades[pd.to_numeric(trades["realized_pnl"], errors="coerce").notna()]
     if trades.empty:
         return BacktestMetrics(
             num_trades=0,
