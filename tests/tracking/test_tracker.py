@@ -157,3 +157,50 @@ def test_append_only_runs_never_overwrite(tmp_path):
     # Same run_name, but two distinct persisted records (unique run_id).
     files = list((tmp_path / "exp").glob("*.json"))
     assert len(files) == 2
+
+
+class TestEveryParamIsStorable:
+    """What an experiment naturally logs must not crash the run (#57)."""
+
+    def test_paths_dates_enums_sets_are_stored_as_text(self, tmp_path):
+        import enum
+        import pathlib
+        from datetime import date, datetime
+
+        class Kind(enum.Enum):
+            A = "a-value"
+
+        tracker = LocalJSONTracker(tmp_path / "runs")
+        with tracker.run(experiment="e", run_name="r") as run:
+            run.log_params(
+                {
+                    "panel": pathlib.Path("/data/panel.parquet"),
+                    "start": date(2026, 1, 1),
+                    "at": datetime(2026, 1, 1, 12, 30),
+                    "ts": pd.Timestamp("2026-01-01 12:30", tz="UTC"),
+                    "kind": Kind.A,
+                    "cities": {"b", "a"},
+                    "tuple": (1, 2),
+                    "obj": object,
+                }
+            )
+            run.log_metrics({"where": pathlib.Path("/x")})
+        rec = tracker.list_runs("e")[0]
+        assert rec.status == "finished"
+        assert rec.params["panel"] == "/data/panel.parquet"
+        assert rec.params["start"] == "2026-01-01"
+        assert rec.params["at"] == "2026-01-01T12:30:00"
+        assert rec.params["ts"].startswith("2026-01-01T12:30:00")
+        assert rec.params["kind"] == "a-value"
+        assert rec.params["cities"] == ["a", "b"]
+        assert rec.params["tuple"] == [1, 2]
+        assert isinstance(rec.params["obj"], str)
+        assert rec.metrics["where"] == "/x"
+
+    def test_a_run_that_dies_is_marked_failed_not_running(self, tmp_path):
+        tracker = LocalJSONTracker(tmp_path / "runs")
+        with pytest.raises(RuntimeError), tracker.run(experiment="e", run_name="r") as run:
+            run.log_params({"x": 1})
+            raise RuntimeError("boom")
+        rec = tracker.list_runs("e")[0]
+        assert rec.status == "failed" and "boom" in (rec.error or "")
