@@ -1,6 +1,6 @@
 # HTML Reports — pmlab.reports
 
-`generate_report` produces a self-contained dark-themed HTML file from your paper trading results. No external JS or CSS dependencies — everything is inline.
+`generate_report` produces a self-contained dark-themed HTML file from your paper trading results. No external JS or CSS dependencies — everything is inline. The folders of `output_path` are created when they do not exist, and every value that comes from the trade log or `title` (segment names, labels, directions) is HTML-escaped: it is text in the report, never markup.
 
 ---
 
