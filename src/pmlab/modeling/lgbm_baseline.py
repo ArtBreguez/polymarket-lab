@@ -42,6 +42,15 @@ class LGBMForecaster(MarketForecaster):
         """Return probability estimates, shape (n_samples, n_classes)."""
         if self._model is None:
             raise RuntimeError("Model has not been fitted yet.")
+        if self._feature_names and isinstance(X, pd.DataFrame):
+            # LightGBM matches a DataFrame by position, so the same columns in another order
+            # would silently give other probabilities (#54): select by the fitted names.
+            missing = [c for c in self._feature_names if c not in X.columns]
+            if missing:
+                raise ValueError(
+                    f"predict_proba is missing feature column(s) the model was fitted on: {missing}"
+                )
+            X = X[self._feature_names]
         result: np.ndarray = np.array(self._model.predict_proba(X))
         return result
 

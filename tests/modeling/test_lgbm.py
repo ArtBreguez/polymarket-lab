@@ -54,3 +54,43 @@ def test_feature_names():
     model = LGBMForecaster(objective="binary")
     model.fit(X, y)
     assert model.feature_names() == ["feature_a", "feature_b"]
+
+
+def test_predict_proba_matches_columns_by_name():
+    """The same columns in another order give the same probabilities (#54): LightGBM matches a
+    DataFrame positionally, so the forecaster must select by the names it was fitted on."""
+    X, y = _make_binary_data()
+    model = LGBMForecaster(n_estimators=10, n_jobs=1)
+    model.fit(X, y)
+    np.testing.assert_allclose(
+        model.predict_proba(X[["feature_b", "feature_a"]]), model.predict_proba(X)
+    )
+
+
+def test_predict_proba_ignores_extra_columns():
+    X, y = _make_binary_data()
+    model = LGBMForecaster(n_estimators=10, n_jobs=1)
+    model.fit(X, y)
+    wider = X.assign(feature_zzz=1.0)[["feature_zzz", "feature_b", "feature_a"]]
+    np.testing.assert_allclose(model.predict_proba(wider), model.predict_proba(X))
+
+
+def test_predict_proba_names_the_missing_column():
+    import pytest
+
+    X, y = _make_binary_data()
+    model = LGBMForecaster(n_estimators=10, n_jobs=1)
+    model.fit(X, y)
+    with pytest.raises(ValueError, match="feature_b"):
+        model.predict_proba(X[["feature_a"]])
+
+
+def test_reordered_columns_after_save_and_load(tmp_path):
+    X, y = _make_binary_data()
+    model = LGBMForecaster(n_estimators=10, n_jobs=1)
+    model.fit(X, y)
+    model.save(tmp_path / "m.pkl")
+    loaded = LGBMForecaster.load(tmp_path / "m.pkl")
+    np.testing.assert_allclose(
+        loaded.predict_proba(X[["feature_b", "feature_a"]]), model.predict_proba(X)
+    )
