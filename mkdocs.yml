@@ -141,7 +141,7 @@ nav:
   - Stability:
       - Public API and stability: api-stability.md
       - Deprecation policy: deprecation.md
-      - Changelog: https://github.com/ArtBreguez/polymarket-lab/blob/main/CHANGELOG.md
+      - Changelog: changelog.md
   - API reference:
       - Overview: reference/index.md
       - Markets, edge and sizing: reference/core.md

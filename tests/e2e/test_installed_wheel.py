@@ -828,7 +828,12 @@ def test_the_built_site_loads_nothing_from_a_third_party(docs_build: DocsBuild) 
     for page in site.rglob("*.html"):
         text = page.read_text()
         assert "fonts.googleapis.com" not in text and "fonts.gstatic.com" not in text, page
-        assert "api.github.com" not in text, page  # Material's live repository facts are off
+        # Material's live repository facts are off: no tag or script refers to the GitHub API. Prose
+        # may name it (the changelog page explains that these facts were turned off).
+        markup = re.findall(r"<[^>]+>", text) + re.findall(
+            r"<script\b[^>]*>(.*?)</script>", text, re.S
+        )
+        assert not any("api.github.com" in part for part in markup), page
         for tag in re.findall(r"<(?:script|link)\b[^>]*>", text):
             for url in re.findall(r'(?:src|href)="(https?://[^"]+)"', tag):
                 assert url.startswith(SITE_URL), f"{page.relative_to(site)}: {tag[:120]}"

@@ -188,6 +188,7 @@ class TestSelfContained:
         "https://hiddenterps.si",
         "https://github.com/ArtBreguez/polymarket-lab",
         "https://pypi.org/project/pmlab",
+        "https://x.com/HiddenTerps/status/",  # the walkthrough article: a link, nothing is loaded from it
         "https://semver.org",
         "https://x.com/HiddenTerps",
         "http://www.w3.org/2000/svg",
@@ -437,3 +438,47 @@ class TestDomain:
             REPO / ".github" / "ISSUE_TEMPLATE" / "feature_request.yml",
         ):
             assert old not in path.read_text(), path.relative_to(REPO)
+
+
+# ── the changelog page is CHANGELOG.md itself ──────────────────────────────────────────────────
+
+
+class TestChangelogPage:
+    hook = TestMkdocsHook.hook
+
+    def test_the_nav_points_at_the_site_page_not_at_github(self) -> None:
+        assert "Changelog: changelog.md" in (REPO / "mkdocs.yml").read_text()
+        assert (DOCS / "changelog.md").exists()
+
+    def test_the_page_is_served_from_changelog_md(self, hook: Any) -> None:
+        class File:
+            src_uri = "changelog.md"
+
+        class Page:
+            file = File()
+
+        class Config(dict):  # type: ignore[type-arg]
+            docs_dir = str(DOCS)
+
+        source = hook.on_page_read_source(Page(), Config())
+        assert source is not None and "## [1.1.0]" in source
+        assert source.count("## [") == (REPO / "CHANGELOG.md").read_text().count("## [")
+
+    def test_other_pages_are_left_alone(self, hook: Any) -> None:
+        class File:
+            src_uri = "tutorial.md"
+
+        class Page:
+            file = File()
+
+        assert hook.on_page_read_source(Page(), object()) is None
+
+    def test_repo_links_are_rewritten_for_the_site(self, hook: Any) -> None:
+        text = "[a](docs/leakage.md) [b](docs/leakage.md#x) [c](notebooks/tutorial.ipynb) [d](https://e.org) [e](#top)"
+        out = hook.changelog_for_site(text)
+        assert "[a](leakage.md)" in out and "[b](leakage.md#x)" in out
+        assert (
+            "[c](https://github.com/ArtBreguez/polymarket-lab/blob/main/notebooks/tutorial.ipynb)"
+            in out
+        )
+        assert "[d](https://e.org)" in out and "[e](#top)" in out
