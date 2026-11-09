@@ -20,12 +20,13 @@ Metrics/gate objects log directly: ``log_metrics`` accepts a plain dict or a
 
 from __future__ import annotations
 
+import enum
 import json
 import math
 import re
 import uuid
 from dataclasses import asdict, dataclass, field, is_dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -85,7 +86,16 @@ def _json_safe(obj: Any) -> Any:
         return {str(k): _json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_json_safe(v) for v in obj]
-    return obj  # leave anything else to json.dump (may raise — intentional)
+    if isinstance(obj, (set, frozenset)):
+        return [_json_safe(v) for v in sorted(obj, key=lambda v: (str(type(v)), str(v)))]
+    if isinstance(obj, enum.Enum):
+        return _json_safe(obj.value)
+    # What an experiment naturally logs besides numbers: paths, dates, timestamps (a
+    # ``pd.Timestamp`` is a ``datetime``). An unknown type is stored as its ``str()`` rather than
+    # raising from ``log_params`` and leaving the run "running" for ever (#57).
+    if isinstance(obj, (datetime, date, time)):
+        return obj.isoformat()
+    return str(obj)
 
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")

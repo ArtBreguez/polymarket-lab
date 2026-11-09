@@ -30,6 +30,17 @@ console = Console()
 # scripts/pmlab-workspace.
 _WORKSPACE_ENV = ["PMLAB_WORKSPACE", "PMLAB_WORKSPACE_NAME"]
 
+
+def _check_workspace(value: str) -> str:
+    """Option callback: a workspace is one path component, else a usage error (#56)."""
+    from pmlab.workspace.context import validate_path_segment
+
+    try:
+        return validate_path_segment(value, "workspace name")
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
 _COSTS_HELP = (
     "JSON file of CostModel fields (taker_bps, slippage_bps, slippage_fixed, "
     "depth_bps_per_unit, depth_reference_stake), or any JSON with them under a "
@@ -162,6 +173,7 @@ def status_cmd(
         "--workspace",
         "-w",
         envvar=_WORKSPACE_ENV,
+        callback=_check_workspace,
         help="Active workspace name",
     ),
 ) -> None:
@@ -276,7 +288,9 @@ def scan_markets_cmd(
 @app.command("record-trades")
 def record_trades_cmd(
     plugin: str = typer.Option(..., "--plugin", "-p"),
-    workspace: str = typer.Option("ops_daily", "--workspace", "-w", envvar=_WORKSPACE_ENV),
+    workspace: str = typer.Option(
+        "ops_daily", "--workspace", "-w", envvar=_WORKSPACE_ENV, callback=_check_workspace
+    ),
     artifacts_dir: str = typer.Option(
         "artifacts", "--artifacts-dir", "-a", envvar="PMLAB_ARTIFACTS_DIR"
     ),
@@ -487,7 +501,9 @@ def resettle_cmd(
 @app.command("settle-trades")
 def settle_trades_cmd(
     plugin: str = typer.Option(..., "--plugin", "-p"),
-    workspace: str = typer.Option("ops_daily", "--workspace", "-w", envvar=_WORKSPACE_ENV),
+    workspace: str = typer.Option(
+        "ops_daily", "--workspace", "-w", envvar=_WORKSPACE_ENV, callback=_check_workspace
+    ),
     artifacts_dir: str = typer.Option(
         "artifacts", "--artifacts-dir", "-a", envvar="PMLAB_ARTIFACTS_DIR"
     ),
@@ -1019,7 +1035,12 @@ def monitor_cmd(
         "artifacts", "--artifacts-dir", "-a", envvar="PMLAB_ARTIFACTS_DIR", help="Artifacts root"
     ),
     workspace: str = typer.Option(
-        "ops_daily", "--workspace", "-w", envvar=_WORKSPACE_ENV, help="Active workspace name"
+        "ops_daily",
+        "--workspace",
+        "-w",
+        envvar=_WORKSPACE_ENV,
+        callback=_check_workspace,
+        help="Active workspace name",
     ),
     reference: str | None = typer.Option(
         None, "--reference", help="Training panel (.parquet/.csv) the drift check compares against"

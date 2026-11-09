@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -67,10 +68,10 @@ def generate_report(
 
     html_parts = [
         "<!DOCTYPE html><html lang='en'><head>",
-        f"<meta charset='UTF-8'><title>{title}</title>",
+        f"<meta charset='UTF-8'><title>{_esc(title)}</title>",
         _STYLE,
         "</head><body>",
-        f"<h1>{title}</h1>",
+        f"<h1>{_esc(title)}</h1>",
         f"<p class='subtitle'>Generated {generated_at} &mdash; "
         f"{len(trades)} total trades ({len(settled)} settled, {len(open_trades)} open)</p>",
         "<div class='cards'>",
@@ -96,8 +97,14 @@ def generate_report(
     html_parts.append(_trade_table(trades))
     html_parts.append("</body></html>")
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(html_parts), encoding="utf-8")
     return output_path
+
+
+def _esc(value: Any) -> str:
+    """Text from a trade log or a caller is data, never markup (#55)."""
+    return html.escape(str(value), quote=True)
 
 
 def _card(label: str, value: str, extra_class: str = "") -> str:
@@ -163,7 +170,7 @@ def _segment_table(settled: list[dict[str, Any]]) -> str:
         hit = d["wins"] / d["count"] * 100 if d["count"] else 0
         pnl_class = "pos" if d["pnl"] >= 0 else "neg"
         rows.append(
-            f"<tr><td>{seg}</td><td>{d['count']}</td><td class='{pnl_class}'>${d['pnl']:+.2f}</td><td>{hit:.0f}%</td></tr>"
+            f"<tr><td>{_esc(seg)}</td><td>{d['count']}</td><td class='{pnl_class}'>${d['pnl']:+.2f}</td><td>{hit:.0f}%</td></tr>"
         )
     return (
         "<table><thead><tr><th>Segment</th><th>Trades</th><th>PnL</th><th>Hit Rate</th></tr></thead><tbody>"
@@ -179,10 +186,10 @@ def _trade_table(trades: list[dict[str, Any]]) -> str:
         pnl_str = f"${pnl:+.2f}" if pnl is not None else "open"
         pnl_class = "" if pnl is None else ("pos" if pnl >= 0 else "neg")
         price = t.get("gamma_price", "")
-        price_str = f"{price:.3f}" if isinstance(price, float) else str(price)
+        price_str = f"{price:.3f}" if isinstance(price, float) else _esc(price)
         rows.append(
-            f"<tr><td>{t.get('target_date', '')}</td><td>{t.get('city_or_segment', '')}</td>"
-            f"<td>{t.get('direction', '')}</td><td>{t.get('outcome_label', '')}</td>"
+            f"<tr><td>{_esc(t.get('target_date', ''))}</td><td>{_esc(t.get('city_or_segment', ''))}</td>"
+            f"<td>{_esc(t.get('direction', ''))}</td><td>{_esc(t.get('outcome_label', ''))}</td>"
             f"<td>{price_str}</td><td>{t.get('edge_after_fee', 0) * 100:.2f}%</td>"
             f"<td class='{pnl_class}'>{pnl_str}</td></tr>"
         )

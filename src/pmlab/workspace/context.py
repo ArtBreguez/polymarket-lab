@@ -3,6 +3,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def validate_path_segment(name: str, what: str = "name") -> str:
+    """``name`` if it is a single, ordinary path component, else ``ValueError`` (#56).
+
+    A name that becomes a directory or file name must not reach another workspace or leave its
+    root: not empty, not ``.`` or ``..``, no separator, not absolute, no NUL.
+    """
+    if not isinstance(name, str):
+        raise ValueError(f"{what} must be a string, got {type(name).__name__}")
+    if name in ("", ".", "..") or "/" in name or "\\" in name or "\x00" in name:
+        raise ValueError(
+            f"invalid {what} {name!r}: it must be one path component "
+            "(not empty, '.' or '..', and without '/' or '\\')"
+        )
+    return name
+
+
 @dataclass
 class WorkspaceContext:
     name: str
@@ -13,6 +29,7 @@ class WorkspaceContext:
 
     @classmethod
     def from_name(cls, name: str, repo_root: Path) -> "WorkspaceContext":
+        validate_path_segment(name, "workspace name")
         data_root = repo_root / "data" / "workspaces" / name
         artifacts_root = repo_root / "artifacts" / "workspaces" / name
         parquet_root = data_root / "parquet"

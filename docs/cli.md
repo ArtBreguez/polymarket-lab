@@ -54,7 +54,9 @@ match.
 contaminates a model, so every command that reads or writes trades takes a workspace
 (`--workspace`, default `ops_daily`) and keeps its files under
 `<artifacts-dir>/workspaces/<workspace>/`. The same choices are available as the environment
-variables `PMLAB_WORKSPACE` (or `PMLAB_WORKSPACE_NAME`) and `PMLAB_ARTIFACTS_DIR`.
+variables `PMLAB_WORKSPACE` (or `PMLAB_WORKSPACE_NAME`) and `PMLAB_ARTIFACTS_DIR`. A workspace name is a single
+path component: an empty name, `.`, `..` or one with a `/` is refused (exit 2), so a name can never reach another
+workspace's files.
 
 In a checkout of the repository, `scripts/pmlab-workspace <name> <command>` sets all of the
 workspace variables (data, parquet, DuckDB and artifacts directories) for one command:

@@ -61,6 +61,12 @@ Each run is one immutable JSON file at `runs/<experiment>/<run_id>.json`. A new
 run never overwrites an old one (unique `run_id`), so the history is stable
 evidence — the same append-only, point-in-time philosophy as `FeatureSnapshotStore`.
 
+Params and metrics are stored as JSON. Numbers (numpy scalars and arrays included), strings,
+lists, tuples and dicts go in as they are; `NaN` and infinities become `null`; a `Path` is stored as
+its string, a date or timestamp as ISO-8601, an `Enum` as its value, a set as a sorted list, and any
+other object as its `str()`. A value never makes `log_params` raise, and a run that dies is recorded
+with `status="failed"` and its error (before 1.1.2 a `Path` crashed the run and left it `"running"`).
+
 ---
 
 ## MLflow backend (optional)
