@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import re
+import sys
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
@@ -720,6 +721,152 @@ class TestFeeScheduleValidation:
         for text in ("0.05", "0.0175", "0.123456789012345", "1e-05", "0.999999"):
             assert FeeSchedule(rate=float(text), rounding_unit=1e-5).rate == float(text)
         assert FeeSchedule(rate=float("0.123456789012345")).rate == 0.123456789012345
+
+
+def _sign(value: float) -> float:
+    """1.0 for 0.0 and -1.0 for -0.0 (``-0.0 == 0.0``, so ``==`` cannot tell them apart)."""
+    return math.copysign(1.0, value)
+
+
+class TestNegativeZero:
+    """``-0.0 == 0.0``, so no comparison or hash was wrong, but a negative zero leaked: into
+    ``to_dict()`` (the tracker serialises it as ``-0.0``) and out of a round-up fee."""
+
+    @pytest.mark.parametrize("field", ["rate", "rebate_rate", "maker_rate"])
+    @pytest.mark.parametrize("zero", [-0.0, np.float64(-0.0), Decimal("-0"), "-0", "-0.0"])
+    def test_a_negative_zero_field_is_stored_as_a_positive_zero(
+        self, field: str, zero: Any
+    ) -> None:
+        schedule = FeeSchedule(**{"rate": 0.05, field: zero})
+        assert getattr(schedule, field) == 0.0
+        assert _sign(getattr(schedule, field)) == 1.0
+        assert repr(schedule.to_dict()[field]) == "0.0"
+        assert schedule == FeeSchedule(**{**schedule.to_dict(), field: 0.0})
+
+    @pytest.mark.parametrize("rounding", ["nearest", "up", "down"])
+    @pytest.mark.parametrize("scope", ["fill", "order"])
+    def test_no_fee_is_a_negative_zero(self, rounding: str, scope: str) -> None:
+        schedule = FeeSchedule(
+            rate=0.05,
+            taker_only=False,
+            rounding=rounding,
+            rounding_scope=scope,  # type: ignore[arg-type]
+        )
+        fees = {
+            "taker, -0.0 shares": taker_fee(-0.0, 0.5, schedule),
+            "taker, -0.0 price": taker_fee(10, -0.0, schedule),
+            "taker, price 1": taker_fee(10, 1.0, schedule),
+            "maker, -0.0 shares": maker_fee(-0.0, 0.5, schedule),
+            "maker, -0.0 price": maker_fee(10, -0.0, schedule),
+            "stake, -0.0": taker_fee_on_stake(-0.0, 0.5, schedule),
+            "fills, -0.0 shares": taker_fee_for_fills([(-0.0, 0.5)], schedule),
+            "fills, -0.0 price": taker_fee_for_fills([(10, -0.0)], schedule),
+            "fraction at price 1": stake_fee_fraction(1.0, schedule),
+        }
+        for what, fee in fees.items():
+            assert fee == 0.0 and _sign(fee) == 1.0, (what, fee)
+
+    def test_a_negative_zero_rate_charges_nothing_like_a_zero_rate(self) -> None:
+        zero, negative = FeeSchedule(rate=0.0, rounding="up"), FeeSchedule(rate=-0.0, rounding="up")
+        assert negative == zero and hash(negative) == hash(zero)
+        assert repr(taker_fee(100, 0.5, negative)) == repr(taker_fee(100, 0.5, zero)) == "0.0"
+
+
+class TestAFeeThatDoesNotFitAFloat:
+    """The inputs are finite; at magnitudes no market produces the result may not be. It is
+    refused, not returned as ``inf``."""
+
+    def test_a_stake_fraction_that_overflows_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="overflows a float"):
+            stake_fee_fraction(5e-324, FeeSchedule(rate=0.05, exponent=1e-10))
+
+    @pytest.mark.parametrize("scope", ["fill", "order"])
+    def test_an_order_total_that_overflows_is_refused(self, scope: Any) -> None:
+        """Each fill (1.7e308 shares) is a finite 2.1e306; a hundred of them are not."""
+        schedule = FeeSchedule(rate=0.05, rounding_scope=scope)
+        assert taker_fee(1.7e308, 0.5, schedule) == pytest.approx(2.125e306)
+        with pytest.raises(ValueError, match="overflows a float"):
+            taker_fee_for_fills([(1.7e308, 0.5)] * 100, schedule)
+
+    def test_a_stake_fee_that_overflows_is_refused(self) -> None:
+        """A stake of 1e300 at a price of 5e-324 buys 2e623 shares: the fee is not a float."""
+        with pytest.raises(ValueError, match="overflows a float"):
+            taker_fee_on_stake(1e300, 5e-324, FeeSchedule(rate=0.05, exponent=0.5))
+
+    def test_a_single_fill_that_overflows_is_refused_on_both_sides(self) -> None:
+        """The largest float as shares, a rate of 0.999999999999999 and a curve of 1: the product
+        of the 15-digit reading of the shares and the rate is above the largest float."""
+        schedule = FeeSchedule(rate=0.999999999999999, exponent=1e-300, taker_only=False)
+        with pytest.raises(ValueError, match="overflows a float"):
+            taker_fee(sys.float_info.max, 0.5, schedule)
+        with pytest.raises(ValueError, match="overflows a float"):
+            maker_fee(sys.float_info.max, 0.5, schedule)
+
+    def test_large_but_finite_results_are_still_returned(self) -> None:
+        schedule = FeeSchedule(rate=0.05)
+        assert taker_fee(1e308, 0.5, schedule) == 1.25e306
+        assert taker_fee_for_fills([(1e308, 0.5)] * 10, schedule) == pytest.approx(1.25e307)
+        assert taker_fee_on_stake(1e300, 0.5, schedule) == pytest.approx(2.5e298)
+
+
+class TestTheContractThatGetsFrozen:
+    """Rate 1e-7, a float product exponent, float32: the inputs the 15-digit rule is held to."""
+
+    @pytest.mark.parametrize(
+        "spelling", [1e-7, "1e-7", Decimal("1E-7"), np.float64(1e-7), "0.0000001", " 1E-7 "]
+    )
+    def test_a_rate_of_one_in_ten_million_is_kept_and_charges(self, spelling: Any) -> None:
+        schedule = FeeSchedule(rate=spelling)
+        assert schedule.rate == 1e-7 and schedule == FeeSchedule(rate=1e-7)
+        assert FeeSchedule(**schedule.to_dict()) == schedule
+        for rounding in ("nearest", "up", "down"):
+            priced = FeeSchedule(rate=spelling, rounding=rounding)  # type: ignore[arg-type]
+            assert taker_fee(1e6, 0.5, priced) == 0.025  # 1e6 x 1e-7 x 0.25
+        assert taker_fee(1e8, 0.5, FeeSchedule(rate=1e-9)) == 0.025
+        assert taker_fee(1e6, 0.5, FeeSchedule(rate=1e-9)) == 0.00025
+
+    def test_a_tiny_raw_fee_is_not_charged_unless_it_rounds_up(self) -> None:
+        raw = 100 * 1e-7 * 0.25  # 2.5e-6, below one unit
+        assert taker_fee(100, 0.5, FeeSchedule(rate=1e-7)) == 0.0
+        assert taker_fee(100, 0.5, FeeSchedule(rate=1e-7, rounding="up")) == UNIT
+        assert raw < UNIT
+
+    def test_a_float_product_exponent_is_read_as_the_decimal_it_was_written_as(self) -> None:
+        """``0.1 * 3`` is 0.30000000000000004: the exponent is 0.3, as for the rate."""
+        assert 0.1 * 3 != 0.3
+        product = FeeSchedule(rate=0.07 * 3, exponent=0.1 * 3)
+        written = FeeSchedule(rate=0.21, exponent=0.3)
+        assert product == written and hash(product) == hash(written)
+        assert (product.rate, product.exponent) == (0.21, 0.3)
+        assert FeeSchedule(rate=0.05, exponent=Decimal("0.3")).exponent == 0.3
+        assert FeeSchedule(**product.to_dict()) == product
+        # 100 x 0.21 x 0.25 ** 0.3 = 13.8548...; the power is a float read to 15 digits
+        expected = Decimal(100 * 0.21 * 0.25**0.3).quantize(Decimal("0.00001"), ROUND_HALF_UP)
+        assert taker_fee(100, 0.5, product) == taker_fee(100, 0.5, written) == float(expected)
+
+    def test_float32_and_float16_are_read_as_their_float64_value_not_as_what_they_print(
+        self,
+    ) -> None:
+        """The 15-digit rule drops binary noise below 1e-15. A float32 is exact to 1e-8 only, so
+        its value is kept, not the shorter decimal it prints as. Documented in ``FeeSchedule``:
+        convert with ``float(str(x))`` or compute in float64."""
+        for narrow in (np.float32(0.07), np.float16(0.07)):
+            assert FeeSchedule(rate=narrow).rate != 0.07
+            assert FeeSchedule(rate=narrow).rate == float(f"{float(narrow):.15g}")
+            assert str(narrow) == "0.07"
+            assert FeeSchedule(rate=float(str(narrow))).rate == 0.07  # the documented conversion
+        assert FeeSchedule(rate=np.float32(0.07)).rate == 0.0700000002980232
+        assert FeeSchedule(rate=np.float16(0.07)).rate == 0.07000732421875
+        assert FeeSchedule(rate=np.float32(0.5)).rate == 0.5  # exact in float32: nothing to drop
+
+    def test_a_float32_product_is_already_noisy_so_it_charges_as_written_in_float32(self) -> None:
+        """Not the 5.25 of ``0.07 * 3``: ``np.float32(0.07) * 3`` is 0.21000000834..., and a
+        cent-up fee on 100 shares at 0.50 is 5.26. Compute the rate in float64."""
+        up: dict[str, Any] = {"rounding": "up", "rounding_unit": 0.01}
+        assert taker_fee(100, 0.5, FeeSchedule(rate=np.float32(0.07) * 3, **up)) == 5.26
+        assert taker_fee(100, 0.5, FeeSchedule(rate=float(np.float32(0.07)) * 3, **up)) == 5.26
+        assert taker_fee(100, 0.5, FeeSchedule(rate=float(str(np.float32(0.07))) * 3, **up)) == 5.25
+        assert taker_fee(100, 0.5, FeeSchedule(rate=0.07 * 3, **up)) == 5.25
 
 
 class TestFunctionArgumentValidation:

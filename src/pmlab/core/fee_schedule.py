@@ -63,7 +63,8 @@ tie rule would be one unit (0.00001 USDC) on a fee that lands exactly on a tie. 
 
 *Exactness.* The arithmetic is exact decimal arithmetic for exponent 1, which is every market today.
 For another exponent the curve is a float power (``math.pow``) read to 15 significant digits, so the
-tie guarantee above holds for exponent 1 only.
+tie guarantee above holds for exponent 1 only. The inputs are finite; a result too large for a float
+(shares or a stake near 1e300) is a ``ValueError``, not ``inf``.
 
 *The category defaults.* ``POLYMARKET_CATEGORY_FEE_RATES`` is the docs' table as read on 2026-11-25;
 a test parses the page saved in ``tests/core/data`` and holds the constant and the 100-share tables
@@ -164,7 +165,7 @@ def _number(name: str, value: object) -> float:
         raise ValueError(f"{name} must be a finite number, got {value!r}") from None
     if not math.isfinite(number):
         raise ValueError(f"{name} must be a finite number, got {value!r}")
-    return number
+    return number + 0.0  # -0.0 + 0.0 is 0.0: a negative zero must not reach a field or a fee
 
 
 def _field_number(name: str, value: object) -> float:
@@ -181,7 +182,15 @@ def _field_number(name: str, value: object) -> float:
             raise ValueError(f"{name} must be a finite number, got {value!r}")
     else:
         number = _number(name, value)
-    return float(_decimal(number))
+    return float(_decimal(number)) + 0.0  # no negative zero, as in _number
+
+
+def _finite(value: float, what: str) -> float:
+    """``value``, or a ``ValueError`` when it overflowed a float: the inputs are finite, but at
+    magnitudes near 1e300 the fee (or a fraction of a stake) can still be too large for a float."""
+    if not math.isfinite(value):
+        raise ValueError(f"{what} overflows a float for these inputs")
+    return value
 
 
 def _fraction(name: str, value: object, *, closed_above: bool) -> float:
@@ -205,7 +214,18 @@ class FeeSchedule:
     The numeric fields take a float or int (numpy scalars too) or a ``Decimal`` or a numeric ``str``;
     each is stored as a float. A float is read as the decimal it was written as, to 15 significant
     digits, so ``rate=0.07 * 3`` is 0.21 and not 0.21000000000000002, and a ``Decimal`` or ``str``
-    is exact to the same 15 digits. The flags take a ``bool`` or a ``numpy.bool_``.
+    is exact to the same 15 digits. A negative zero is stored as 0.0. The flags take a ``bool`` or
+    a ``numpy.bool_``.
+
+    A ``float32`` or ``float16`` is read as its float64 value, not as the shorter decimal it prints
+    as: ``np.float32(0.07)`` is 0.0700000002980232, because its own noise (1e-8) is far above the
+    15th digit. Convert one value with ``float(str(x))`` or compute in float64; a float32 product is
+    already noisy (``np.float32(0.07) * 3`` is 0.21000000834) before pmlab sees it, and a cent-up fee
+    on it is 5.26, not 5.25.
+
+    The annotations (``rate: float``) are the type that is **stored**, which is what
+    ``schedule.rate`` is. A ``Decimal`` or a ``str`` is accepted at run time, but mypy refuses it
+    against ``float``: pass ``float(...)``, or add ``# type: ignore[arg-type]``.
 
     Attributes:
         rate: Fee rate, in ``[0, 1)``. ``0.05`` is the Sports rate.
@@ -335,7 +355,8 @@ def _maker_rate(schedule: FeeSchedule) -> float:
 def _taker_fee(shares: Decimal, price: Decimal, schedule: FeeSchedule) -> float:
     if not schedule.enabled:
         return 0.0
-    return float(_round_fee(_raw_fee(shares, price, schedule.rate, schedule.exponent), schedule))
+    raw = _raw_fee(shares, price, schedule.rate, schedule.exponent)
+    return _finite(float(_round_fee(raw, schedule)), "the fee")
 
 
 # ---------------------------------------------------------------------------
@@ -366,7 +387,7 @@ def taker_fee(shares: float, price: float, schedule: FeeSchedule) -> float:
 
     Raises:
         ValueError: If ``shares`` or ``price`` is not a finite number in range (checked even when
-            the fee is 0).
+            the fee is 0), or the fee overflows a float (shares near 1e308).
         TypeError: If ``schedule`` is not a ``FeeSchedule``.
     """
     _require_schedule(schedule)
@@ -398,7 +419,7 @@ def maker_fee(shares: float, price: float, schedule: FeeSchedule) -> float:
     rate = _maker_rate(schedule)
     if not schedule.enabled or rate == 0.0:
         return 0.0
-    return float(_round_fee(_raw_fee(n, p, rate, schedule.exponent), schedule))
+    return _finite(float(_round_fee(_raw_fee(n, p, rate, schedule.exponent), schedule)), "the fee")
 
 
 def taker_fee_for_fills(fills: Iterable[tuple[float, float]], schedule: FeeSchedule) -> float:
@@ -417,8 +438,8 @@ def taker_fee_for_fills(fills: Iterable[tuple[float, float]], schedule: FeeSched
         The fee in USDC.
 
     Raises:
-        ValueError: If ``fills`` is not an iterable of pairs, or a pair is out of range
-            (see ``taker_fee``).
+        ValueError: If ``fills`` is not an iterable of pairs, a pair is out of range
+            (see ``taker_fee``), or the total overflows a float.
         TypeError: If ``schedule`` is not a ``FeeSchedule``.
     """
     _require_schedule(schedule)
@@ -446,7 +467,7 @@ def taker_fee_for_fills(fills: Iterable[tuple[float, float]], schedule: FeeSched
         for raw in raws:
             total = _CTX.add(total, raw)
         total = _round_fee(total, schedule)
-    return float(total)
+    return _finite(float(total), "the fee of the order")
 
 
 def stake_fee_fraction(price: float, schedule: FeeSchedule) -> float:
@@ -465,7 +486,8 @@ def stake_fee_fraction(price: float, schedule: FeeSchedule) -> float:
         The fraction (0 for a disabled schedule).
 
     Raises:
-        ValueError: If ``price`` is not a finite number in ``(0, 1]``.
+        ValueError: If ``price`` is not a finite number in ``(0, 1]``, or the fraction overflows a
+            float (a price near 5e-324 with an exponent far below 1).
         TypeError: If ``schedule`` is not a ``FeeSchedule``.
     """
     _require_schedule(schedule)
@@ -476,7 +498,8 @@ def stake_fee_fraction(price: float, schedule: FeeSchedule) -> float:
         return 0.0
     if schedule.exponent == 1.0:
         return schedule.rate * (1.0 - p)
-    return schedule.rate * math.pow(p * (1.0 - p), schedule.exponent) / p
+    fraction = schedule.rate * math.pow(p * (1.0 - p), schedule.exponent) / p
+    return _finite(fraction, "the fee fraction")
 
 
 def taker_fee_on_stake(stake: float, price: float, schedule: FeeSchedule) -> float:
@@ -496,7 +519,8 @@ def taker_fee_on_stake(stake: float, price: float, schedule: FeeSchedule) -> flo
         The fee in USDC.
 
     Raises:
-        ValueError: If ``stake`` or ``price`` is out of range.
+        ValueError: If ``stake`` or ``price`` is out of range, or the fee overflows a float (a
+            stake near 1e300 at a price near 5e-324).
         TypeError: If ``schedule`` is not a ``FeeSchedule``.
     """
     _require_schedule(schedule)
