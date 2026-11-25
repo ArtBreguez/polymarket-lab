@@ -4,6 +4,70 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-25
+
+The first part of the real-fee epic (#69): the fee model itself, as pure functions and one frozen
+value in `pmlab.core`. **It changes no number.** `CostModel`, `estimate_fee`, `rolling_origin_eval`,
+the brokers and the CLI still charge the flat 30 bps `taker_bps`, so every existing backtest, gate and
+reproducibility record reads and reproduces exactly as before; wiring the model in is #72. Six new
+public names, hence a minor release.
+
+### Added
+
+- **`FeeSchedule`** (#70): how a market charges a trade: `rate`, `exponent`, `taker_only`,
+  `rebate_rate`, `enabled`, plus a `maker_rate` and one rounding rule (`rounding`, `rounding_unit`)
+  applied per fill or to the sum of an order (`rounding_scope`). It describes a venue whose taker fee is
+  `rate x shares x (price x (1 - price)) ** exponent`, rounded by one rule; it is not shown to fit
+  another venue. Kalshi's rounding, as reported (not read from its own page here), is a unit per fill and
+  then a settlement per order with rebates paid out of a per-order accumulator across taker and maker
+  fills: that cannot be written as one unit and one scope, and `maker_fee` has no per-order form. #75
+  must verify that page before building on this class. Validated at construction (finite numbers,
+  `rate` in [0, 1), `exponent` above 0, no `maker_rate` on a `taker_only` schedule). The numeric fields
+  take a float or int (numpy scalars too), a `Decimal` or a numeric `str`; a float is read as the
+  decimal it was written as, to 15 significant digits, so `rate=0.07 * 3` is 0.21 and a cent-up fee on
+  100 shares at 0.50 is 5.25, not 5.26. A negative zero is stored as 0.0. A `float32` or `float16` is
+  read as its float64 value (`np.float32(0.07)` is 0.0700000002980232, not 0.07; convert with
+  `float(str(x))` or compute in float64). The annotations are the stored type (`float`): mypy refuses
+  a `Decimal` or a `str`, so pass `float(...)` or add `# type: ignore[arg-type]`. The flags take a
+  `bool` or a `numpy.bool_`. `to_dict()` round-trips through `FeeSchedule(**d)`.
+- **`taker_fee`, `maker_fee`, `taker_fee_for_fills`** (#70): Polymarket's taker fee,
+  `shares x rate x (price x (1 - price)) ** exponent` in USDC, rounded to 5 decimals half up with a
+  smallest fee of 0.00001; makers pay 0 on a `taker_only` schedule. The arithmetic is exact decimal
+  arithmetic for exponent 1 (every market today), so a fee that is a tie in decimal rounds as one
+  (0.0012 shares at 0.50 and rate 0.05 is 0.00002, where `round()` of the float gives 0.00001); another
+  exponent goes through a float power and that guarantee does not hold there. `rounding="nearest"` is
+  Polymarket's minimum-fee rule, not the plain nearest unit: a fee below one `rounding_unit` is not
+  charged, so on a cent unit a 0.007 fee is 0, not 0.01 (`"up"` and `"down"` are plain).
+  `taker_fee_for_fills` prices an order filled in several parts, rounding each fill or the sum once
+  according to `rounding_scope`. No fee is a negative zero, and a result too large for a float (shares
+  or a stake near 1e300) is a `ValueError`, not `inf`.
+- **`stake_fee_fraction`, `taker_fee_on_stake`** (#70): the fee as a fraction of the stake
+  (`rate x (1 - price)` for exponent 1: 3.5% at 0.30 and 2.5% at 0.50 for a 0.05-rate market) and the
+  fee of buying a stake, for code that sizes by notional.
+
+### Notes
+
+- **Polymarket's category table stays module-internal in 1.2.0.** `POLYMARKET_CATEGORY_FEE_RATES` (the
+  docs' table, read-only), `POLYMARKET_FEE_RATES_AS_OF`, `POLYMARKET_FEE_RATES_SOURCE_URL` and
+  `category_fee_schedule` are in `pmlab.core.fee_schedule` and not in `pmlab.__all__`, the API snapshot
+  or the reference, so they are not a public contract yet: the table's keys are ours and not Gamma's
+  `feeType` names (`sports_fees_v3`, `weather_fees`, ...), Polymarket changes the table without notice,
+  and how a market's tags pick a fallback is still open. **They come public with #71.** A test parses
+  the docs page, saved byte for byte, and holds the constant and the 100-share tables, every category
+  to the cent, to it.
+- Where the exponent goes was checked against the official clients, not assumed: the V2 clients
+  (`py-clob-client-v2`, `clob-client-v2`, `rs-clob-client-v2`, `ts-sdk`) compute
+  `(amount / price) x rate x (price x (1 - price)) ** exponent`, the exponent on the whole product. The
+  commits and the rest of the record are in the docstring of `pmlab.core.fee_schedule`.
+- **The category rates are not the ones the epic quotes.** Polymarket changed its table between
+  2026-11-12 and 2026-11-25: Crypto is 0.01 (0.05 for the BTC 5- and 15-minute up/down markets, not
+  0.07), Weather, Economics, Culture and Mentions 0.01, Finance, Tech and election Politics 0.05, other
+  Politics 0.01. The live Gamma `feeSchedule` of a sample of 800 active markets agrees with the new
+  table for every category in it (Mentions and Combos were not in the sample). At 0.01 a weather
+  trade at 0.30 pays 0.7% of the stake, not the 3.5% the epic computes at 0.05.
+  Polymarket sets these rates and changes them, so a default is a fallback: use the schedule the
+  market itself carries (#71).
+
 ## [1.1.3] — 2026-11-09
 
 The last of the fixes from the 1.1.0 audit (stacked on 1.1.2): boundary arguments that were accepted
@@ -1683,7 +1747,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.3...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.0...v1.1.1
