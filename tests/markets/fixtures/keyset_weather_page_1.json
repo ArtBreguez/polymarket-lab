@@ -1,0 +1,46 @@
+{
+ "markets": [
+  {
+   "id": "2247194",
+   "question": "Will the highest temperature in Atlanta be between 88-89°F on May 15?",
+   "conditionId": "0x967a3de0687015e26a63252fcb2359c402f9a130b94f11af6ed59dfedd886c53",
+   "slug": "highest-temperature-in-atlanta-on-may-15-2026-88-89f",
+   "endDate": "2026-05-15T12:00:00Z",
+   "startDate": "2026-05-13T04:21:00.19707Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.4995\", \"0.5005\"]",
+   "clobTokenIds": "[\"79887382406353244817525301519927539462642211786818976621440287109964337409391\", \"5741392248245282950450756591573159689967577582749767526072439405977858524514\"]",
+   "active": true,
+   "closed": false,
+   "groupItemTitle": "88-89°F",
+   "feeType": "weather_fees",
+   "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.01,
+    "takerOnly": true,
+    "rebateRate": 0.25
+   },
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Hartsfield-Jackson International Airport Station in degr"
+  },
+  {
+   "id": "2290078",
+   "question": "Will the highest temperature in Jinan be 15°C or below on May 20?",
+   "conditionId": "",
+   "slug": "highest-temperature-in-jinan-on-may-20-2026-15corbelow",
+   "endDate": "2026-05-20T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "active": true,
+   "closed": false,
+   "groupItemTitle": "15°C or below",
+   "feeType": "weather_fees",
+   "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.01,
+    "takerOnly": true,
+    "rebateRate": 0.25
+   },
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Jinan Yaoqiang International Airport Station in degrees "
+  }
+ ],
+ "next_cursor": "AwamGprB6dqvOL7QQdPpM3xWvMIF7A6kKRDolJ09o617InYiOjEsImsiOiJtYXJrZXRzIiwib2giOiI0ZjUzY2RhMThjMmJhYTBjMDM1NGJiNWY5YTNlY2JlNWVkMTJhYjRkOGUxMWJhODczYzJmMTExNjEyMDJiOTQ1Iiwia2V5cyI6W3sidCI6InN0cmluZyIsInYiOiIyMjkwMDc4In1dfQ"
+}

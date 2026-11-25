@@ -8,10 +8,18 @@ import respx
 from pmlab.markets.gamma_client import GammaClient
 
 
+def no_keyset() -> None:
+    """An old Gamma: no /markets/keyset, so ``fetch_markets_all`` falls back to offset paging."""
+    respx.get("https://mock-gamma.test/markets/keyset").mock(return_value=httpx.Response(404))
+
+
 class TestFetchMarketsAll:
+    """The offset fallback of ``fetch_markets_all``; the keyset is ``test_gamma_keyset.py``."""
+
     @respx.mock
     def test_single_page(self):
         # Only one page returned (less than page_size)
+        no_keyset()
         respx.get("https://mock-gamma.test/markets").mock(
             return_value=httpx.Response(200, json=[{"question": "Q1"}, {"question": "Q2"}])
         )
@@ -32,6 +40,7 @@ class TestFetchMarketsAll:
                 return httpx.Response(200, json=[{"question": f"Q{i}"} for i in range(3)])
             return httpx.Response(200, json=[{"question": "Q_last"}])
 
+        no_keyset()
         respx.get("https://mock-gamma.test/markets").mock(side_effect=side_effect)
         client = GammaClient(base_url="https://mock-gamma.test")
         markets = client.fetch_markets_all(page_size=3)
@@ -40,6 +49,7 @@ class TestFetchMarketsAll:
 
     @respx.mock
     def test_empty_response(self):
+        no_keyset()
         respx.get("https://mock-gamma.test/markets").mock(return_value=httpx.Response(200, json=[]))
         client = GammaClient(base_url="https://mock-gamma.test")
         markets = client.fetch_markets_all()
@@ -48,6 +58,7 @@ class TestFetchMarketsAll:
 
     @respx.mock
     def test_keyword_filter(self):
+        no_keyset()
         respx.get("https://mock-gamma.test/markets").mock(
             return_value=httpx.Response(
                 200,
@@ -64,6 +75,7 @@ class TestFetchMarketsAll:
 
     @respx.mock
     def test_max_results_cap(self):
+        no_keyset()
         respx.get("https://mock-gamma.test/markets").mock(
             return_value=httpx.Response(200, json=[{"question": f"Q{i}"} for i in range(5)])
         )

@@ -1,4 +1,11 @@
-"""`discover_tmax_markets` pages through every active market (#68).
+"""The offset fallback of `discover_tmax_markets` and `fetch_markets_all` (#68, #83).
+
+Discovery pages by cursor on ``/markets/keyset`` (``test_gamma_keyset.py``). These tests run the
+older offset paging of #68 and #79 the way it still runs: against a Gamma that does not know the
+keyset endpoint (it answers 404), so every test below goes through the fallback, with its retry,
+cap and "offset too large" handling intact.
+
+`discover_tmax_markets` pages through every active market (#68).
 
 It looped ``while True``: one 429 or 500 on page 40 lost the 39 pages before it, and an API that
 ignored ``offset`` and kept returning full pages never let it finish. A transient failure of one
@@ -18,6 +25,7 @@ from pmlab.markets.gamma_client import GammaClient, TmaxMarketInfo
 
 BASE = "https://mock-gamma.test"
 URL = f"{BASE}/markets"
+KEYSET_URL = f"{BASE}/markets/keyset"
 PAGE = 2  # page_size used throughout, so a "full page" is two markets
 
 
@@ -80,8 +88,14 @@ def status(code: int, **headers: str) -> httpx.Response:
     return httpx.Response(code, headers=headers, json={"error": code})
 
 
+def no_keyset() -> None:
+    """Mount the keyset endpoint of an old Gamma: not found, so paging falls back to offsets."""
+    respx.get(KEYSET_URL).mock(return_value=httpx.Response(404, json={"error": "not found"}))
+
+
 def run_sync(server: Server) -> list[TmaxMarketInfo]:
     with respx.mock:
+        no_keyset()
         respx.get(URL).mock(side_effect=server)
         with GammaClient(base_url=BASE) as client:
             return client.discover_tmax_markets(page_size=PAGE)
@@ -89,6 +103,7 @@ def run_sync(server: Server) -> list[TmaxMarketInfo]:
 
 async def run_async(server: Server) -> list[TmaxMarketInfo]:
     with respx.mock:
+        no_keyset()
         respx.get(URL).mock(side_effect=server)
         async with AsyncGammaClient(base_url=BASE) as client:
             return await client.discover_tmax_markets(page_size=PAGE)
@@ -252,7 +267,7 @@ class TestARunawayLoopStops:
         assert len(discover(server)) == 5
 
 
-def test_the_default_cap_is_far_above_any_real_universe() -> None:
+def test_the_default_cap_is_a_guard_of_at_least_1000_pages() -> None:
     assert gamma_client._MAX_DISCOVERY_PAGES >= 1000
 
 
@@ -292,6 +307,7 @@ def reply_422(body: object) -> httpx.Response:
 
 def run_fetch_all(server: Server, **kwargs) -> list[dict]:
     with respx.mock:
+        no_keyset()
         respx.get(URL).mock(side_effect=server)
         with GammaClient(base_url=BASE) as client:
             return client.fetch_markets_all(page_size=PAGE, **kwargs)
@@ -305,9 +321,10 @@ class TestTheEndOfTheOffsetSpace:
         assert [m.market_id for m in found] == [str(i) for i in range(6)]
         assert server.calls == [0, 2, 4, 6] and sleeps == []  # not retried: nothing to wait for
         warnings_ = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
-        assert len(warnings_) == 1, warnings_
+        assert len(warnings_) == 2, warnings_  # the keyset refusal, then the end of the offsets
+        assert "falling back" in warnings_[0], warnings_[0]
         for needle in ("offset=6", "incomplete", "/markets/keyset", "6 markets"):
-            assert needle in warnings_[0], (needle, warnings_[0])
+            assert needle in warnings_[1], (needle, warnings_[1])
 
     def test_it_is_the_end_whatever_the_page_it_comes_on(self, discover, sleeps) -> None:
         server = Server(total=10**6, failures={2: [offset_too_large()]})
@@ -399,4 +416,4 @@ class TestFetchMarketsAllAtTheEndOfTheOffsetSpace:
         server = Server(total=10**6, failures={6: [offset_too_large()]})
         with caplog.at_level("WARNING", logger="pmlab"):
             assert len(run_fetch_all(server, max_results=4)) == 4
-        assert server.calls == [0, 2] and "incomplete" not in caplog.text
+        assert server.calls == [0, 2] and "refused offset" not in caplog.text  # only the fallback's

@@ -1,0 +1,43 @@
+{
+ "markets": [
+  {
+   "id": "2290079",
+   "question": "Will the highest temperature in Jinan be 16°C on May 20?",
+   "conditionId": "",
+   "slug": "highest-temperature-in-jinan-on-may-20-2026-16c",
+   "endDate": "2026-05-20T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "active": true,
+   "closed": false,
+   "groupItemTitle": "16°C",
+   "feeType": "weather_fees",
+   "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.01,
+    "takerOnly": true,
+    "rebateRate": 0.25
+   },
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Jinan Yaoqiang International Airport Station in degrees "
+  },
+  {
+   "id": "2290080",
+   "question": "Will the highest temperature in Jinan be 17°C on May 20?",
+   "conditionId": "",
+   "slug": "highest-temperature-in-jinan-on-may-20-2026-17c",
+   "endDate": "2026-05-20T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "active": true,
+   "closed": false,
+   "groupItemTitle": "17°C",
+   "feeType": "weather_fees",
+   "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.01,
+    "takerOnly": true,
+    "rebateRate": 0.25
+   },
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Jinan Yaoqiang International Airport Station in degrees "
+  }
+ ],
+ "next_cursor": "bH9b55zyVWwFQXT_ijjjBlhPE3fjm_bkapR2NSoqC9R7InYiOjEsImsiOiJtYXJrZXRzIiwib2giOiI0ZjUzY2RhMThjMmJhYTBjMDM1NGJiNWY5YTNlY2JlNWVkMTJhYjRkOGUxMWJhODczYzJmMTExNjEyMDJiOTQ1Iiwia2V5cyI6W3sidCI6InN0cmluZyIsInYiOiIyMjkwMDgwIn1dfQ"
+}

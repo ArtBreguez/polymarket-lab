@@ -7,6 +7,8 @@ import json
 import math
 import re
 import time
+from collections.abc import Generator
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
@@ -65,9 +67,14 @@ def _parse_tmax_date(date_str: str, reference_year: int | None = None) -> str:
 # ---------------------------------------------------------------------------
 # Discovery paging: how many pages, and what a failed page costs
 # ---------------------------------------------------------------------------
-# A runaway guard, not a budget: 1000 pages of 100 is far beyond Gamma's active markets. An API
-# that ignores `offset` returns full pages for ever; the loop stops, loudly, instead.
+# A runaway guard, not a budget: it counts pages (requests), not markets, so `page_size=10` allows
+# 10,000 markets and the default 100,000. An API that ignores `after_cursor` (or `offset`) serves
+# pages for ever; the loop stops, loudly, instead.
 _MAX_DISCOVERY_PAGES = 1000
+# Discovery pages by cursor on /markets/keyset; /markets by offset is only the fallback for a Gamma
+# that does not know the keyset endpoint (and live Gamma refuses it from offset 2100).
+_KEYSET_PATH = "/markets/keyset"
+_OFFSET_PATH = "/markets"
 # One page is asked for up to this many times (the first try included) before its failure is
 # raised: a 429 or a 5xx on page 40 should not cost the 39 pages before it.
 _RETRY_ATTEMPTS = 5
@@ -139,6 +146,151 @@ def _as_page(payload: Any) -> list[dict[str, Any]]:
             f"Gamma /markets returned a {type(payload).__name__}, expected a list of markets"
         )
     return payload
+
+
+# Statuses of the first keyset request that say "wrong credentials, or slow down", not "this Gamma
+# has no /markets/keyset": the offset path would meet the same wall (or is retried anyway).
+_NOT_A_MISSING_KEYSET = frozenset({401, 403, 408, 429})
+
+
+def _keyset_refused(resp: httpx.Response) -> bool:
+    """True when the first ``/markets/keyset`` reply says this server does not serve the endpoint.
+
+    A 404 or 405 from a deployment that predates it, a 400 or 422 from one that rejects the path,
+    a 501 from a proxy: every 4xx but a credentials failure (401, 403) or a transient one (408, 429,
+    retried before this is asked), and 501. Only the first page: a 4xx after a cursor was served is
+    an error, not an old server.
+    """
+    code = resp.status_code
+    return code == 501 or (400 <= code < 500 and code not in _NOT_A_MISSING_KEYSET)
+
+
+def _warn_keyset_refused(where: str, resp: httpx.Response) -> None:
+    """Say that paging falls back to offsets, which cannot read past about 2000 markets."""
+    from pmlab.logging import get_logger
+
+    get_logger(__name__).warning(
+        "%s: Gamma refused %s (HTTP %d: %s); falling back to offset paging on %s, which Gamma "
+        "stops serving at about offset 2000, so the result may be incomplete.",
+        where,
+        _KEYSET_PATH,
+        resp.status_code,
+        resp.text.strip()[:200],
+        _OFFSET_PATH,
+    )
+
+
+def _keyset_json(resp: httpx.Response) -> Any:
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise ValueError(f"Gamma {_KEYSET_PATH} returned a reply that is not JSON: {exc}") from exc
+
+
+def _keyset_page(payload: Any) -> tuple[list[dict[str, Any]], str | None]:
+    """The markets and the ``next_cursor`` of one ``/markets/keyset`` reply.
+
+    Gamma answers ``{"markets": [...], "next_cursor": "..."}`` and leaves ``next_cursor`` out of
+    the last page (an empty ``{"markets": []}`` when nothing matches); ``None`` and ``""`` are read
+    as absent. ``ValueError`` for any other shape.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("markets"), list):
+        raise ValueError(
+            f"Gamma {_KEYSET_PATH} returned a {type(payload).__name__}"
+            ", expected an object with a 'markets' list"
+        )
+    cursor = payload.get("next_cursor")
+    if cursor is None or cursor == "":
+        return payload["markets"], None
+    if not isinstance(cursor, str):
+        raise ValueError(
+            f"Gamma {_KEYSET_PATH} returned a next_cursor that is a {type(cursor).__name__}"
+            ", expected a string"
+        )
+    return payload["markets"], cursor
+
+
+class _KeysetWalk:
+    """The bookkeeping of one walk down ``/markets/keyset``, shared by the sync and async clients.
+
+    It builds each request (``after_cursor`` from the second on), digests each reply and refuses a
+    cursor it has been given before: a Gamma that ignores ``after_cursor`` would answer the first
+    page for ever, and the cursor it points at is the same every time.
+    """
+
+    def __init__(self, where: str, params: dict[str, Any]) -> None:
+        self.where = where
+        self._params = params
+        self._cursors: set[str] = set()
+        self.cursor: str | None = None
+        self.pages = 0  # replies digested (a retried request counts once)
+        self.read = 0  # markets in them
+
+    @property
+    def params(self) -> dict[str, Any]:
+        return (
+            self._params if self.cursor is None else {**self._params, "after_cursor": self.cursor}
+        )
+
+    @property
+    def label(self) -> str:
+        return f"page {self.pages + 1}"
+
+    @property
+    def finished(self) -> bool:
+        """True once a reply came without a ``next_cursor``: that is the end of the data."""
+        return self.pages > 0 and self.cursor is None
+
+    def digest(self, resp: httpx.Response) -> list[dict[str, Any]]:
+        page, cursor = _keyset_page(_keyset_json(resp))
+        self.pages += 1
+        self.read += len(page)
+        if cursor is not None:
+            if cursor in self._cursors:
+                raise RuntimeError(
+                    f"{self.where}: Gamma {_KEYSET_PATH} sent the same next_cursor twice (at page "
+                    f"{self.pages}); stopping (is it ignoring `after_cursor`?)"
+                )
+            self._cursors.add(cursor)
+        self.cursor = cursor
+        return page
+
+    def capped(self) -> RuntimeError:
+        return RuntimeError(
+            f"{self.where}: still receiving a next_cursor after {_MAX_DISCOVERY_PAGES} pages "
+            f"({self.read} markets read); stopping (is {_KEYSET_PATH} looping?)"
+        )
+
+
+def _offset_capped(where: str, pages: int, offset: int) -> RuntimeError:
+    return RuntimeError(
+        f"{where}: still receiving full pages after {pages} pages ({offset} markets); "
+        "stopping (is the API ignoring `offset`?)"
+    )
+
+
+def _market_key(market: Any) -> str | None:
+    """What tells one market from another across pages; ``None`` when it carries nothing."""
+    if not isinstance(market, dict):
+        return None
+    key = market.get("id") or market.get("conditionId")
+    return str(key) if key else None
+
+
+def _unseen(page: list[dict[str, Any]], seen: set[str]) -> list[dict[str, Any]]:
+    """The markets of *page* not met on an earlier page (the first copy wins); records them.
+
+    A market with no id is kept as it comes: there is nothing to say it is a copy.
+    """
+    fresh: list[dict[str, Any]] = []
+    for market in page:
+        key = _market_key(market)
+        if key is not None:
+            if key in seen:
+                continue
+            seen.add(key)
+        fresh.append(market)
+    return fresh
 
 
 def _check_page_size(page_size: int) -> None:
@@ -318,58 +470,55 @@ class GammaClient:
         active: bool = True,
         closed: bool = False,
     ) -> list[dict[str, Any]]:
-        """Fetch all markets using offset-based pagination.
+        """Fetch all markets, paging by cursor on ``/markets/keyset``.
 
-        Iterates pages until fewer than page_size results are returned
-        or max_results is reached. Gamma stops serving offsets at about 2000 (HTTP 422 "offset
-        too large"); that is taken as the end: what was read is returned and a warning says the
-        result is incomplete.
+        Follows each page's ``next_cursor`` until the last page (which has none) or until
+        *max_results* markets are in hand; a market served on two pages is returned once. Pages come
+        in Gamma's order (ascending market id), so a *max_results* below the number of active markets
+        is the first of them, not the newest. A page that fails for a transient reason (a timeout, a
+        connection cut mid-request, a 408, 429 or 5xx; a numeric ``Retry-After`` is honoured) is
+        retried with backoff, as in `discover_tmax_markets`.
+
+        A Gamma that does not serve ``/markets/keyset`` (it answers its first page with a 4xx other
+        than 401, 403, 408 and 429) is paged by ``offset`` on ``/markets`` instead, with a warning:
+        that reads at most about 2000 markets (HTTP 422 "offset too large" is taken as the end, and
+        warned about too).
 
         Args:
             tag: Filter by tag.
             keyword: Client-side keyword filter applied after pagination.
-            page_size: Results per page (max 100).
+            page_size: Results per page (1 to 100).
             max_results: Hard cap on total results returned.
             active: Include active markets.
             closed: Include closed markets.
 
         Returns:
             All matching markets up to max_results.
+
+        Raises:
+            httpx.HTTPStatusError: If a page keeps failing, or fails with an error that is not
+                transient.
+            ValueError: If Gamma answers with something that is not a page of markets, or
+                ``page_size`` is not an int between 1 and 100.
+            RuntimeError: If the cursor loops, or pages are still coming after 1000 of them.
         """
         from pmlab.logging import get_logger
 
         _log = get_logger(__name__)
         _check_page_size(page_size)
 
+        params: dict[str, Any] = {"limit": page_size, "active": active, "closed": closed}
+        if tag:
+            params["tag"] = tag
+
         all_markets: list[dict[str, Any]] = []
-        offset = 0
-
-        while len(all_markets) < max_results:
-            params: dict[str, Any] = {
-                "limit": page_size,
-                "offset": offset,
-                "active": active,
-                "closed": closed,
-            }
-            if tag:
-                params["tag"] = tag
-
-            resp = self._client.get(f"{self.base_url}/markets", params=params)
-            if _offset_exhausted(resp, offset):
-                _warn_offset_exhausted("fetch_markets_all", offset, resp)
-                break
-            resp.raise_for_status()
-            page: list[dict[str, Any]] = resp.json()
-
-            if not page:
-                break
-
-            all_markets.extend(page)
-            _log.debug("Paginated: fetched %d markets (offset=%d)", len(page), offset)
-
-            if len(page) < page_size:
-                break
-            offset += page_size
+        if max_results > 0:
+            with closing(self._pages("fetch_markets_all", params, page_size)) as pages:
+                for page in pages:
+                    all_markets.extend(page)
+                    _log.debug("Paginated: fetched %d markets", len(page))
+                    if len(all_markets) >= max_results:
+                        break
 
         if keyword:
             kw_lower = keyword.lower()
@@ -377,13 +526,14 @@ class GammaClient:
 
         return all_markets[:max_results]
 
-    def _get_page(self, params: dict[str, Any]) -> list[dict[str, Any]] | None:
-        """One page of ``/markets``; a timeout, a connection cut mid-request, a 408, 429 or 5xx
-        is retried with backoff (up to `_RETRY_ATTEMPTS` tries), any other failure is raised.
-        ``None`` means Gamma refused the offset as too large: the end of the offset space."""
+    def _send(self, path: str, params: dict[str, Any], label: str) -> httpx.Response:
+        """GET *path*; a timeout, a connection cut mid-request, a 408, 429 or 5xx is retried with
+        backoff (up to `_RETRY_ATTEMPTS` tries), and the reply that ends it is returned for the
+        caller to read (after the last try, the failing one). Transport errors that are not
+        transient are raised as they come."""
         from pmlab.logging import get_logger
 
-        url = f"{self.base_url}/markets"
+        url = f"{self.base_url}{path}"
         for attempt in range(_RETRY_ATTEMPTS):
             final = attempt == _RETRY_ATTEMPTS - 1
             try:
@@ -394,17 +544,14 @@ class GammaClient:
                 delay = _retry_delay(attempt, None)
                 reason = type(exc).__name__
             else:
-                if _offset_exhausted(resp, params.get("offset")):
-                    _warn_offset_exhausted("discover_tmax_markets", params["offset"], resp)
-                    return None
                 if resp.status_code not in _TRANSIENT_STATUS or final:
-                    resp.raise_for_status()
-                    return _as_page(resp.json())
+                    return resp
                 delay = _retry_delay(attempt, resp)
                 reason = f"HTTP {resp.status_code}"
             get_logger(__name__).warning(
-                "Gamma /markets offset=%s: %s, retrying in %.1fs (attempt %d of %d)",
-                params.get("offset"),
+                "Gamma %s %s: %s, retrying in %.1fs (attempt %d of %d)",
+                path,
+                label,
                 reason,
                 delay,
                 attempt + 1,
@@ -413,32 +560,72 @@ class GammaClient:
             _sleep(delay)
         raise AssertionError("unreachable: the last attempt returns or raises")
 
+    def _pages(
+        self, where: str, params: dict[str, Any], page_size: int
+    ) -> Generator[list[dict[str, Any]], None, None]:
+        """The pages of ``/markets/keyset``, each without the markets of the pages before it.
+
+        Falls back to `_offset_pages` when the first reply says the endpoint is not served here.
+        """
+        seen: set[str] = set()
+        walk = _KeysetWalk(where, params)
+        while walk.pages < _MAX_DISCOVERY_PAGES:
+            resp = self._send(_KEYSET_PATH, walk.params, walk.label)
+            if walk.pages == 0 and _keyset_refused(resp):
+                _warn_keyset_refused(where, resp)
+                yield from self._offset_pages(where, params, page_size)
+                return
+            resp.raise_for_status()
+            yield _unseen(walk.digest(resp), seen)
+            if walk.finished:
+                return
+        raise walk.capped()
+
+    def _offset_pages(
+        self, where: str, params: dict[str, Any], page_size: int
+    ) -> Generator[list[dict[str, Any]], None, None]:
+        """The pages of ``/markets`` by offset: the fallback, which Gamma ends at about offset 2000
+        with an HTTP 422 (taken as the end: warned about, and what was read is kept)."""
+        seen: set[str] = set()
+        offset = 0
+        for _ in range(_MAX_DISCOVERY_PAGES):
+            resp = self._send(_OFFSET_PATH, {**params, "offset": offset}, f"offset={offset}")
+            if _offset_exhausted(resp, offset):
+                _warn_offset_exhausted(where, offset, resp)
+                return
+            resp.raise_for_status()
+            page = _as_page(resp.json())
+            yield _unseen(page, seen)
+            if len(page) < page_size:
+                return
+            offset += page_size
+        raise _offset_capped(where, _MAX_DISCOVERY_PAGES, offset)
+
     def discover_tmax_markets(
         self,
         page_size: int = 100,
         active: bool = True,
     ) -> list[TmaxMarketInfo]:
-        """Paginate through all active markets and return temperature-max markets.
+        """Page through all active markets and return the temperature-max ones.
 
-        Paginates using offset-based iteration, stopping when a page has fewer
-        than *page_size* results.  Each page is filtered with the temperature-max
-        heuristic and parsed into `TmaxMarketInfo`.
+        Pages by cursor on ``/markets/keyset``: each reply's ``next_cursor`` is sent back as
+        ``after_cursor`` until a reply has none, so the whole universe is read however large it is
+        (``/markets`` by offset ends at about 2000 on live Gamma). A market served on two pages is
+        read once. Each page is filtered with the temperature-max heuristic and parsed into
+        `TmaxMarketInfo`.
 
         A page that fails for a transient reason (a timeout, a connection cut mid-request, a 408,
         429 or 5xx; a numeric ``Retry-After`` is honoured) is retried with backoff, so one failure
         does not lose the pages before it; after five tries, or on any other error (a refused
         connection included: nothing is listening, waiting does not help), the failure is raised.
-        Gamma stops serving offsets at about 2000 (HTTP 422 "offset too large"): that is the end
-        of what offset paging can read, so the markets read so far are returned and a warning
-        says the result is incomplete (deeper pages need ``/markets/keyset``).
 
-        Against the live API, as of 2026-11-25, that is the first 2100 active markets, and none
-        of them is a temperature market: ``discover_tmax_markets()`` returns ``[]`` with that
-        warning, where it used to raise at page 22, until discovery moves to ``/markets/keyset``
-        (#83). An empty result with the warning means "not read", not "no markets today".
+        A Gamma that does not serve ``/markets/keyset`` (it answers the first page with a 4xx other
+        than 401, 403, 408 and 429) is read by ``offset`` on ``/markets`` instead, with a warning:
+        that stops at about 2000 markets (HTTP 422 "offset too large", taken as the end, and warned
+        about), so the result is incomplete and an empty one with that warning means "not read".
 
         Args:
-            page_size: Results per API page (max 100).
+            page_size: Results per API page (1 to 100; Gamma serves at most 100).
             active: If True, only fetch active markets.
 
         Returns:
@@ -446,52 +633,30 @@ class GammaClient:
 
         Raises:
             httpx.HTTPStatusError: If a page keeps failing, or fails with an error that is not
-                transient (a 4xx other than 408 and 429).
+                transient (a 4xx other than 408 and 429; on the first page, one that says the
+                endpoint is not served falls back to offsets instead).
             httpx.TransportError: If the connection keeps failing.
-            ValueError: If Gamma answers with something other than a list of markets, or
+            ValueError: If Gamma answers with something that is not a page of markets, or
                 ``page_size`` is not an int between 1 and 100.
-            RuntimeError: If it is still receiving full pages after 1000 of them (an API that
-                ignores ``offset`` would otherwise never let it finish).
+            RuntimeError: If the cursor loops (a ``next_cursor`` it has sent before), or pages are
+                still coming after 1000 of them. The cap counts pages, not markets: ``page_size=100``
+                allows 100,000 markets and ``page_size=10`` allows 10,000.
         """
         from pmlab.logging import get_logger
 
         _log = get_logger(__name__)
         _check_page_size(page_size)
 
+        params: dict[str, Any] = {"limit": page_size, "active": active, "closed": False}
         results: list[TmaxMarketInfo] = []
-        offset = 0
-
-        for _ in range(_MAX_DISCOVERY_PAGES):
-            params: dict[str, Any] = {
-                "limit": page_size,
-                "offset": offset,
-                "active": active,
-                "closed": False,
-            }
-            page = self._get_page(params)
-            if page is None:  # Gamma's offset paging is over; keep what was read (warned)
-                return results
-
-            _log.debug(
-                "discover_tmax_markets: fetched %d markets (offset=%d)",
-                len(page),
-                offset,
-            )
-
+        for page in self._pages("discover_tmax_markets", params, page_size):
+            _log.debug("discover_tmax_markets: fetched %d new markets", len(page))
             for market in page:
                 if _is_tmax_market(market):
                     info = _build_tmax_market_info(market)
                     if info is not None:
                         results.append(info)
-
-            if len(page) < page_size:
-                return results
-            offset += page_size
-
-        raise RuntimeError(
-            f"discover_tmax_markets: still receiving full pages after {_MAX_DISCOVERY_PAGES} "
-            f"pages ({offset} markets); stopping (is the API ignoring `offset`?)"
-        )
+        return results
 
     def close(self) -> None:
         self._client.close()
