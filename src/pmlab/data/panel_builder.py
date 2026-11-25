@@ -135,9 +135,12 @@ def build_panel(
         example = ", ".join(f"{c}={v!r}" for c, v in dups.iloc[0].to_dict().items())
         raise PanelSchemaError(
             f"Panel has duplicated rows: {len(dups)} rows share {len(dups.drop_duplicates())} "
-            f"key(s), e.g. {example}. A panel has one row per {' + '.join(key_cols)}; "
-            "deduplicate upstream (a second snapshot of the same market and day, or a market "
-            "passed twice, double-weights it in training and changes how many folds run)."
+            f"key(s), e.g. {example}. A panel has one row per {' + '.join(key_cols)}. Two "
+            "decisions of one market and day (a morning and an evening snapshot, say) are told "
+            "apart by a 'decision_horizon' column ('horizon' also counts): name yours that way "
+            "if it has another name. Otherwise deduplicate upstream (a second snapshot of the "
+            "same market and day, or a market passed twice, double-weights it in training and "
+            "changes how many folds run)."
         )
 
     for col in feature_cols:

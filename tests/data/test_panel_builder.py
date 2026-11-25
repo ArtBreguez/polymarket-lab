@@ -364,6 +364,18 @@ class TestBuildPanelDuplicates:
         rows = [{**r, "horizon": h} for h in ("market_open", "morning_of") for r in _bin_rows("m1")]
         assert len(build_panel([rows])) == 6
 
+    def test_the_error_names_the_column_that_tells_two_decisions_apart(self):
+        """A plugin whose horizon column has another name (``horizon_days``) gets rows that look
+        repeated; the message says which names the key uses instead of only "deduplicate"."""
+        rows = [{**r, "horizon_days": d} for d in (1, 2) for r in _bin_rows("m1")]
+        with pytest.raises(PanelSchemaError) as err:
+            build_panel([rows])
+        message = str(err.value)
+        assert "decision_horizon" in message and "'horizon'" in message, message
+        assert "deduplicate upstream" in message  # the other way out is still said
+        renamed = [{**r, "decision_horizon": f"h{d}"} for d in (1, 2) for r in _bin_rows("m1")]
+        assert len(build_panel([renamed])) == 6  # and naming it that way is the escape hatch
+
     def test_the_check_comes_before_the_untimed_price_warning(self, caplog):
         rows = _bin_rows("m1") + _bin_rows("m1")
         with caplog.at_level(logging.WARNING), pytest.raises(PanelSchemaError):
