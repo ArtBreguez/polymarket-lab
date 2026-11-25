@@ -407,6 +407,28 @@ class TestASmallLimitDoesNotMultiplyTheRequests:
         plugin.discover_markets(limit=250)
         assert gamma.fetch_markets_all.call_args.kwargs["page_size"] == 250
 
+    @pytest.mark.parametrize("bad", [0, -5, True, 2.5, "5"])
+    def test_a_limit_the_client_would_refuse_reaches_it_as_it_is(self, bad: Any) -> None:
+        """Raising a small page to 100 must not turn 0, -5, True, 2.5 or "5" into a valid one (the
+        first four read as 100, the last was an opaque ``TypeError``): it is the client's to refuse."""
+        plugin, gamma = plugin_over([])
+        plugin.discover_markets(limit=bad)
+        assert gamma.fetch_markets_all.call_args.kwargs["page_size"] is bad
+
+    @pytest.mark.parametrize("bad", [0, -5, True, 2.5, "5"])
+    def test_through_the_real_client_a_bad_limit_is_a_value_error_before_any_request(
+        self, bad: Any
+    ) -> None:
+        with respx.mock:
+            route = respx.get(f"{BASE}/markets/keyset").mock(
+                return_value=httpx.Response(200, json={"markets": []})
+            )
+            with GammaClient(base_url=BASE) as client:
+                plugin = WeatherTmaxPlugin(gamma_client=client, clock=lambda: OBSERVED)
+                with pytest.raises(ValueError, match="page_size must be an int between 1 and 100"):
+                    plugin.discover_markets(limit=bad)
+            assert not route.called
+
     def test_through_the_real_client_limit_1_is_the_same_walk_in_the_same_requests(self) -> None:
         filler = [{"id": f"f{i}", "question": "Will it rain?"} for i in range(250)]
         universe = [*filler, *recorded()]  # 282 markets under the tag: three pages of 100

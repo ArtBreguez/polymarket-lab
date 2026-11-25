@@ -207,6 +207,7 @@ class WeatherTmaxPlugin(MarketPlugin):
             limit (int): Page size (1 to 100), default 100; not a number of markets. When the
                 whole tag is read (a ``tag_id`` and no ``max_results``) a page smaller than 100 is
                 raised to 100: the result is the same, 27 requests instead of 2,633 / ``limit``.
+                A value the client refuses (0, a negative, a bool, a float) is still refused.
         """
         if self._gamma is None:
             raise RuntimeError(
@@ -234,7 +235,14 @@ class WeatherTmaxPlugin(MarketPlugin):
             kwargs["tag_id"] = tag_id
             if max_results is None:
                 max_results = sys.maxsize  # the tag bounds the walk; the page cap guards it
-                page_size = max(page_size, _FULL_PAGE)
+                # a valid small page only: 0, -5, True, 2.5 or "5" stay as they are, for the
+                # client to refuse as it always did
+                if (
+                    isinstance(page_size, int)
+                    and not isinstance(page_size, bool)
+                    and 1 <= page_size < _FULL_PAGE
+                ):
+                    page_size = _FULL_PAGE
         elif max_results is None:
             max_results = 1000
 

@@ -174,6 +174,23 @@ def test_scan_markets_limit_is_a_page_size_and_never_multiplies_a_whole_tag_read
     assert len(seen) == 1 and seen[0]["limit"] == "100", seen  # 32 markets: one full page
 
 
+def test_scan_markets_limit_zero_is_refused_not_read_as_a_full_page(monkeypatch):
+    """Raising a small page to 100 for a whole-tag read must not make ``--limit 0`` valid: it was
+    "page_size must be an int between 1 and 100" and exit 1 before, and it is again."""
+    import httpx
+    import respx
+
+    monkeypatch.setenv("PMLAB_GAMMA_API_BASE", "https://mock-gamma.test")
+    with respx.mock:
+        route = respx.get("https://mock-gamma.test/markets/keyset").mock(
+            return_value=httpx.Response(200, json={"markets": []})
+        )
+        result = runner.invoke(app, ["scan-markets", "--plugin", "weather_tmax", "--limit", "0"])
+    assert result.exit_code == 1, result.output
+    assert "page_size must be an int between 1 and 100" in " ".join(result.output.split())
+    assert not route.called
+
+
 def test_scan_markets_limit_help_says_it_is_a_page_size():
     """The help said "Max markets to fetch", which it never was (it is the page size)."""
     result = runner.invoke(app, ["scan-markets", "--help"], env={"COLUMNS": "200"})
