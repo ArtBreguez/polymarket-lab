@@ -9,7 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pmlab.core.costs import CostModel
-from pmlab.core.segments import segment_allowed
+from pmlab.core.segments import check_segment_collection, segment_allowed
 from pmlab.execution.edge_signal import EdgeSignal
 
 # Stale cutoffs per horizon: (day_offset, cutoff_hour_local)
@@ -52,7 +52,9 @@ class PaperBroker:
 
         Raises:
             ValueError: If both ``taker_bps`` and ``costs`` are supplied.
+            TypeError: If ``allowed_segments`` is a ``str``: it would filter by substring.
         """
+        check_segment_collection(allowed_segments, "allowed_segments")
         if taker_bps is not None and costs is not None:
             raise ValueError(
                 "pass either taker_bps or costs, not both — costs.taker_bps already carries the fee"

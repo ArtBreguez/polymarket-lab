@@ -8,6 +8,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from pmlab.core.segments import check_segment_collection
+
 
 @dataclass
 class SegmentGateResult:
@@ -64,7 +66,12 @@ class HoldoutGateResult:
                 directly without splitting into segments first.
             min_trades_per_segment: Minimum trades a segment needs to pass.
             min_pnl_per_segment: Minimum total PnL a segment needs to pass.
+
+        Raises:
+            TypeError: If ``required_segments`` is a ``str`` (it would be graded one segment per
+                letter); pass ``["nyc"]``.
         """
+        check_segment_collection(required_segments, "required_segments")
         # Aggregate mode: no segmentation requested (None or empty list) — grade
         # the whole trade log. An empty list must NOT auto-pass: falling through
         # to the segment loop would yield zero results and all([]) == True → GO,

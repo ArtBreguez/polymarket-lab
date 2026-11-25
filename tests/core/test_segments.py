@@ -62,3 +62,37 @@ def test_the_comparison_is_exact() -> None:
 def test_an_empty_allowlist_allows_nothing_and_none_allows_everything() -> None:
     assert not segment_allowed("Chicago", set())
     assert segment_allowed("Chicago", None)
+
+
+class TestAStringIsNotACollectionOfSegments:
+    """``segment in "Buenos Aires"`` is a substring test: ``"Aires"`` and ``"Bu"`` would pass (#68)."""
+
+    @pytest.mark.parametrize("allowed", ["Buenos Aires", "xyz", "all", "", b"Buenos Aires"])
+    def test_segment_allowed_refuses_a_str(self, allowed) -> None:
+        with pytest.raises(TypeError, match="not a str"):
+            segment_allowed("Aires", allowed)
+
+    @pytest.mark.parametrize("allowed", ["all", "Buenos Aires", b"all"])
+    def test_allows_every_segment_refuses_a_str(self, allowed) -> None:
+        with pytest.raises(TypeError, match="collection"):
+            allows_every_segment(allowed)
+
+    def test_the_message_says_what_to_pass(self) -> None:
+        with pytest.raises(TypeError) as err:
+            segment_allowed("Aires", "Buenos Aires")
+        assert "{'Buenos Aires'}" in str(err.value)
+
+    @pytest.mark.parametrize(
+        "allowed",
+        [{"Buenos Aires"}, ["Buenos Aires"], ("Buenos Aires",), frozenset({"Buenos Aires"}),
+         {"Buenos Aires": 1}.keys()],
+    )  # fmt: skip
+    def test_every_real_collection_still_works(self, allowed) -> None:
+        assert segment_allowed("Buenos Aires", allowed) is True
+        assert segment_allowed("Aires", allowed) is False
+        assert segment_allowed("Buenos", allowed) is False
+
+    def test_none_and_the_empty_collection_keep_their_meaning(self) -> None:
+        assert segment_allowed("x", None) is True
+        assert segment_allowed("x", set()) is False
+        assert segment_allowed("x", []) is False

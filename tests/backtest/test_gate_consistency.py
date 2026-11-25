@@ -249,3 +249,17 @@ class TestPromoteChampionRefusesAForgedFile:
         assert result.exit_code == 1, result.output
         assert "Not a valid gate file" in result.output and "no segment passed" in result.output
         assert "Traceback" not in result.output and not (tmp_path / "out").exists()
+
+
+class TestRequiredSegmentsIsNotAString:
+    """``required_segments="nyc"`` was iterated letter by letter: three 'missing' segments (#68)."""
+
+    @pytest.mark.parametrize("segments", ["nyc", "all", b"nyc"])
+    def test_a_str_is_refused(self, segments) -> None:
+        with pytest.raises(TypeError, match="required_segments"):
+            HoldoutGateResult.evaluate(_trades(nyc=5.0), required_segments=segments)
+
+    def test_a_list_still_works(self) -> None:
+        assert (
+            HoldoutGateResult.evaluate(_trades(nyc=5.0), required_segments=["nyc"]).decision == "GO"
+        )
