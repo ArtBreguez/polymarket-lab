@@ -957,6 +957,7 @@ them again:
 $ pmlab promote-champion artifacts/model.pkl --gate-path gate.json --plugin e2e_family --output-dir artifacts/public_models --name e2e-lgbm --expectation metrics.json
 Gate decision: GO
 Aggregate PnL: $+476.76 over 391 trades
+warning: --plugin 'e2e_family' is not a registered plugin family (registered: sports_f1, weather_tmax); recording it in champion.json as given. Check the spelling, or install the package whose 'pmlab.plugins' entry point registers it.
 Champion published!
   Model: artifacts/public_models/champion.pkl
   Manifest: artifacts/public_models/champion.json
@@ -965,6 +966,9 @@ Champion published!
   Policy: live (best edge >= 0.2, YES+NO)
 [exit code: 0]
 ```
+
+`e2e_family` is a label that no installed plugin registers, so `promote-champion` warns on stderr (this
+transcript shows both streams) and still publishes: the family is recorded as given.
 
 Each live world is 600 days of markets, one per segment per day. `record-trades` records the signals that
 clear the champion's threshold (458 trades in each world, YES and NO), a nightly settlement stamps
