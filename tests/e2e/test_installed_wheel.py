@@ -150,6 +150,20 @@ def test_the_sharp_edges_of_the_1_1_0_audit_hold_in_the_wheel(installed: Install
     assert "exits **0**" in (REPO / "docs" / "cli.md").read_text()
 
 
+def test_gamma_discovery_pages_by_cursor_in_the_wheel(installed: Installed) -> None:
+    """1.2.2 (#83): ``discover_tmax_markets`` (sync and async) and ``fetch_markets_all`` follow the
+    ``next_cursor`` of ``/markets/keyset`` against a stdlib HTTP server on 127.0.0.1 that plays live
+    Gamma (``/markets`` ends at offset 2000 with a 422, the cursor is full of characters a query
+    string must escape): all 2500 markets are read where offsets stopped at 2100, the last page has
+    no cursor and nothing more is asked, a market on two pages is returned once, a 429 and a 500 on a
+    cursor page are retried in place, a Gamma without the endpoint falls back to offsets with a
+    warning (a 401 or 403 does not), an invalid cursor, a reply that is not a keyset page, a cursor
+    that does not move and an endless one (the cap of 1000 pages) raise."""
+    out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_gamma_keyset.py"))
+    assert "FAIL" not in out, out
+    assert f"audit gamma keyset: OK (15 checks, pmlab {_pyproject_version()})" in out
+
+
 def test_user_workflow_script(installed: Installed) -> None:
     panel = installed.workdir / "panel.parquet"
     out = _ok(installed.py(EXAMPLE, "--panel-out", panel))

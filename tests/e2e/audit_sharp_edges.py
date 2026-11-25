@@ -596,7 +596,8 @@ def tmax_market(i: int) -> dict[str, Any]:
 class GammaStub:
     """Gamma's ``/markets`` on 127.0.0.1 (stdlib ``http.server``, no network): ``total`` markets
     served by ``limit`` and ``offset`` (or the first page for ever, with ``ignore_offset``), and
-    scripted replies (a 429, a 500, the 422) per offset."""
+    scripted replies (a 429, a 500, the 422) per offset. It does not know ``/markets/keyset`` (404),
+    like a Gamma that predates it, so these checks run the offset fallback of 1.2.2 (#83)."""
 
     def __init__(
         self,
@@ -614,6 +615,9 @@ class GammaStub:
             def do_GET(self) -> None:  # noqa: N802 (the name http.server looks for)
                 url = urllib.parse.urlsplit(self.path)
                 query = urllib.parse.parse_qs(url.query)
+                if url.path == "/markets/keyset":  # an old Gamma: paging falls back to offsets
+                    self._reply(404, {}, '{"error": "not found"}')
+                    return
                 if url.path != "/markets" or "offset" not in query or "limit" not in query:
                     self._reply(400, {}, '{"error": "unexpected request"}')
                     return
