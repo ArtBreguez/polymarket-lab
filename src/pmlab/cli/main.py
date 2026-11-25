@@ -867,6 +867,22 @@ def promote_champion_cmd(
             )
         raise typer.Exit(1)
 
+    # The family is a label in champion.json that `record-trades`, `status` and the watchdog
+    # read back. A name no plugin registers is most often a typo; it is not refused, because
+    # a champion may be promoted where the plugin is not installed (docs use `--plugin
+    # my_family`), but it is no longer recorded in silence.
+    from pmlab.plugins.registry import available_families
+
+    registered = available_families()
+    if plugin not in registered:
+        typer.echo(
+            f"warning: --plugin {plugin!r} is not a registered plugin family "
+            f"(registered: {', '.join(registered)}); recording it in champion.json as given. "
+            "Check the spelling, or install the package whose 'pmlab.plugins' entry point "
+            "registers it.",
+            err=True,
+        )
+
     costs = _load_costs(costs_path)
     expectation = None
     reproducibility = None
