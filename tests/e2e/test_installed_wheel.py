@@ -155,13 +155,15 @@ def test_gamma_discovery_pages_by_cursor_in_the_wheel(installed: Installed) -> N
     ``next_cursor`` of ``/markets/keyset`` against a stdlib HTTP server on 127.0.0.1 that plays live
     Gamma (``/markets`` ends at offset 2000 with a 422, the cursor is full of characters a query
     string must escape): all 2500 markets are read where offsets stopped at 2100, the last page has
-    no cursor and nothing more is asked, a market on two pages is returned once, a 429 and a 500 on a
-    cursor page are retried in place, a Gamma without the endpoint falls back to offsets with a
-    warning (a 401 or 403 does not), an invalid cursor, a reply that is not a keyset page, a cursor
-    that does not move and an endless one (the cap of 1000 pages) raise."""
+    no cursor and nothing more is asked, a market on two pages is returned once (on the offset
+    fallback too), a 429 and a 500 on a cursor page are retried in place (in ``fetch_markets_all``
+    too), a Gamma without the endpoint falls back to offsets with a warning (a 401 or 403 does not),
+    an invalid cursor, a reply that is not a keyset page, a cursor that does not move and an endless
+    one (the cap of 1000 pages, in ``fetch_markets_all`` too, whose message says the cap counts
+    pages and not that the cursor loops) raise."""
     out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_gamma_keyset.py"))
     assert "FAIL" not in out, out
-    assert f"audit gamma keyset: OK (15 checks, pmlab {_pyproject_version()})" in out
+    assert f"audit gamma keyset: OK (18 checks, pmlab {_pyproject_version()})" in out
 
 
 def test_user_workflow_script(installed: Installed) -> None:

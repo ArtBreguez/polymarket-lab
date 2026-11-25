@@ -102,7 +102,7 @@ class GammaStub:
     ``script`` replaces the reply to the request for the market at a position (a failure to retry, a
     422); ``keyset_status`` answers every keyset request with that status (a Gamma without the
     endpoint, or one that refuses us); ``overlap`` repeats the previous page's last market at the
-    top of the page; ``ignore_cursor`` is an API that answers the first page whatever the cursor;
+    top of the page (keyset and offset alike); ``ignore_cursor`` is an API that answers the first page whatever the cursor;
     ``trailing_empty`` gives the last full page a cursor to one more page, which is empty.
     """
 
@@ -196,7 +196,8 @@ class GammaStub:
         if offset > self.offset_limit:
             handler.reply(422, {}, OFFSET_TOO_LARGE)
             return
-        page = [tmax_market(i) for i in self.ids(offset, limit)]
+        first = max(0, offset - 1) if self.overlap and offset else offset
+        page = [tmax_market(i) for i in self.ids(first, limit + (offset - first))]
         handler.reply(200, {}, json.dumps(page))
 
     def __enter__(self) -> GammaStub:
@@ -342,6 +343,24 @@ def a_429_and_a_500_on_a_cursor_page_are_retried_in_place() -> None:
     assert stub.offset_requests == [], stub.offset_requests
 
 
+@check
+def fetch_markets_all_retries_a_429_and_a_500_in_place() -> None:
+    """1.2.1's `fetch_markets_all` had no retry: one 429 on page 3 lost the two pages before it."""
+    script: dict[int, list[Reply]] = {
+        200: [(429, {"Retry-After": "0"}, '{"error": "slow down"}')],
+        400: [(500, {"Retry-After": "0"}, '{"error": "boom"}')],
+    }
+    with GammaStub(total=600, script=script) as stub, logged_warnings() as said:
+        found = fetch_all(stub, max_results=1000)
+    assert ids_of(found) == [str(i) for i in range(600)], len(found)
+    cursors = [r.get("after_cursor") for r in stub.keyset_requests]
+    assert cursors.count(f"{CURSOR_PREFIX}200") == 2 and cursors.count(f"{CURSOR_PREFIX}400") == 2
+    assert sum("retrying" in m for m in said) == 2, said
+    with GammaStub(total=600, script={0: [(503, {"Retry-After": "0"}, "{}")]}) as stub:
+        assert len(fetch_all(stub, max_results=1000)) == 600  # the first page too, and no fallback
+    assert stub.offset_requests == [], stub.offset_requests
+
+
 # ── 6. a Gamma without the keyset endpoint ──────────────────────────────────────────────────────
 def assert_fell_back(found: list[Any], stub: GammaStub, said: list[str]) -> None:
     assert ids_of(found) == [str(i) for i in range(450)], len(found)
@@ -375,6 +394,16 @@ def the_fallback_still_ends_at_gamma_s_offset_limit_with_a_warning() -> None:
     assert ids_of(found) == [str(i) for i in range(400)], len(found)  # offsets 0..300
     assert len(said) == 2 and "falling back" in said[0], said
     assert "offset=400" in said[1] and "incomplete" in said[1], said
+
+
+@check
+def the_fallback_returns_a_market_served_on_two_offset_pages_once() -> None:
+    expected = [str(i) for i in range(250)]
+    for read in (discover, discover_async, lambda s: fetch_all(s, max_results=1000)):
+        with GammaStub(total=250, keyset_status=404, overlap=True) as stub:
+            found = read(stub)
+        assert ids_of(found) == expected, ids_of(found)
+        assert stub.offset_requests == [0, 100, 200], stub.offset_requests
 
 
 @check
@@ -420,6 +449,17 @@ def a_cursor_that_does_not_move_raises_at_once() -> None:
 def the_cap_of_1000_pages_stops_a_cursor_that_never_ends() -> None:
     with GammaStub(endless=True) as stub:
         error = refused(RuntimeError, discover, stub, page_size=1)
+    assert "1000 pages" in error, error
+    assert len(stub.keyset_requests) == 1000, len(stub.keyset_requests)
+    # a universe larger than the cap is what ends it here, not a loop (that has its own error)
+    assert "the cap counts pages, not markets" in error and "looping" not in error, error
+
+
+@check
+def fetch_markets_all_has_the_cap_too() -> None:
+    """1.2.1's `fetch_markets_all` had none: an API with endless pages was read until `max_results`."""
+    with GammaStub(endless=True) as stub:
+        error = refused(RuntimeError, fetch_all, stub, page_size=1, max_results=10**9)
     assert "1000 pages" in error, error
     assert len(stub.keyset_requests) == 1000, len(stub.keyset_requests)
 
