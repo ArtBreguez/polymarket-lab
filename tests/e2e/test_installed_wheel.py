@@ -176,10 +176,14 @@ def test_gamma_discovery_by_tag_and_per_bin_markets_in_the_wheel(installed: Inst
     ``MarketSpec`` (plugin, which reads the whole tag, not the first 1000 markets) with each bin's
     Yes token and price, tiling the line, resolving a reading and giving one training row per bin;
     a stale event without tokens, an unreadable question and the lowest-temperature markets are
-    refused or left out, with one warning."""
+    refused or left out, with one warning. The installed ``pmlab scan-markets --plugin
+    weather_tmax`` command reads the tag and lists the four entries (one request, ``tag_id`` on
+    the wire; ``--limit 1`` is still one full page, and its help says it is a page size); an
+    injected client whose ``fetch_markets_all`` takes no ``tag_id`` (1.2.1's contract) is called as
+    1.2.1 called it, with one warning, and a named ``tag_id`` is passed whatever the client is."""
     out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_gamma_tag_bins.py"))
     assert "FAIL" not in out, out
-    assert f"audit gamma tag bins: OK (17 checks, pmlab {_pyproject_version()})" in out
+    assert f"audit gamma tag bins: OK (20 checks, pmlab {_pyproject_version()})" in out
 
 
 def test_user_workflow_script(installed: Installed) -> None:

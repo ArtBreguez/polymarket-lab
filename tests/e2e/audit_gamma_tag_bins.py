@@ -17,6 +17,10 @@ one scoped to the tag is 7.
 
 Every check is independent and reports on its own, so a run against an older wheel says which part
 it lacks.
+
+The plugin and the ``pmlab scan-markets`` command read a whole tag in pages of 100 whatever
+``limit`` they are given, so the 32 are one request; they are run from the installed wheel, as is
+an injected client written for 1.2.1 (its ``fetch_markets_all`` takes no ``tag_id``).
 """
 
 from __future__ import annotations
@@ -28,6 +32,10 @@ import json
 import logging
 import math
 import os
+import re
+import subprocess
+import sys
+import tempfile
 import threading
 import traceback
 import urllib.parse
@@ -472,6 +480,99 @@ def training_rows_are_one_per_bin_at_that_bins_own_yes_price() -> None:
     assert p.build_training_rows(
         spec, "late", decision_time="2026-11-27T01:00:00Z", exclusions=late
     ) == [] and late == {"decision_after_close": 1}, late
+
+
+# ── 4. the command, an injected client, a small limit ───────────────────────────────────────────
+def pmlab_command(stub: TagStub, *args: str) -> subprocess.CompletedProcess[str]:
+    """The installed ``pmlab`` console script (the wheel's entry point) against the stub.
+
+    Run in an empty directory, so a ``.env`` of the checkout cannot be read as the settings, and
+    wide, so the table is not wrapped.
+    """
+    exe = Path(sys.executable).parent / "pmlab"
+    env = {**os.environ, "GAMMA_API_BASE": stub.url, "COLUMNS": "200"}
+    with tempfile.TemporaryDirectory() as empty:
+        return subprocess.run(
+            [str(exe), *args], capture_output=True, text=True, env=env, cwd=empty, timeout=120
+        )
+
+
+@check
+def the_scan_markets_command_reads_the_tag_and_lists_the_per_bin_markets() -> None:
+    with world() as stub:
+        done = pmlab_command(stub, "scan-markets", "--plugin", "weather_tmax")
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr)
+    assert "4 'weather_tmax' markets found" in done.stdout, done.stdout
+    assert "Highest temperature in Atlanta on November 26?" in done.stdout, done.stdout
+    assert {q["tag_id"] for q in stub.keyset_requests} == {str(TAG)}, stub.keyset_requests
+    assert len(stub.keyset_requests) == 1, len(stub.keyset_requests)  # 32 markets, a page of 100
+
+
+class Gamma121:
+    """An injected client written for 1.2.1: ``fetch_markets_all`` takes no ``tag_id``, no
+    ``**kwargs``. It reads the stub through the real client, so what it returns is real."""
+
+    def __init__(self, client: GammaClient) -> None:
+        self.client = client
+
+    def fetch_markets_all(
+        self,
+        tag: str | None = None,
+        keyword: str | None = None,
+        page_size: int = 100,
+        max_results: int = 1000,
+        active: bool = True,
+        closed: bool = False,
+    ) -> list[dict[str, Any]]:
+        return self.client.fetch_markets_all(
+            tag=tag,
+            keyword=keyword,
+            page_size=page_size,
+            max_results=max_results,
+            active=active,
+            closed=closed,
+        )
+
+
+@check
+def an_injected_client_without_tag_id_is_called_as_in_1_2_1_and_warns_once() -> None:
+    weather = recorded()
+    with (
+        TagStub(weather, set()) as stub,
+        GammaClient(base_url=stub.url) as client,
+        logged_warnings() as said,
+    ):
+        specs = WeatherTmaxPlugin(gamma_client=Gamma121(client)).discover_markets()
+        assert [s.market_id for s in specs] == ["479718", "1436284", "1451212", "1451693"]
+        assert all("tag_id" not in r for r in stub.keyset_requests), stub.keyset_requests
+        about_tag = [m for m in said if "tag_id" in m]
+        assert len(about_tag) == 1 and "not scoped" in about_tag[0], said
+        said.clear()
+        WeatherTmaxPlugin(gamma_client=Gamma121(client)).discover_markets(tag_id=None)
+        assert [m for m in said if "tag_id" in m] == [], said  # asked for unscoped: not warned
+        # the caller named a scope the client cannot give: that is theirs to see, as a TypeError
+        assert "tag_id" in refused(
+            TypeError, WeatherTmaxPlugin(gamma_client=Gamma121(client)).discover_markets, tag_id=TAG
+        )
+
+
+@check
+def a_small_limit_does_not_multiply_the_requests_of_a_whole_tag_read() -> None:
+    with world() as stub, GammaClient(base_url=stub.url) as client, logged_warnings():
+        specs = plugin(stub, client).discover_markets(limit=1)
+    assert len(specs) == 4
+    assert len(stub.keyset_requests) == 1, len(stub.keyset_requests)  # it was 32 of 1
+    assert {r["limit"] for r in stub.keyset_requests} == {"100"}, stub.keyset_requests
+    with world() as stub:
+        done = pmlab_command(stub, "scan-markets", "--plugin", "weather_tmax", "--limit", "1")
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr)
+    assert "4 'weather_tmax' markets found" in done.stdout, done.stdout
+    assert len(stub.keyset_requests) == 1, stub.keyset_requests
+    with world() as stub:
+        helped = pmlab_command(stub, "scan-markets", "--help")
+    text = " ".join(re.sub(r"[│╭╮╰╯─]", " ", helped.stdout).split())
+    assert helped.returncode == 0 and "Max markets to fetch" not in text, text
+    assert "page size" in text.lower() and "not a number of markets" in text, text
 
 
 def main() -> int:

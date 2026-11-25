@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typer.testing import CliRunner
 
 from pmlab.cli.main import app
@@ -176,6 +178,6 @@ def test_scan_markets_limit_help_says_it_is_a_page_size():
     """The help said "Max markets to fetch", which it never was (it is the page size)."""
     result = runner.invoke(app, ["scan-markets", "--help"], env={"COLUMNS": "200"})
     assert result.exit_code == 0
-    text = " ".join(result.output.split())
+    text = " ".join(re.sub(r"[│╭╮╰╯─]", " ", result.output).split())  # the help table's frame
     assert "Max markets to fetch" not in text
     assert "page size" in text.lower() and "not a number of markets" in text
