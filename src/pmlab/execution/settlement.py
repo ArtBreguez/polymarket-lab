@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pmlab._atomic import atomic_write_text
 from pmlab.core.market_spec import MarketSpec
 from pmlab.core.pnl import Position, settle_position
 from pmlab.logging import get_logger
@@ -98,19 +99,23 @@ class SettlementEngine:
         Args:
             specs: The markets to resolve against.
             today_str: ``YYYY-MM-DD`` of "today"; trades dated after it stay open.
+                Defaults to the UTC date of ``now_utc`` (it was the machine's local date).
             now_utc: The settlement time to stamp (injected for testing; defaults
                 to now). Must be timezone-aware.
 
         Raises:
             ValueError: If ``now_utc`` is naive.
         """
-        if today_str is None:
-            today_str = date.today().isoformat()
         if now_utc is None:
             now_utc = datetime.now(UTC)
         elif now_utc.tzinfo is None:
             raise ValueError("now_utc must be timezone-aware (a naive time has no zone to stamp)")
-        settled_at = now_utc.astimezone(UTC).isoformat()
+        now_utc = now_utc.astimezone(UTC)
+        settled_at = now_utc.isoformat()
+        if today_str is None:
+            # A UTC date, like every other date the trade log holds: the machine's local date
+            # disagrees with it for some hours of every day, and ignored an injected now_utc.
+            today_str = now_utc.date().isoformat()
 
         if not self.trades_path.exists():
             return {"settled": 0, "pending": 0, "total_pnl": 0.0}
@@ -192,7 +197,8 @@ class SettlementEngine:
                 unmatched[0][1],
             )
 
-        self.trades_path.write_text(json.dumps({"trades": updated_trades}, indent=2))
+        # Replaced whole or not at all: a crash here must not leave a half-settled log.
+        atomic_write_text(self.trades_path, json.dumps({"trades": updated_trades}, indent=2))
 
         return {
             "settled": settled_count,

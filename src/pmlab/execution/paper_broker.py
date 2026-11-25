@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from pmlab._atomic import atomic_write_text
 from pmlab.core.costs import CostModel
 from pmlab.core.segments import check_segment_collection, segment_allowed
 from pmlab.execution.edge_signal import EdgeSignal
@@ -120,7 +121,8 @@ class PaperBroker:
 
         all_trades = existing_trades + new_trades
         self.trades_path.parent.mkdir(parents=True, exist_ok=True)
-        self.trades_path.write_text(json.dumps({"trades": all_trades}, indent=2))
+        # Replaced whole or not at all: the log is the only record of the paper trades.
+        atomic_write_text(self.trades_path, json.dumps({"trades": all_trades}, indent=2))
         return new_trades
 
     def load_trades(self) -> list[dict[str, Any]]:
