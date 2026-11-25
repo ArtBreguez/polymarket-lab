@@ -23,6 +23,8 @@ from collections.abc import Callable, MutableMapping
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from pydantic import ValidationError
+
 from pmlab._deprecation import deprecated
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
 from pmlab.plugins.base import MarketPlugin
@@ -161,9 +163,21 @@ class WeatherTmaxPlugin(MarketPlugin):
         )
 
         observed_at = _iso_utc(self._clock())
-        return [
-            self._build_spec(m, observed_at=observed_at) for m in all_raw if self._is_tmax_market(m)
-        ]
+        specs: list[MarketSpec] = []
+        for raw in all_raw:
+            if not self._is_tmax_market(raw):
+                continue
+            try:
+                specs.append(self._build_spec(raw, observed_at=observed_at))
+            except ValidationError as exc:
+                # One malformed payload (a repeated outcome, an unreadable end date) must not
+                # cost the caller every other market of the page set.
+                _logger.warning(
+                    "discover_markets: market %r skipped, it is not a valid MarketSpec: %s",
+                    raw.get("id", raw.get("market_id")),
+                    "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()),
+                )
+        return specs
 
     def fetch_features(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, float]:
         """Return forecast features for (city, target_date, horizon).

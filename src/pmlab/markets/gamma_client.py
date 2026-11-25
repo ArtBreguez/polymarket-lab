@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
@@ -58,6 +60,85 @@ def _parse_tmax_date(date_str: str, reference_year: int | None = None) -> str:
             continue
     # Already YYYY-MM-DD or unrecognised — return as-is
     return date_str
+
+
+# ---------------------------------------------------------------------------
+# Discovery paging: how many pages, and what a failed page costs
+# ---------------------------------------------------------------------------
+# A runaway guard, not a budget: 1000 pages of 100 is far beyond Gamma's active markets. An API
+# that ignores `offset` returns full pages for ever; the loop stops, loudly, instead.
+_MAX_DISCOVERY_PAGES = 1000
+# One page is asked for up to this many times (the first try included) before its failure is
+# raised: a 429 or a 5xx on page 40 should not cost the 39 pages before it.
+_RETRY_ATTEMPTS = 5
+_RETRY_BASE_DELAY = 1.0  # seconds before the first retry; doubles each time
+_RETRY_MAX_DELAY = 30.0
+_RETRY_AFTER_MAX = 60.0  # a Retry-After is honoured up to this
+_TRANSIENT_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+# Timeouts, and a connection that was cut mid-request (a reset, a half-written reply). Not
+# ConnectError: nothing is listening (offline, a wrong base_url) and four waits only delay the same
+# error; nor UnsupportedProtocol or a bad proxy, which a retry cannot fix either.
+_TRANSIENT_ERRORS = (httpx.TimeoutException, httpx.ReadError, httpx.RemoteProtocolError)
+# What Gamma's 422 says when the offset space is over; a 422 that merely names `offset` is not it.
+_OFFSET_EXHAUSTED_PHRASES = ("offset too large", "/markets/keyset")
+_sleep = time.sleep  # a name of its own so a test can replace it
+
+
+def _retry_delay(attempt: int, response: httpx.Response | None) -> float:
+    """Seconds to wait after attempt number *attempt* (0-based) failed.
+
+    A numeric ``Retry-After`` on the response is honoured, up to a minute; otherwise the wait
+    doubles from one second and stops growing at thirty.
+    """
+    if response is not None:
+        raw = response.headers.get("Retry-After")
+        if raw is not None:
+            try:
+                seconds = float(raw)
+            except ValueError:
+                seconds = math.nan  # an HTTP-date, or junk: fall back to the backoff
+            if math.isfinite(seconds) and seconds >= 0:
+                return min(seconds, _RETRY_AFTER_MAX)
+    return min(_RETRY_BASE_DELAY * 2.0**attempt, _RETRY_MAX_DELAY)
+
+
+def _offset_exhausted(resp: httpx.Response, offset: Any) -> bool:
+    """True when *resp* is Gamma saying the offset space is over, not a failure of the page.
+
+    Live Gamma serves ``/markets`` up to about offset 2000 and answers HTTP 422
+    ``{"error": "offset too large, use /markets/keyset for deeper pagination"}`` from there on.
+    That is the end of what offset paging can read. It is only recognised past the first page
+    (a 422 at offset 0 is a bad request) and when the body says it in Gamma's own words
+    ("offset too large", or the ``/markets/keyset`` it points to), so any other 422, one that
+    merely mentions the offset included, is still an error.
+    """
+    if resp.status_code != 422 or not isinstance(offset, int) or offset <= 0:
+        return False
+    body = resp.text.lower()
+    return any(phrase in body for phrase in _OFFSET_EXHAUSTED_PHRASES)
+
+
+def _warn_offset_exhausted(where: str, offset: int, resp: httpx.Response) -> None:
+    """Say that the result stops at *offset* because Gamma refused to page any deeper."""
+    from pmlab.logging import get_logger
+
+    get_logger(__name__).warning(
+        "%s: Gamma refused offset=%d (HTTP 422: %s); offset paging ends there, so the result is "
+        "incomplete (the %d markets before it were read). Deeper pages need /markets/keyset.",
+        where,
+        offset,
+        resp.text.strip()[:200],
+        offset,
+    )
+
+
+def _as_page(payload: Any) -> list[dict[str, Any]]:
+    """The markets of one page; ``ValueError`` if Gamma answered with something else."""
+    if not isinstance(payload, list):
+        raise ValueError(
+            f"Gamma /markets returned a {type(payload).__name__}, expected a list of markets"
+        )
+    return payload
 
 
 def _check_page_size(page_size: int) -> None:
@@ -240,7 +321,9 @@ class GammaClient:
         """Fetch all markets using offset-based pagination.
 
         Iterates pages until fewer than page_size results are returned
-        or max_results is reached.
+        or max_results is reached. Gamma stops serving offsets at about 2000 (HTTP 422 "offset
+        too large"); that is taken as the end: what was read is returned and a warning says the
+        result is incomplete.
 
         Args:
             tag: Filter by tag.
@@ -272,6 +355,9 @@ class GammaClient:
                 params["tag"] = tag
 
             resp = self._client.get(f"{self.base_url}/markets", params=params)
+            if _offset_exhausted(resp, offset):
+                _warn_offset_exhausted("fetch_markets_all", offset, resp)
+                break
             resp.raise_for_status()
             page: list[dict[str, Any]] = resp.json()
 
@@ -291,6 +377,42 @@ class GammaClient:
 
         return all_markets[:max_results]
 
+    def _get_page(self, params: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """One page of ``/markets``; a timeout, a connection cut mid-request, a 408, 429 or 5xx
+        is retried with backoff (up to `_RETRY_ATTEMPTS` tries), any other failure is raised.
+        ``None`` means Gamma refused the offset as too large: the end of the offset space."""
+        from pmlab.logging import get_logger
+
+        url = f"{self.base_url}/markets"
+        for attempt in range(_RETRY_ATTEMPTS):
+            final = attempt == _RETRY_ATTEMPTS - 1
+            try:
+                resp = self._client.get(url, params=params)
+            except _TRANSIENT_ERRORS as exc:
+                if final:
+                    raise
+                delay = _retry_delay(attempt, None)
+                reason = type(exc).__name__
+            else:
+                if _offset_exhausted(resp, params.get("offset")):
+                    _warn_offset_exhausted("discover_tmax_markets", params["offset"], resp)
+                    return None
+                if resp.status_code not in _TRANSIENT_STATUS or final:
+                    resp.raise_for_status()
+                    return _as_page(resp.json())
+                delay = _retry_delay(attempt, resp)
+                reason = f"HTTP {resp.status_code}"
+            get_logger(__name__).warning(
+                "Gamma /markets offset=%s: %s, retrying in %.1fs (attempt %d of %d)",
+                params.get("offset"),
+                reason,
+                delay,
+                attempt + 1,
+                _RETRY_ATTEMPTS,
+            )
+            _sleep(delay)
+        raise AssertionError("unreachable: the last attempt returns or raises")
+
     def discover_tmax_markets(
         self,
         page_size: int = 100,
@@ -302,12 +424,34 @@ class GammaClient:
         than *page_size* results.  Each page is filtered with the temperature-max
         heuristic and parsed into `TmaxMarketInfo`.
 
+        A page that fails for a transient reason (a timeout, a connection cut mid-request, a 408,
+        429 or 5xx; a numeric ``Retry-After`` is honoured) is retried with backoff, so one failure
+        does not lose the pages before it; after five tries, or on any other error (a refused
+        connection included: nothing is listening, waiting does not help), the failure is raised.
+        Gamma stops serving offsets at about 2000 (HTTP 422 "offset too large"): that is the end
+        of what offset paging can read, so the markets read so far are returned and a warning
+        says the result is incomplete (deeper pages need ``/markets/keyset``).
+
+        Against the live API, as of 2026-11-25, that is the first 2100 active markets, and none
+        of them is a temperature market: ``discover_tmax_markets()`` returns ``[]`` with that
+        warning, where it used to raise at page 22, until discovery moves to ``/markets/keyset``
+        (#83). An empty result with the warning means "not read", not "no markets today".
+
         Args:
             page_size: Results per API page (max 100).
             active: If True, only fetch active markets.
 
         Returns:
-            List of parsed `TmaxMarketInfo` for every matching market.
+            List of parsed `TmaxMarketInfo` for every matching market read.
+
+        Raises:
+            httpx.HTTPStatusError: If a page keeps failing, or fails with an error that is not
+                transient (a 4xx other than 408 and 429).
+            httpx.TransportError: If the connection keeps failing.
+            ValueError: If Gamma answers with something other than a list of markets, or
+                ``page_size`` is not an int between 1 and 100.
+            RuntimeError: If it is still receiving full pages after 1000 of them (an API that
+                ignores ``offset`` would otherwise never let it finish).
         """
         from pmlab.logging import get_logger
 
@@ -317,16 +461,16 @@ class GammaClient:
         results: list[TmaxMarketInfo] = []
         offset = 0
 
-        while True:
+        for _ in range(_MAX_DISCOVERY_PAGES):
             params: dict[str, Any] = {
                 "limit": page_size,
                 "offset": offset,
                 "active": active,
                 "closed": False,
             }
-            resp = self._client.get(f"{self.base_url}/markets", params=params)
-            resp.raise_for_status()
-            page: list[dict[str, Any]] = resp.json()
+            page = self._get_page(params)
+            if page is None:  # Gamma's offset paging is over; keep what was read (warned)
+                return results
 
             _log.debug(
                 "discover_tmax_markets: fetched %d markets (offset=%d)",
@@ -341,10 +485,13 @@ class GammaClient:
                         results.append(info)
 
             if len(page) < page_size:
-                break
+                return results
             offset += page_size
 
-        return results
+        raise RuntimeError(
+            f"discover_tmax_markets: still receiving full pages after {_MAX_DISCOVERY_PAGES} "
+            f"pages ({offset} markets); stopping (is the API ignoring `offset`?)"
+        )
 
     def close(self) -> None:
         self._client.close()

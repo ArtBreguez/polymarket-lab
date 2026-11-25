@@ -12,7 +12,7 @@ is for people and may change in any release.
 | `version` | Prints the installed version. | |
 | `backtest` | Walk-forward backtest of a panel (`.parquet`). By default it simulates what `record-trades` trades: per market the best-edge bin and side, YES or NO, taken when the after-fee edge clears `--min-edge` (default 0.20). `--policy top-bin-yes` is the historical YES-only rule. Records seeds, library versions, resolved config and a data fingerprint with the run. | a panel |
 | `reproduce` | Re-executes a recorded run and verifies the metrics come back. It refuses a changed dataset and warns on a changed library version. See [Reproducibility](reproducibility.md). | a recorded run |
-| `promote-champion` | Publishes a model as champion **only if the gate is GO**; a NO_GO gate is refused. Writes `champion.json`. See [the registry](registry.md). | a model and a gate file |
+| `promote-champion` | Publishes a model as champion **only if the gate is GO**; a NO_GO gate is refused, and so is a gate file that cannot be acted on (a decision that is not `GO` or `NO_GO`, a `passes` that is not `true` or `false`, a `GO` in which no segment passed: such a champion would be allowed nothing). A `--plugin` that no installed plugin registers gets a warning on stderr (a typo is easy to make), but is still recorded: the family is a label, and a champion may be promoted where its plugin is not installed. Writes `champion.json`. See [the registry](registry.md). | a model and a gate file |
 | `scan-markets` | Lists the open markets of a plugin's family from the Gamma API. | network |
 | `record-trades` | Paper-trades the signals in the workspace's `signals/v2/scan_edge_signals.json` whose after-fee edge clears `--min-edge`, restricted to the champion's segments (read from `champion.json`) and to the sides its backtest traded. Fills use the champion's recorded costs. | signals written by your plugin's scan step |
 | `status` | Champion, open trades and cumulative PnL of a workspace. | trades recorded |
@@ -49,6 +49,13 @@ Without it the backtest is what 1.0.3 ran. See [the leakage page](leakage.md#hol
 The output file carries the record of the run (seeds, versions, config, a fingerprint of the data):
 `pmlab reproduce` re-executes it and prints one line per metric, ending in `REPRODUCED` when they
 match.
+
+A backtest that takes **no trades** (a `--min-edge` or `--min-train-rows` that nothing clears) is a result,
+not a failure: the command says so, exits **0**, and writes nothing, `--output` included ("Nothing to
+record: ... was not written."). A script that needs the file must test for it, as a sweep over settings
+where some produce no trades would otherwise stop at the first of them. (Turning this into a non-zero
+status would be a change of a frozen command's exit status, as `settle-trades` was in 1.1.0; it is not made
+here.)
 
 ## Workspaces
 

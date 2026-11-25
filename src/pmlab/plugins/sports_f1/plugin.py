@@ -14,10 +14,15 @@ Key differences from WeatherTmaxPlugin:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+from pydantic import ValidationError
 
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
 from pmlab.plugins.base import MarketPlugin
+
+_logger = logging.getLogger(__name__)
 
 
 class SportsF1Plugin(MarketPlugin):
@@ -39,7 +44,21 @@ class SportsF1Plugin(MarketPlugin):
         if self._gamma is None:
             raise RuntimeError("SportsF1Plugin requires a gamma_client.")
         raw_markets = self._gamma.fetch_markets(tag="f1", **kwargs)
-        return [self._build_spec(m) for m in raw_markets if self._is_f1_market(m)]
+        specs: list[MarketSpec] = []
+        for raw in raw_markets:
+            if not self._is_f1_market(raw):
+                continue
+            try:
+                specs.append(self._build_spec(raw))
+            except ValidationError as exc:
+                # e.g. tokens without names, which all become the bin "?": skip that market,
+                # keep the others
+                _logger.warning(
+                    "discover_markets: market %r skipped, it is not a valid MarketSpec: %s",
+                    raw.get("id"),
+                    "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()),
+                )
+        return specs
 
     def fetch_features(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, float]:
         """Return session-based features for this F1 market at *horizon*."""

@@ -21,13 +21,14 @@ numbers are needed; neither substitutes for the other.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from pmlab.modeling.diagnostics import brier_decomposition, reliability_data
+from pmlab.modeling.diagnostics import _check_n_bins, brier_decomposition, reliability_data
 
 __all__ = ["CalibrationWindow", "CalibrationTracker"]
 
@@ -95,11 +96,19 @@ def _label_occurred(trade: dict[str, Any]) -> float:
 
 
 def _is_scoreable(trade: dict[str, Any]) -> bool:
-    """A trade can be scored only if it has both a forecast and an outcome."""
+    """A trade can be scored only if it has an outcome and a forecast that is a probability.
+
+    A ``model_prob`` that is NaN, infinite or outside [0, 1] is not a forecast that turned out
+    wrong: the step that wrote the log is broken. It is left out like a missing forecast (the
+    watchdog does the same and reports it as bad data), because ``brier_decomposition`` refuses
+    it and a NaN would otherwise count towards ``n_realized``.
+    """
     if trade.get("outcome") not in ("won", "lost"):
         return False  # still open: no truth yet, and no lookahead allowed
     prob = trade.get("model_prob")
-    return isinstance(prob, (int, float)) and not isinstance(prob, bool)
+    if not isinstance(prob, (int, float)) or isinstance(prob, bool):
+        return False
+    return math.isfinite(prob) and 0.0 <= prob <= 1.0
 
 
 def _window_from(trades: list[dict[str, Any]], n_bins: int) -> CalibrationWindow:
@@ -141,14 +150,19 @@ def _window_from(trades: list[dict[str, Any]], n_bins: int) -> CalibrationWindow
 class CalibrationTracker:
     """Scores realized trades from a paper/live trade log.
 
-    Only settled rows that carry a `model_prob` are scored. Trades written before
-    the prediction was persisted are counted in `n_skipped` rather than silently
+    Only settled rows that carry a `model_prob` that is a probability are scored. Trades
+    written before the prediction was persisted, and rows whose `model_prob` is NaN,
+    infinite or outside [0, 1], are counted in `n_skipped` rather than silently
     treated as zero — an unscoreable trade is missing information, not evidence
     of a bad forecast.
+
+    Raises:
+        TypeError: If `n_bins` is not an int.
+        ValueError: If `n_bins` is below 1.
     """
 
     def __init__(self, trades: list[dict[str, Any]], *, n_bins: int = 10) -> None:
-        self.n_bins = n_bins
+        self.n_bins = _check_n_bins(n_bins)
         scoreable = [t for t in trades if _is_scoreable(t)]
         # Truth arrives on target_date, so that is the order calibration evolves in.
         self._trades = sorted(scoreable, key=lambda t: str(t.get("target_date", "")))
@@ -157,11 +171,21 @@ class CalibrationTracker:
 
     @classmethod
     def from_path(cls, path: Path | str, *, n_bins: int = 10) -> CalibrationTracker:
+        """Load the paper-trade log: a JSON object with a ``"trades"`` list of objects.
+
+        Raises:
+            FileNotFoundError: If *path* does not exist.
+            ValueError: If the file is not JSON, or is not that shape (a bare list of trades,
+                an object without a ``"trades"`` list), or ``n_bins`` is below 1.
+        """
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(f"trade log not found: {p}")
         payload = json.loads(p.read_text())
-        return cls(list(payload.get("trades", [])), n_bins=n_bins)
+        rows = payload.get("trades") if isinstance(payload, dict) else None
+        if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+            raise ValueError(f"trade log {p} must be a JSON object with a 'trades' list of objects")
+        return cls(rows, n_bins=n_bins)
 
     def squared_errors(self) -> list[float]:
         """Each scored trade's squared forecast error, in `target_date` order.

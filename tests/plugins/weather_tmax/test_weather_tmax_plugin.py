@@ -258,3 +258,38 @@ class TestSpecBuilder:
         lower, upper = _parse_bounds("Unknown bin")
         assert lower is None
         assert upper is None
+
+
+class TestDiscoveryKeepsGoingPastAnUnbuildableMarket:
+    """One malformed payload must not abort discovery of the others (#68: MarketSpec validates)."""
+
+    GOOD = {
+        "id": "good",
+        "question": "Highest temperature in Paris on May 12?",
+        "slug": "tmax-paris",
+        "endDate": "2026-05-12T20:00:00Z",
+        "outcomes": ["30°C", "31°C"],
+    }
+
+    def _discover(self, *bad: dict) -> list[MarketSpec]:
+        mock_gamma = MagicMock()
+        mock_gamma.fetch_markets_all.return_value = [*bad, self.GOOD]
+        return WeatherTmaxPlugin(gamma_client=mock_gamma).discover_markets()
+
+    def test_a_market_with_an_unreadable_end_date_is_skipped_with_a_warning(self, caplog) -> None:
+        bad = {**self.GOOD, "id": "bad-date", "endDate": "next tuesday"}
+        with caplog.at_level("WARNING", logger="pmlab.plugins.weather_tmax.plugin"):
+            markets = self._discover(bad)
+        assert [m.market_id for m in markets] == ["good"]
+        assert "bad-date" in caplog.text and "skipped" in caplog.text
+
+    def test_a_market_with_a_repeated_outcome_is_skipped_with_a_warning(self, caplog) -> None:
+        bad = {**self.GOOD, "id": "bad-bins", "outcomes": ["30°C", "30°C"]}
+        with caplog.at_level("WARNING", logger="pmlab.plugins.weather_tmax.plugin"):
+            markets = self._discover(bad)
+        assert [m.market_id for m in markets] == ["good"]
+        assert "bad-bins" in caplog.text
+
+    def test_a_sparse_payload_without_outcomes_or_end_date_is_still_a_spec(self) -> None:
+        sparse = {"id": "sparse", "question": "Highest temperature in Oslo on May 12?"}
+        assert [m.market_id for m in self._discover(sparse)] == ["sparse", "good"]

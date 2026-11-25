@@ -57,7 +57,8 @@ class ChampionManifest:
     ) -> ChampionManifest:
         """Publish a champion model.
 
-        HARD GATE: raises ValueError if gate.decision != "GO".
+        HARD GATE: raises ValueError if gate.decision != "GO", or if the GO allows no segment
+        (none of ``gate.segment_results`` passed).
 
         Args:
             costs: The cost model the gate was computed under. Recording it lets a
@@ -75,6 +76,9 @@ class ChampionManifest:
             raise ValueError(
                 f"Cannot publish champion with NO_GO gate. Gate decision: {gate.decision}"
             )
+        # A GO in which no segment passed (a gate built or edited by hand, not made by
+        # `evaluate`) would publish a champion that is allowed nothing.
+        gate._require_valid()
 
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)

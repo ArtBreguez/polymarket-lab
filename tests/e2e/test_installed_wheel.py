@@ -131,6 +131,25 @@ def test_boundary_arguments_are_refused_in_the_wheel(installed: Installed) -> No
     assert "audit inputs: OK" in out
 
 
+def test_the_sharp_edges_of_the_1_1_0_audit_hold_in_the_wheel(installed: Installed) -> None:
+    """The 1.2.1 fixes (#68), through public names and the CLI, from outside the repo: duplicated
+    panel rows, impossible MarketSpec/OutcomeBin input, forged GO gates (and the documented GO that
+    still loads), a str for allowed segments, CalibrationTracker's inputs, the atomic trade log (and
+    its fallback where a rename is refused) and the UTC settlement date, compare_metrics on text,
+    the no-trades backtest that exits 0, GammaClient and AsyncGammaClient against a stdlib HTTP
+    server on 127.0.0.1 (a 429, a 500, Gamma's 422 at the end of the offsets (also when it only
+    names /markets/keyset) and the 422s that are not (also one that only mentions the offset, from
+    discover_tmax_markets), the cap of 1000 pages, the give-up after five tries, a reply that is
+    not a list, a 4xx and a refused connection that raise at once), the trade log kept in a
+    temporary file when the write in place fails too, and the weather and F1 plugins skipping a
+    market that is not a valid spec with a warning."""
+    out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_sharp_edges.py"))
+    assert "FAIL" not in out, out
+    assert f"audit sharp edges: OK (27 checks, pmlab {_pyproject_version()})" in out
+    # the exit status the last check pins is the one docs/cli.md documents
+    assert "exits **0**" in (REPO / "docs" / "cli.md").read_text()
+
+
 def test_user_workflow_script(installed: Installed) -> None:
     panel = installed.workdir / "panel.parquet"
     out = _ok(installed.py(EXAMPLE, "--panel-out", panel))

@@ -142,3 +142,19 @@ def test_named_segments_still_filter(tmp_path):
     broker = PaperBroker(trades_path=tmp_path / "t.json", allowed_segments={"Dallas"})
     signal = make_signal(city="Chicago")
     assert broker.record([signal], now_utc=datetime(2020, 1, 1, tzinfo=UTC)) == []
+
+
+def test_a_str_for_allowed_segments_is_refused_before_anything_is_recorded(tmp_path):
+    """PaperBroker(allowed_segments="Buenos Aires") filtered by substring: "Aires" got through (#68)."""
+    import pytest
+
+    trades_file = tmp_path / "trades.json"
+    with pytest.raises(TypeError, match="allowed_segments"):
+        PaperBroker(trades_path=trades_file, allowed_segments="Buenos Aires")  # type: ignore[arg-type]
+    assert not trades_file.exists()
+
+
+def test_a_set_of_one_segment_filters_by_name_not_by_substring(tmp_path):
+    broker = PaperBroker(trades_path=tmp_path / "trades.json", allowed_segments={"Buenos Aires"})
+    assert broker.record([make_signal(city="Aires")]) == []
+    assert len(broker.record([make_signal(city="Buenos Aires")])) == 1

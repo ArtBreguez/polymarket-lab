@@ -187,7 +187,9 @@ The default tolerance is tight, `--rtol 1e-9 --atol 1e-12` for floating-point me
 (`total_pnl`, `hit_rate`, `avg_edge`): it absorbs summation-order differences across CPUs and
 builds and nothing a different seed produces (in the example above, seed 124 instead of 123
 moves `avg_edge` from 0.0674 to 0.0986). Counts (`total_trades`, `steps`) are always compared exactly. `--rtol 0 --atol 0` is
-strict.
+strict. A recorded metric that is not a number (a string, a nested mapping or list) is compared by
+value too, with the same tolerance for the numbers inside; `compare_metrics` used to skip it, so a
+changed string read as reproduced.
 
 ## Champions and the registry
 

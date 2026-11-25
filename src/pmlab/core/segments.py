@@ -27,8 +27,28 @@ __all__ = ["ALL_SEGMENTS", "allows_every_segment", "segment_allowed"]
 ALL_SEGMENTS = "all"
 
 
+def check_segment_collection(value: object, name: str = "allowed") -> None:
+    """``TypeError`` if *value* is a ``str`` or ``bytes`` where a collection of names belongs.
+
+    A string is a collection of characters: ``"Aires" in "Buenos Aires"`` is True and iterating
+    ``"all"`` gives ``"a", "l", "l"``, so a single segment passed bare would filter by substring
+    (or, as ``required_segments``, grade one segment per letter). Not public: the public
+    functions that take segments call it.
+    """
+    if isinstance(value, (str, bytes)):
+        raise TypeError(
+            f"{name} must be a collection of segment names such as a set, not a str or bytes: "
+            f"{value!r} would be matched as a substring; pass {{{value!r}}} for one segment"
+        )
+
+
 def allows_every_segment(allowed: Collection[str]) -> bool:
-    """Does this allowlist make no per-segment claim (``"all"`` and nothing else)?"""
+    """Does this allowlist make no per-segment claim (``"all"`` and nothing else)?
+
+    Raises:
+        TypeError: If *allowed* is a ``str`` (a single segment must be passed in a collection).
+    """
+    check_segment_collection(allowed)
     return bool(allowed) and all(name == ALL_SEGMENTS for name in allowed)
 
 
@@ -38,7 +58,12 @@ def segment_allowed(segment: str, allowed: Collection[str] | None) -> bool:
     ``None`` means no filtering. An empty collection means *none*: a champion that allows
     nothing could never have recorded a trade. ``"all"`` on its own allows every segment;
     beside other names it is just a segment called "all".
+
+    Raises:
+        TypeError: If *allowed* is a ``str``: ``segment in "Buenos Aires"`` is a substring test,
+            so it used to allow ``"Aires"``. Pass ``{"Buenos Aires"}``.
     """
     if allowed is None:
         return True
+    check_segment_collection(allowed)
     return allows_every_segment(allowed) or segment in allowed

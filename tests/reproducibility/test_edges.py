@@ -124,7 +124,7 @@ def test_compare_metrics_handles_nulls_missing_and_non_numbers():
     assert by_name["a"].ok  # null came back null
     assert not by_name["b"].ok  # null became a number
     assert not by_name["c"].ok  # the re-run no longer produces it
-    assert "d" not in by_name  # a string is not something a re-run is judged on
+    assert by_name["d"].ok and by_name["d"].abs_diff is None  # a string is judged by value (#68)
     assert by_name["f"].ok
     assert by_name["e"].ok  # an int recorded, a whole float re-run: a float comparison
 

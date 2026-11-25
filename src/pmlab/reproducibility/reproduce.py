@@ -121,6 +121,24 @@ def _is_int(x: Any) -> bool:
     return isinstance(x, int) and not isinstance(x, bool)
 
 
+def _same(want: Any, got: Any, rtol: float, atol: float) -> bool:
+    """Is *got* what was recorded: numbers within the tolerance (integers exactly), mappings and
+    sequences element by element, anything else (a string, ...) equal."""
+    if _is_int(want) and _is_int(got):
+        return bool(want == got)
+    if isinstance(want, (int, float)) and isinstance(got, (int, float)):
+        return math.isclose(float(want), float(got), rel_tol=rtol, abs_tol=atol)
+    if isinstance(want, Mapping) and isinstance(got, Mapping):
+        return want.keys() == got.keys() and all(_same(want[k], got[k], rtol, atol) for k in want)
+    if isinstance(want, (list, tuple)) and isinstance(got, (list, tuple)):
+        return len(want) == len(got) and all(
+            _same(w, g, rtol, atol) for w, g in zip(want, got, strict=True)
+        )
+    if want is None or got is None:
+        return want is None and got is None
+    return bool(want == got)
+
+
 def compare_metrics(
     recorded: Mapping[str, Any],
     reproduced: Mapping[str, Any],
@@ -131,7 +149,10 @@ def compare_metrics(
 
     Integers must be equal; floats must satisfy ``|a-b| <= atol + rtol*|a|``; ``None`` (a
     non-finite metric, stored as null) must come back ``None``. A metric the re-run no longer
-    produces fails.
+    produces fails. A metric that is not a number (a string, a mapping, a list) is judged too:
+    it must come back equal, and the numbers inside a mapping or a list are held to the same
+    tolerance. Its ``abs_diff`` is ``None``. (Such metrics used to be skipped, so a changed
+    string read as reproduced.)
     """
     out: list[MetricComparison] = []
     for name, want in recorded.items():
@@ -145,7 +166,7 @@ def compare_metrics(
             diff = abs(float(want) - float(got))
             ok = math.isclose(float(want), float(got), rel_tol=rtol, abs_tol=atol)
         else:
-            continue  # not a number (nested payloads are not what a re-run is judged on)
+            ok, diff = _same(want, got, rtol, atol), None
         out.append(MetricComparison(name, want, got, diff, ok))
     return out
 
@@ -250,8 +271,10 @@ def reproduce(
         config = BacktestConfig.from_dict(record.config)
     except (ValueError, TypeError) as e:
         raise ReproduceError(f"The recorded config is not usable: {e}") from e
-    if not compare_metrics(record.metrics, record.metrics):
-        # Nothing to verify must never read as "verified": all([]) is True.
+    if not any(v is None or isinstance(v, (int, float)) for v in record.metrics.values()):
+        # Nothing to verify must never read as "verified": all([]) is True. A record of text
+        # metrics only is not one a numeric re-run can be held to (compare_metrics judges text
+        # too, but a backtest re-run produces numbers).
         raise ReproduceError(
             "The record holds no numeric metrics, so a re-run would have nothing to be "
             "compared with."

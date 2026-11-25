@@ -498,7 +498,8 @@ class TestDecisionAfterClose:
 
     def test_an_impossible_calendar_date_is_not_a_date(self) -> None:
         counts: Counter[str] = Counter()
-        spec = _spec(observed=BEFORE, close_time="2026-02-30", target_date="2026-13-01")
+        # (an impossible *close_time* no longer reaches here: MarketSpec refuses it, #68)
+        spec = _spec(observed=BEFORE, close_time="", target_date="2026-13-01")
         assert _rows(spec, exclusions=counts) == []
         assert counts == {"market_close_unknown": 1}  # neither names a day; nothing crashes
         # and as the target date it is ignored, leaving the close to decide

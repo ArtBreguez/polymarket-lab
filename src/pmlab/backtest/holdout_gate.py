@@ -8,6 +8,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from pmlab.core.segments import check_segment_collection
+
 
 @dataclass
 class SegmentGateResult:
@@ -64,7 +66,12 @@ class HoldoutGateResult:
                 directly without splitting into segments first.
             min_trades_per_segment: Minimum trades a segment needs to pass.
             min_pnl_per_segment: Minimum total PnL a segment needs to pass.
+
+        Raises:
+            TypeError: If ``required_segments`` is a ``str`` (it would be graded one segment per
+                letter); pass ``["nyc"]``.
         """
+        check_segment_collection(required_segments, "required_segments")
         # Aggregate mode: no segmentation requested (None or empty list) — grade
         # the whole trade log. An empty list must NOT auto-pass: falling through
         # to the segment loop would yield zero results and all([]) == True → GO,
@@ -154,8 +161,44 @@ class HoldoutGateResult:
             ],
         }
 
+    def _require_valid(self) -> None:
+        """``ValueError`` unless this gate can be acted on: a real decision and a real allowlist.
+
+        What a champion may trade is read from the segments' ``passes`` flags
+        (`ChampionManifest.get_allowed_segments`), and `evaluate` returns GO only when it
+        found a segment that passed. A gate file is data someone can edit, so a GO must still
+        allow something: a GO over segments that all failed used to publish a champion with
+        ``Allowed segments: set()``, and a ``passes`` of ``"false"`` (a truthy string) allowed
+        its segment.
+
+        Deliberately **not** checked: that *every* segment of a GO passed. A GO gate with a
+        failed segment is a documented state (`docs/watchdog.md`: the champion trades the
+        segments that passed and the failed one's trades are no evidence), so it stays valid.
+        The file carries no thresholds either, so a segment's numbers cannot be re-graded.
+        """
+        if not isinstance(self.decision, str) or self.decision not in ("GO", "NO_GO"):
+            raise ValueError(f"decision must be 'GO' or 'NO_GO', got {self.decision!r}")
+        for r in self.segment_results:
+            if not isinstance(r.passes, bool):
+                raise ValueError(
+                    f"segment {r.segment!r}: passes must be true or false, got {r.passes!r}"
+                )
+        if self.decision == "GO" and not any(r.passes for r in self.segment_results):
+            raise ValueError(
+                "decision is GO but no segment passed "
+                f"({len(self.segment_results)} segment result(s)): "
+                "a GO that allows no segment can trade nothing"
+            )
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> HoldoutGateResult:
+        """Rebuild a gate from ``to_dict`` output (a gate file or ``champion.json``).
+
+        Raises:
+            KeyError: If a key is missing.
+            ValueError: If the gate cannot be acted on: a decision other than GO or NO_GO, a
+                ``passes`` that is not a bool, or a GO in which no segment passed.
+        """
         segment_results = [
             SegmentGateResult(
                 segment=r["segment"],
@@ -166,9 +209,11 @@ class HoldoutGateResult:
             )
             for r in d["segment_results"]
         ]
-        return cls(
+        gate = cls(
             decision=d["decision"],
             segment_results=segment_results,
             aggregate_pnl=d["aggregate_pnl"],
             aggregate_trades=d["aggregate_trades"],
         )
+        gate._require_valid()
+        return gate
