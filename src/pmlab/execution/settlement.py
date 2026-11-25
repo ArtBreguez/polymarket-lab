@@ -99,7 +99,10 @@ class SettlementEngine:
         Args:
             specs: The markets to resolve against.
             today_str: ``YYYY-MM-DD`` of "today"; trades dated after it stay open.
-                Defaults to the UTC date of ``now_utc`` (it was the machine's local date).
+                Defaults to the UTC date of ``now_utc`` (it was the machine's local date). A
+                trade's ``target_date`` is its market's local date, so for a city far from UTC
+                the default is a few hours early or late; ``plugin.is_truth_final`` still
+                decides whether a market is settled.
             now_utc: The settlement time to stamp (injected for testing; defaults
                 to now). Must be timezone-aware.
 
@@ -113,8 +116,11 @@ class SettlementEngine:
         now_utc = now_utc.astimezone(UTC)
         settled_at = now_utc.isoformat()
         if today_str is None:
-            # A UTC date, like every other date the trade log holds: the machine's local date
-            # disagrees with it for some hours of every day, and ignored an injected now_utc.
+            # The UTC date of the settlement time: the machine's local date was the other choice,
+            # and it disagreed with UTC for some hours of every day and ignored an injected
+            # now_utc. A trade's target_date is the *market's* local date (PaperBroker takes
+            # city_timezones), so this pre-filter can be a few hours early or late for a city;
+            # is_truth_final() below is what decides that a market may be settled.
             today_str = now_utc.date().isoformat()
 
         if not self.trades_path.exists():
