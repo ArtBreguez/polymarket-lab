@@ -213,11 +213,14 @@ class GammaStub:
 
 
 def discover(stub: GammaStub, **kw: Any) -> list[Any]:
+    kw.setdefault("tag_id", None)  # these checks are about paging the universe, not scoping it
     with GammaClient(base_url=stub.url) as client:
         return client.discover_tmax_markets(**kw)
 
 
 def discover_async(stub: GammaStub, **kw: Any) -> list[Any]:
+    kw.setdefault("tag_id", None)
+
     async def run() -> list[Any]:
         async with AsyncGammaClient(base_url=stub.url) as client:
             return await client.discover_tmax_markets(**kw)

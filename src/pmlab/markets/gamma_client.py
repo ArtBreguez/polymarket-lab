@@ -89,6 +89,10 @@ _TRANSIENT_ERRORS = (httpx.TimeoutException, httpx.ReadError, httpx.RemoteProtoc
 # What Gamma's 422 says when the offset space is over; a 422 that merely names `offset` is not it.
 _OFFSET_EXHAUSTED_PHRASES = ("offset too large", "/markets/keyset")
 _sleep = time.sleep  # a name of its own so a test can replace it
+# Gamma's `Daily Temperature` tag (the parent `Weather` tag is 84). `/markets/keyset` takes it as
+# `tag_id`: on 2026-11-25 it listed 2,633 markets in 27 pages and the walk ended by itself, where
+# the unfiltered universe is over 100,000 markets. `tag` (by name) is ignored by live Gamma.
+DAILY_TEMPERATURE_TAG_ID = 103040
 
 
 def _retry_delay(attempt: int, response: httpx.Response | None) -> float:
@@ -301,6 +305,36 @@ def _check_page_size(page_size: int) -> None:
         raise ValueError(f"page_size must be an int between 1 and 100, got {page_size!r}")
 
 
+def _check_tag_id(tag_id: Any) -> None:
+    """``tag_id`` is None (no scope) or a positive int: Gamma's tag ids are, and a str, a float or a
+    bool would be sent as text Gamma may read as something else or ignore, and read the universe."""
+    if tag_id is None:
+        return
+    if isinstance(tag_id, bool) or not isinstance(tag_id, int) or tag_id < 1:
+        raise ValueError(f"tag_id must be a positive int (or None for no scope), got {tag_id!r}")
+
+
+def _warn_tag_matched_nothing(where: str, params: dict[str, Any]) -> None:
+    """Say that a walk scoped by ``tag_id`` read no market at all: the tag may no longer exist.
+
+    Gamma answers an unknown tag id with an empty page, not an error, so a retired or renumbered
+    tag would look like "no temperature markets today".
+    """
+    tag_id = params.get("tag_id")
+    if tag_id is None:
+        return
+    from pmlab.logging import get_logger
+
+    get_logger(__name__).warning(
+        "%s: Gamma returned no markets for tag_id=%s; the tag may have been retired or renumbered "
+        "(`Daily Temperature` was %d on 2026-11-25). Pass tag_id=None to read every market "
+        "(slow: the live universe is over 100,000), or a current tag id.",
+        where,
+        tag_id,
+        DAILY_TEMPERATURE_TAG_ID,
+    )
+
+
 def _parse_json_list(raw: Any) -> list[Any]:
     """Return a Python list from a JSON string or existing list."""
     if isinstance(raw, list):
@@ -472,6 +506,8 @@ class GammaClient:
         max_results: int = 1000,
         active: bool = True,
         closed: bool = False,
+        *,
+        tag_id: int | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch all markets, paging by cursor on ``/markets/keyset``.
 
@@ -496,6 +532,11 @@ class GammaClient:
             max_results: Hard cap on total results returned.
             active: Include active markets.
             closed: Include closed markets.
+            tag_id: Keyword-only. Read only the markets of this Gamma tag, sent as the ``tag_id``
+                query parameter on every page (the keyset and the offset fallback alike); ``None``,
+                the default, reads every market. Gamma's tag ids are numbers (the ``Weather`` tag is
+                84, ``Daily Temperature`` 103040); unlike ``tag``, live Gamma honours it. A tag
+                Gamma does not know reads no market and logs a warning saying so.
 
         Returns:
             All matching markets up to max_results.
@@ -503,18 +544,21 @@ class GammaClient:
         Raises:
             httpx.HTTPStatusError: If a page keeps failing, or fails with an error that is not
                 transient.
-            ValueError: If Gamma answers with something that is not a page of markets, or
-                ``page_size`` is not an int between 1 and 100.
+            ValueError: If Gamma answers with something that is not a page of markets,
+                ``page_size`` is not an int between 1 and 100, or ``tag_id`` is not a positive int.
             RuntimeError: If the cursor loops, or pages are still coming after 1000 of them.
         """
         from pmlab.logging import get_logger
 
         _log = get_logger(__name__)
         _check_page_size(page_size)
+        _check_tag_id(tag_id)
 
         params: dict[str, Any] = {"limit": page_size, "active": active, "closed": closed}
         if tag:
             params["tag"] = tag
+        if tag_id is not None:
+            params["tag_id"] = tag_id
 
         all_markets: list[dict[str, Any]] = []
         if max_results > 0:
@@ -583,6 +627,8 @@ class GammaClient:
             resp.raise_for_status()
             yield _unseen(walk.digest(resp), seen)
             if walk.finished:
+                if walk.read == 0:
+                    _warn_tag_matched_nothing(where, params)
                 return
         raise walk.capped()
 
@@ -602,6 +648,8 @@ class GammaClient:
             page = _as_page(resp.json())
             yield _unseen(page, seen)
             if len(page) < page_size:
+                if offset == 0 and not page:
+                    _warn_tag_matched_nothing(where, params)
                 return
             offset += page_size
         raise _offset_capped(where, _MAX_DISCOVERY_PAGES, offset)
@@ -610,15 +658,23 @@ class GammaClient:
         self,
         page_size: int = 100,
         active: bool = True,
+        *,
+        tag_id: int | None = DAILY_TEMPERATURE_TAG_ID,
     ) -> list[TmaxMarketInfo]:
-        """Page through all active markets and return the temperature-max ones.
+        """Page through the active markets of one tag and return the temperature-max ones.
 
-        Pages by cursor on ``/markets/keyset``: each reply's ``next_cursor`` is sent back as
-        ``after_cursor`` until a reply has none, so the whole universe is read, up to 1000 pages
-        (100,000 markets at ``page_size=100``) and beyond that it raises; ``/markets`` by offset ends
-        at about 2000 on live Gamma, which is the limit this replaces. A market served on two pages
-        is read once. Each page is filtered with the temperature-max heuristic and parsed into
+        Scoped to Gamma's ``Daily Temperature`` tag (103040) unless *tag_id* says otherwise, which
+        is 27 pages on live Gamma (2,633 markets on 2026-11-25), not the universe of more than
+        100,000. Pages by cursor on ``/markets/keyset``: each reply's ``next_cursor`` is sent back as
+        ``after_cursor`` until a reply has none, so the whole tag is read. A market served on two
+        pages is read once. Each page is filtered with the temperature-max heuristic and parsed into
         `TmaxMarketInfo`.
+
+        The cap is a loop guard, not a budget: it counts pages (1000, so 100,000 markets at
+        ``page_size=100``), and a walk still receiving a ``next_cursor`` after that raises. Scoped
+        by a tag that is nowhere near it; ``tag_id=None`` reads every market, and the live universe
+        is larger than the cap, so that call raises after 1000 requests (minutes: 209 s in the
+        fastest of our walks, about 27 minutes in the slowest).
 
         A page that fails for a transient reason (a timeout, a connection cut mid-request, a 408,
         429 or 5xx; a numeric ``Retry-After`` is honoured) is retried with backoff, so one failure
@@ -633,6 +689,10 @@ class GammaClient:
         Args:
             page_size: Results per API page (1 to 100; Gamma serves at most 100).
             active: If True, only fetch active markets.
+            tag_id: Keyword-only. The Gamma tag to read, sent as ``tag_id`` on every page; the
+                default is ``Daily Temperature`` (103040, ``DAILY_TEMPERATURE_TAG_ID``). ``None``
+                reads every market (see the cap above). A tag Gamma does not know reads no market
+                and logs a warning saying so.
 
         Returns:
             List of parsed `TmaxMarketInfo` for every matching market read.
@@ -642,8 +702,9 @@ class GammaClient:
                 transient (a 4xx other than 408 and 429; on the first page, one that says the
                 endpoint is not served falls back to offsets instead).
             httpx.TransportError: If the connection keeps failing.
-            ValueError: If Gamma answers with something that is not a page of markets, or
-                ``page_size`` is not an int between 1 and 100.
+            ValueError: If Gamma answers with something that is not a page of markets,
+                ``page_size`` is not an int between 1 and 100, or ``tag_id`` is not a positive int
+                (or None).
             RuntimeError: If the cursor loops (a ``next_cursor`` it has sent before), or pages are
                 still coming after 1000 of them. The cap counts pages, not markets: ``page_size=100``
                 allows 100,000 markets and ``page_size=10`` allows 10,000.
@@ -652,8 +713,11 @@ class GammaClient:
 
         _log = get_logger(__name__)
         _check_page_size(page_size)
+        _check_tag_id(tag_id)
 
         params: dict[str, Any] = {"limit": page_size, "active": active, "closed": False}
+        if tag_id is not None:
+            params["tag_id"] = tag_id
         results: list[TmaxMarketInfo] = []
         for page in self._pages("discover_tmax_markets", params, page_size):
             _log.debug("discover_tmax_markets: fetched %d new markets", len(page))

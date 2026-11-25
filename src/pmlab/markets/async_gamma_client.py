@@ -16,10 +16,12 @@ from pmlab.markets.gamma_client import (
     _RETRY_ATTEMPTS,
     _TRANSIENT_ERRORS,
     _TRANSIENT_STATUS,
+    DAILY_TEMPERATURE_TAG_ID,
     TmaxMarketInfo,
     _as_page,
     _build_tmax_market_info,
     _check_page_size,
+    _check_tag_id,
     _is_tmax_market,
     _keyset_refused,
     _KeysetWalk,
@@ -29,6 +31,7 @@ from pmlab.markets.gamma_client import (
     _unseen,
     _warn_keyset_refused,
     _warn_offset_exhausted,
+    _warn_tag_matched_nothing,
 )
 
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
@@ -140,6 +143,8 @@ class AsyncGammaClient:
             resp.raise_for_status()
             yield _unseen(walk.digest(resp), seen)
             if walk.finished:
+                if walk.read == 0:
+                    _warn_tag_matched_nothing(where, params)
                 return
         raise walk.capped()
 
@@ -159,6 +164,8 @@ class AsyncGammaClient:
             page = _as_page(resp.json())
             yield _unseen(page, seen)
             if len(page) < page_size:
+                if offset == 0 and not page:
+                    _warn_tag_matched_nothing(where, params)
                 return
             offset += page_size
         raise _offset_capped(where, _MAX_DISCOVERY_PAGES, offset)
@@ -167,15 +174,23 @@ class AsyncGammaClient:
         self,
         page_size: int = 100,
         active: bool = True,
+        *,
+        tag_id: int | None = DAILY_TEMPERATURE_TAG_ID,
     ) -> list[TmaxMarketInfo]:
-        """Page through all active markets and return the temperature-max ones.
+        """Page through the active markets of one tag and return the temperature-max ones.
 
-        Pages by cursor on ``/markets/keyset``: each reply's ``next_cursor`` is sent back as
-        ``after_cursor`` until a reply has none, so the whole universe is read, up to 1000 pages
-        (100,000 markets at ``page_size=100``) and beyond that it raises; ``/markets`` by offset ends
-        at about 2000 on live Gamma, which is the limit this replaces. A market served on two pages
-        is read once. Each page is filtered with the temperature-max heuristic and parsed into
+        Scoped to Gamma's ``Daily Temperature`` tag (103040) unless *tag_id* says otherwise, which
+        is 27 pages on live Gamma (2,633 markets on 2026-11-25), not the universe of more than
+        100,000. Pages by cursor on ``/markets/keyset``: each reply's ``next_cursor`` is sent back as
+        ``after_cursor`` until a reply has none, so the whole tag is read. A market served on two
+        pages is read once. Each page is filtered with the temperature-max heuristic and parsed into
         `TmaxMarketInfo`.
+
+        The cap is a loop guard, not a budget: it counts pages (1000, so 100,000 markets at
+        ``page_size=100``), and a walk still receiving a ``next_cursor`` after that raises. Scoped
+        by a tag that is nowhere near it; ``tag_id=None`` reads every market, and the live universe
+        is larger than the cap, so that call raises after 1000 requests (minutes: 209 s in the
+        fastest of our walks, about 27 minutes in the slowest).
 
         A page that fails for a transient reason (a timeout, a connection cut mid-request, a 408,
         429 or 5xx; a numeric ``Retry-After`` is honoured) is retried with backoff, so one failure
@@ -190,6 +205,10 @@ class AsyncGammaClient:
         Args:
             page_size: Results per API page (1 to 100; Gamma serves at most 100).
             active: If True, only fetch active markets.
+            tag_id: Keyword-only. The Gamma tag to read, sent as ``tag_id`` on every page; the
+                default is ``Daily Temperature`` (103040, ``DAILY_TEMPERATURE_TAG_ID``). ``None``
+                reads every market (see the cap above). A tag Gamma does not know reads no market
+                and logs a warning saying so.
 
         Returns:
             List of parsed `TmaxMarketInfo` for every matching market read.
@@ -199,14 +218,18 @@ class AsyncGammaClient:
                 transient (a 4xx other than 408 and 429; on the first page, one that says the
                 endpoint is not served falls back to offsets instead).
             httpx.TransportError: If the connection keeps failing.
-            ValueError: If Gamma answers with something that is not a page of markets, or
-                ``page_size`` is not an int between 1 and 100.
+            ValueError: If Gamma answers with something that is not a page of markets,
+                ``page_size`` is not an int between 1 and 100, or ``tag_id`` is not a positive int
+                (or None).
             RuntimeError: If the cursor loops (a ``next_cursor`` it has sent before), or pages are
                 still coming after 1000 of them. The cap counts pages, not markets: ``page_size=100``
                 allows 100,000 markets and ``page_size=10`` allows 10,000.
         """
         _check_page_size(page_size)
+        _check_tag_id(tag_id)
         params: dict[str, Any] = {"limit": page_size, "active": active, "closed": False}
+        if tag_id is not None:
+            params["tag_id"] = tag_id
         results: list[TmaxMarketInfo] = []
         async with aclosing(self._pages("discover_tmax_markets", params, page_size)) as pages:
             async for page in pages:

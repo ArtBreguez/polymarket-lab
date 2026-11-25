@@ -10,6 +10,7 @@ large, use /markets/keyset" from 2100 on, so a discovery of every active market 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 
 import httpx
@@ -118,10 +119,12 @@ class OffsetServer:
         self.overlap = overlap
         self.failures = {k: list(v) for k, v in (failures or {}).items()}
         self.calls: list[int] = []
+        self.params: list[dict[str, str]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         offset = int(request.url.params["offset"])
         self.calls.append(offset)
+        self.params.append(dict(request.url.params))
         scripted = self.failures.get(offset)
         if scripted:
             return scripted.pop(0)
@@ -156,6 +159,8 @@ def _mount(keyset: KeysetServer, offset: OffsetServer | None) -> None:
 def run_sync(
     keyset: KeysetServer, offset: OffsetServer | None = None, **kwargs
 ) -> list[TmaxMarketInfo]:
+    # the paging tests read the whole universe; TestScopedByTag covers the default scope
+    kwargs.setdefault("tag_id", None)
     with respx.mock:
         _mount(keyset, offset)
         with GammaClient(base_url=BASE) as client:
@@ -165,6 +170,7 @@ def run_sync(
 async def run_async(
     keyset: KeysetServer, offset: OffsetServer | None = None, **kwargs
 ) -> list[TmaxMarketInfo]:
+    kwargs.setdefault("tag_id", None)
     with respx.mock:
         _mount(keyset, offset)
         async with AsyncGammaClient(base_url=BASE) as client:
@@ -666,3 +672,180 @@ def test_the_log_is_quiet_when_nothing_goes_wrong(sleeps, caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="pmlab"):
         run_sync(KeysetServer(total=7))
     assert pmlab_warnings(caplog) == []
+
+
+# ---------------------------------------------------------------------------------------------
+# tag_id: scope the walk to one Gamma tag (#86)
+# ---------------------------------------------------------------------------------------------
+DAILY_TEMPERATURE = 103040  # live Gamma's `Daily Temperature` tag, checked 2026-11-25
+
+
+def run_sync_default(keyset: KeysetServer, offset: OffsetServer | None = None, **kwargs):
+    """``discover_tmax_markets`` with no ``tag_id`` argument at all: the call a user makes."""
+    with respx.mock:
+        _mount(keyset, offset)
+        with GammaClient(base_url=BASE) as client:
+            return client.discover_tmax_markets(page_size=PAGE, **kwargs)
+
+
+async def run_async_default(keyset: KeysetServer, offset: OffsetServer | None = None, **kwargs):
+    with respx.mock:
+        _mount(keyset, offset)
+        async with AsyncGammaClient(base_url=BASE) as client:
+            return await client.discover_tmax_markets(page_size=PAGE, **kwargs)
+
+
+@pytest.fixture(params=["sync", "async"])
+def discover_default(request):
+    if request.param == "sync":
+        return run_sync_default
+    return lambda keyset, offset=None, **kw: asyncio.run(run_async_default(keyset, offset, **kw))
+
+
+class TestScopedByTag:
+    """``tag_id`` is sent on every page, and `discover_tmax_markets` defaults to the weather tag."""
+
+    def test_fetch_markets_all_sends_it_with_every_page(self, sleeps) -> None:
+        keyset = KeysetServer(total=5)
+        run_fetch_all(keyset, tag_id=DAILY_TEMPERATURE)
+        assert len(keyset.requests) == 3
+        assert keyset.requests[0] == {
+            "limit": "2",
+            "active": "true",
+            "closed": "false",
+            "tag_id": "103040",
+        }
+        assert all(r["tag_id"] == "103040" for r in keyset.requests)
+        assert keyset.requests[2]["after_cursor"] == "cur2"
+
+    def test_fetch_markets_all_without_it_is_unscoped_as_before(self, sleeps) -> None:
+        keyset = KeysetServer(total=3)
+        run_fetch_all(keyset)
+        assert all("tag_id" not in r for r in keyset.requests)
+
+    def test_tag_and_tag_id_are_two_parameters(self, sleeps) -> None:
+        keyset = KeysetServer(total=3)
+        run_fetch_all(keyset, tag="weather", tag_id=84)
+        assert keyset.requests[0]["tag"] == "weather" and keyset.requests[0]["tag_id"] == "84"
+
+    def test_discovery_sends_the_tag_id_it_is_given(self, discover, sleeps) -> None:
+        keyset = KeysetServer(total=5)
+        found = discover(keyset, tag_id=84)
+        assert len(found) == 5
+        assert all(r["tag_id"] == "84" for r in keyset.requests) and len(keyset.requests) == 3
+
+    def test_a_default_discovery_is_scoped_to_the_daily_temperature_tag(
+        self, discover_default, sleeps
+    ) -> None:
+        keyset = KeysetServer(total=5)
+        assert len(discover_default(keyset)) == 5
+        assert keyset.requests[0] == {
+            "limit": "2",
+            "active": "true",
+            "closed": "false",
+            "tag_id": "103040",
+        }
+        assert all(r["tag_id"] == "103040" for r in keyset.requests)
+
+    def test_none_asks_for_the_whole_universe_as_1_2_2_did(self, discover_default, sleeps) -> None:
+        keyset = KeysetServer(total=5)
+        assert len(discover_default(keyset, tag_id=None)) == 5
+        assert all("tag_id" not in r for r in keyset.requests)
+
+    def test_the_offset_fallback_is_scoped_too(self, discover_default, sleeps, caplog) -> None:
+        keyset = KeysetServer(pages=[[]], failures={0: [status(404)]})
+        offset = OffsetServer(total=3)
+        with caplog.at_level("WARNING", logger="pmlab"):
+            found = discover_default(keyset, offset)
+        assert len(found) == 3 and offset.calls == [0, 2]
+        assert all(p["tag_id"] == "103040" for p in offset.params)
+
+    def test_fetch_markets_all_falls_back_scoped_too(self, sleeps, caplog) -> None:
+        keyset = KeysetServer(pages=[[]], failures={0: [status(404)]})
+        offset = OffsetServer(total=3)
+        with caplog.at_level("WARNING", logger="pmlab"):
+            assert len(run_fetch_all(keyset, offset, tag_id=84)) == 3
+        assert all(p["tag_id"] == "84" for p in offset.params)
+
+    @pytest.mark.parametrize("bad", [True, False, 0, -5, 1.5, "103040", [84]])
+    def test_a_tag_id_that_is_not_a_positive_int_is_refused_before_any_request(self, bad) -> None:
+        with respx.mock, GammaClient(base_url=BASE) as client:  # nothing mounted: a call fails
+            with pytest.raises(ValueError, match="tag_id"):
+                client.discover_tmax_markets(tag_id=bad)
+            with pytest.raises(ValueError, match="tag_id"):
+                client.fetch_markets_all(tag_id=bad)
+        with respx.mock:
+
+            async def go() -> None:
+                async with AsyncGammaClient(base_url=BASE) as aclient:
+                    await aclient.discover_tmax_markets(tag_id=bad)
+
+            with pytest.raises(ValueError, match="tag_id"):
+                asyncio.run(go())
+
+    def test_the_signatures_are_additive_and_keyword_only(self) -> None:
+        for method, default in (
+            (GammaClient.discover_tmax_markets, DAILY_TEMPERATURE),
+            (AsyncGammaClient.discover_tmax_markets, DAILY_TEMPERATURE),
+            (GammaClient.fetch_markets_all, None),
+        ):
+            param = inspect.signature(method).parameters["tag_id"]
+            assert param.kind is inspect.Parameter.KEYWORD_ONLY
+            assert param.default == default
+        # the parameters that were there keep their order and defaults
+        assert list(inspect.signature(GammaClient.fetch_markets_all).parameters)[:7] == [
+            "self",
+            "tag",
+            "keyword",
+            "page_size",
+            "max_results",
+            "active",
+            "closed",
+        ]
+        assert list(inspect.signature(GammaClient.discover_tmax_markets).parameters)[:3] == [
+            "self",
+            "page_size",
+            "active",
+        ]
+
+    def test_the_constant_is_the_live_tag(self) -> None:
+        assert gamma_client.DAILY_TEMPERATURE_TAG_ID == DAILY_TEMPERATURE
+
+    def test_a_scoped_walk_that_reads_nothing_says_the_tag_may_be_gone(
+        self, discover_default, sleeps, caplog
+    ) -> None:
+        with caplog.at_level("WARNING", logger="pmlab"):
+            assert discover_default(KeysetServer(pages=[[]])) == []
+        (warning,) = pmlab_warnings(caplog)
+        assert "103040" in warning and "no markets" in warning and "tag_id=None" in warning
+
+    def test_fetch_markets_all_says_it_too(self, sleeps, caplog) -> None:
+        with caplog.at_level("WARNING", logger="pmlab"):
+            assert run_fetch_all(KeysetServer(pages=[[]]), tag_id=84) == []
+        (warning,) = pmlab_warnings(caplog)
+        assert "84" in warning and "no markets" in warning
+
+    def test_an_unscoped_walk_that_reads_nothing_is_not_a_tag_problem(
+        self, discover, sleeps, caplog
+    ) -> None:
+        with caplog.at_level("WARNING", logger="pmlab"):
+            assert discover(KeysetServer(pages=[[]])) == []
+            assert run_fetch_all(KeysetServer(pages=[[]])) == []
+        assert pmlab_warnings(caplog) == []
+
+    def test_a_scoped_walk_that_read_markets_but_kept_none_is_quiet(
+        self, discover_default, sleeps, caplog
+    ) -> None:
+        keyset = KeysetServer(pages=[[other(0), other(1)]])
+        with caplog.at_level("WARNING", logger="pmlab"):
+            assert discover_default(keyset) == []
+        assert pmlab_warnings(caplog) == []
+
+    def test_the_offset_fallback_that_reads_nothing_says_it_too(
+        self, discover_default, sleeps, caplog
+    ) -> None:
+        keyset = KeysetServer(pages=[[]], failures={0: [status(404)]})
+        with caplog.at_level("WARNING", logger="pmlab"):
+            assert discover_default(keyset, OffsetServer(total=0)) == []
+        said = pmlab_warnings(caplog)
+        assert len(said) == 2 and "no markets" in said[1] and "103040" in said[1]
