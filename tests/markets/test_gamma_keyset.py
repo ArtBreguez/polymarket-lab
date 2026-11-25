@@ -330,6 +330,18 @@ class TestACursorThatDoesNotMove:
         with pytest.raises(RuntimeError, match="same next_cursor"):
             discover(keyset)
         assert keyset.cursors == [None, "cur1", "cur2"]
+    def test_the_message_blames_the_size_of_the_universe_not_a_loop(self, discover, sleeps) -> None:
+        """On live Gamma the cap fires because the universe is larger than 100,000 markets, with
+        every cursor new; a loop has its own error ("the same next_cursor twice"), so the cap's
+        must not send the reader looking for one."""
+        keyset = KeysetServer(total=10**9)
+        with pytest.raises(RuntimeError) as err:
+            discover(keyset)
+        message = str(err.value)
+        assert "the cap counts pages, not markets" in message
+        assert "larger than" in message and "6 markets" in message
+        assert "looping" not in message
+
 
 
 # ---------------------------------------------------------------------------------------------

@@ -169,9 +169,10 @@ class AsyncGammaClient:
         """Page through all active markets and return the temperature-max ones.
 
         Pages by cursor on ``/markets/keyset``: each reply's ``next_cursor`` is sent back as
-        ``after_cursor`` until a reply has none, so the whole universe is read however large it is
-        (``/markets`` by offset ends at about 2000 on live Gamma). A market served on two pages is
-        read once. Each page is filtered with the temperature-max heuristic and parsed into
+        ``after_cursor`` until a reply has none, so the whole universe is read, up to 1000 pages
+        (100,000 markets at ``page_size=100``) and beyond that it raises; ``/markets`` by offset ends
+        at about 2000 on live Gamma, which is the limit this replaces. A market served on two pages
+        is read once. Each page is filtered with the temperature-max heuristic and parsed into
         `TmaxMarketInfo`.
 
         A page that fails for a transient reason (a timeout, a connection cut mid-request, a 408,
