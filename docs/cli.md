@@ -50,6 +50,13 @@ The output file carries the record of the run (seeds, versions, config, a finger
 `pmlab reproduce` re-executes it and prints one line per metric, ending in `REPRODUCED` when they
 match.
 
+A backtest that takes **no trades** (a `--min-edge` or `--min-train-rows` that nothing clears) is a result,
+not a failure: the command says so, exits **0**, and writes nothing, `--output` included ("Nothing to
+record: ... was not written."). A script that needs the file must test for it, as a sweep over settings
+where some produce no trades would otherwise stop at the first of them. (Turning this into a non-zero
+status would be a change of a frozen command's exit status, as `settle-trades` was in 1.1.0; it is not made
+here.)
+
 ## Workspaces
 
 `ops_daily` is live forward evidence and `historical_real` is training data; mixing them
