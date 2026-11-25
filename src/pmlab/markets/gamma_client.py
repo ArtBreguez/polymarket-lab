@@ -385,7 +385,8 @@ def fetch_gamma_markets(
     """Fetch markets from Polymarket Gamma API.
 
     Args:
-        tag: Filter by tag (e.g. 'temperature', 'sports').
+        tag: Sent as the ``tag`` query parameter. Live Gamma ignores it (it filters by
+            ``tag_id``), so it narrows nothing there; use *keyword* for a client-side filter.
         keyword: Filter by keyword in question text (client-side filter).
         limit: Max results per page.
         active: Include active markets.
@@ -487,7 +488,9 @@ class GammaClient:
         warned about too).
 
         Args:
-            tag: Filter by tag.
+            tag: Sent as the ``tag`` query parameter. Live Gamma ignores it (on ``/markets`` as on
+                ``/markets/keyset``: it filters by ``tag_id``), so it narrows nothing there; use
+                *keyword* for a client-side filter.
             keyword: Client-side keyword filter applied after pagination.
             page_size: Results per page (1 to 100).
             max_results: Hard cap on total results returned.
