@@ -19,15 +19,14 @@ from pmlab.markets.gamma_client import (
     DAILY_TEMPERATURE_TAG_ID,
     TmaxMarketInfo,
     _as_page,
-    _build_tmax_market_info,
     _check_page_size,
     _check_tag_id,
-    _is_tmax_market,
     _keyset_refused,
     _KeysetWalk,
     _offset_capped,
     _offset_exhausted,
     _retry_delay,
+    _TmaxCollector,
     _unseen,
     _warn_keyset_refused,
     _warn_offset_exhausted,
@@ -183,8 +182,20 @@ class AsyncGammaClient:
         is 27 pages on live Gamma (2,633 markets on 2026-11-25), not the universe of more than
         100,000. Pages by cursor on ``/markets/keyset``: each reply's ``next_cursor`` is sent back as
         ``after_cursor`` until a reply has none, so the whole tag is read. A market served on two
-        pages is read once. Each page is filtered with the temperature-max heuristic and parsed into
-        `TmaxMarketInfo`.
+        pages is read once.
+
+        Two kinds of market are returned, one `TmaxMarketInfo` each. A **per-bin** market (what
+        live Gamma lists: one Yes/No market per bin, ``Will the highest temperature in Warsaw be
+        -4°C or below on November 26?``) is grouped with the others of its city and day into one
+        entry: ``outcome_labels`` are the bins from the lowest to the highest (``"-6°C or below"``,
+        ``"-5°C"``, ... ``"3°C or higher"``; ``"88-89°F"``), ``token_ids`` their Yes tokens and
+        ``outcome_prices`` their Yes prices (NaN where Gamma gave none), ``market_id`` is the event's
+        id on Gamma, ``target_date`` is ISO, and ``end_date`` is the earliest close of its bins. An
+        event with some bins closed already has only the rest. A **multi-outcome** market (one
+        market whose outcomes are ``30°C``, ``31°C``, ...) is parsed as before; those are listed
+        first. *Lowest* temperature markets are not read. What a bin means (a bin holds the whole
+        degrees that round into it), and what is refused, is `pmlab.markets.tmax_bins`; refused
+        markets are counted in one warning.
 
         The cap is a loop guard, not a budget: it counts pages (1000, so 100,000 markets at
         ``page_size=100``), and a walk still receiving a ``next_cursor`` after that raises. Scoped
@@ -211,7 +222,8 @@ class AsyncGammaClient:
                 and logs a warning saying so.
 
         Returns:
-            List of parsed `TmaxMarketInfo` for every matching market read.
+            One `TmaxMarketInfo` per multi-outcome market read and per city and day of per-bin
+            markets read (the second kind has the bins of the event as its outcomes).
 
         Raises:
             httpx.HTTPStatusError: If a page keeps failing, or fails with an error that is not
@@ -230,15 +242,11 @@ class AsyncGammaClient:
         params: dict[str, Any] = {"limit": page_size, "active": active, "closed": False}
         if tag_id is not None:
             params["tag_id"] = tag_id
-        results: list[TmaxMarketInfo] = []
+        collector = _TmaxCollector()
         async with aclosing(self._pages("discover_tmax_markets", params, page_size)) as pages:
             async for page in pages:
-                for market in page:
-                    if _is_tmax_market(market):
-                        info = _build_tmax_market_info(market)
-                        if info is not None:
-                            results.append(info)
-        return results
+                collector.add_page(page)
+        return collector.result("discover_tmax_markets")
 
     async def aclose(self) -> None:
         await self._client.aclose()

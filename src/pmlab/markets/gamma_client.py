@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from pmlab.markets.tmax_bins import PerBinGroup, PerBinGrouper
+
 if TYPE_CHECKING:
     from pmlab.markets.cache import DiskCache
 
@@ -404,6 +406,52 @@ def _build_tmax_market_info(market: dict[str, Any]) -> TmaxMarketInfo | None:
     )
 
 
+def _group_info(group: PerBinGroup) -> TmaxMarketInfo:
+    """One `TmaxMarketInfo` for the per-bin markets of a city and day, shaped like the entry of a
+    multi-outcome market: a label, a token and a price per bin, in order from the lowest bin to the
+    highest. The token is the bin's Yes token; a price Gamma did not give is NaN, never 0.0."""
+    return TmaxMarketInfo(
+        market_id=group.market_id,
+        question=group.question,
+        slug=group.slug,
+        city=group.city,
+        target_date=group.target_date,
+        unit=group.unit,
+        token_ids=[b.token_id for b in group.bins],
+        outcome_labels=[b.label for b in group.bins],
+        outcome_prices=[math.nan if b.price is None else b.price for b in group.bins],
+        end_date=group.close_time,
+        active=group.active,
+    )
+
+
+class _TmaxCollector:
+    """What `discover_tmax_markets` keeps of the pages it reads, shared by the sync and async clients.
+
+    A per-bin market (``Will the highest temperature in X be 40°C or higher on <date>?``) is handed
+    to `PerBinGrouper`, which gathers the bins of a city and day across pages; any other market is
+    kept if the multi-outcome recogniser accepts it. `result` lists the multi-outcome entries (in
+    the order read) and then the per-bin ones (in the order their first bin was read).
+    """
+
+    def __init__(self) -> None:
+        self._grouper = PerBinGrouper()
+        self._multi: list[TmaxMarketInfo] = []
+
+    def add_page(self, page: list[dict[str, Any]]) -> None:
+        for market in page:
+            if self._grouper.offer(market):
+                continue
+            if _is_tmax_market(market):
+                info = _build_tmax_market_info(market)
+                if info is not None:
+                    self._multi.append(info)
+
+    def result(self, where: str) -> list[TmaxMarketInfo]:
+        self._grouper.warn_refused(where)
+        return [*self._multi, *(_group_info(g) for g in self._grouper.groups())]
+
+
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 
 
@@ -667,8 +715,20 @@ class GammaClient:
         is 27 pages on live Gamma (2,633 markets on 2026-11-25), not the universe of more than
         100,000. Pages by cursor on ``/markets/keyset``: each reply's ``next_cursor`` is sent back as
         ``after_cursor`` until a reply has none, so the whole tag is read. A market served on two
-        pages is read once. Each page is filtered with the temperature-max heuristic and parsed into
-        `TmaxMarketInfo`.
+        pages is read once.
+
+        Two kinds of market are returned, one `TmaxMarketInfo` each. A **per-bin** market (what
+        live Gamma lists: one Yes/No market per bin, ``Will the highest temperature in Warsaw be
+        -4°C or below on November 26?``) is grouped with the others of its city and day into one
+        entry: ``outcome_labels`` are the bins from the lowest to the highest (``"-6°C or below"``,
+        ``"-5°C"``, ... ``"3°C or higher"``; ``"88-89°F"``), ``token_ids`` their Yes tokens and
+        ``outcome_prices`` their Yes prices (NaN where Gamma gave none), ``market_id`` is the event's
+        id on Gamma, ``target_date`` is ISO, and ``end_date`` is the earliest close of its bins. An
+        event with some bins closed already has only the rest. A **multi-outcome** market (one
+        market whose outcomes are ``30°C``, ``31°C``, ...) is parsed as before; those are listed
+        first. *Lowest* temperature markets are not read. What a bin means (a bin holds the whole
+        degrees that round into it), and what is refused, is `pmlab.markets.tmax_bins`; refused
+        markets are counted in one warning.
 
         The cap is a loop guard, not a budget: it counts pages (1000, so 100,000 markets at
         ``page_size=100``), and a walk still receiving a ``next_cursor`` after that raises. Scoped
@@ -695,7 +755,8 @@ class GammaClient:
                 and logs a warning saying so.
 
         Returns:
-            List of parsed `TmaxMarketInfo` for every matching market read.
+            One `TmaxMarketInfo` per multi-outcome market read and per city and day of per-bin
+            markets read (the second kind has the bins of the event as its outcomes).
 
         Raises:
             httpx.HTTPStatusError: If a page keeps failing, or fails with an error that is not
@@ -718,15 +779,11 @@ class GammaClient:
         params: dict[str, Any] = {"limit": page_size, "active": active, "closed": False}
         if tag_id is not None:
             params["tag_id"] = tag_id
-        results: list[TmaxMarketInfo] = []
+        collector = _TmaxCollector()
         for page in self._pages("discover_tmax_markets", params, page_size):
             _log.debug("discover_tmax_markets: fetched %d new markets", len(page))
-            for market in page:
-                if _is_tmax_market(market):
-                    info = _build_tmax_market_info(market)
-                    if info is not None:
-                        results.append(info)
-        return results
+            collector.add_page(page)
+        return collector.result("discover_tmax_markets")
 
     def close(self) -> None:
         self._client.close()

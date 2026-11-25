@@ -80,9 +80,11 @@ class TestARecordedWalk:
         assert err.value.response.status_code == 422
         assert "invalid cursor" in err.value.response.text
 
-    def test_discovery_walks_the_same_pages_without_error(self) -> None:
-        """What it keeps of them is the filter's business (these are per-bin Yes/No markets), not
-        the paging's: all three pages are read, each cursor sent back, and nothing raises."""
+    def test_discovery_walks_the_same_pages_and_reads_the_per_bin_markets_in_them(self) -> None:
+        """All three pages are read and each cursor sent back. They hold per-bin Yes/No markets
+        (#87): one Atlanta bin with its Yes token, which is returned as an entry of its own, and
+        three Jinan bins with no token ids at all, which are refused (one warning, tested in
+        ``test_gamma_per_bin.py``). The presidential market on the last page is not weather."""
         pages = [
             recorded("keyset_weather_page_1.json"),
             recorded("keyset_weather_page_2.json"),
@@ -97,5 +99,8 @@ class TestARecordedWalk:
         with respx.mock:
             respx.get(KEYSET_URL).mock(side_effect=serve)
             with GammaClient(base_url=BASE) as client:
-                client.discover_tmax_markets(page_size=2)
+                found = client.discover_tmax_markets(page_size=2)
         assert calls == [None, pages[0]["next_cursor"], pages[1]["next_cursor"]]
+        assert [(m.city, m.target_date, m.outcome_labels) for m in found] == [
+            ("Atlanta", "2026-05-15", ["88-89°F"])
+        ]
