@@ -135,8 +135,9 @@ class WeatherTmaxPlugin(MarketPlugin):
     def discover_markets(self, **kwargs: Any) -> list[MarketSpec]:
         """Fetch open temperature markets from the Polymarket Gamma API.
 
-        Paginates through the Gamma API until all markets are retrieved,
-        then filters by:
+        Reads the first ``max_results`` (default 1000) active markets in Gamma's order
+        (ascending market id), paging by cursor, not every market: a Gamma with more than that
+        many active markets is read from its oldest end. Then filters by:
           1. Question matches ``highest temperature in ... on ...?`` (regex).
           2. Description references an authoritative source (soft check).
           3. Outcomes contain temperature bins with °C or °F (soft check).
@@ -155,7 +156,7 @@ class WeatherTmaxPlugin(MarketPlugin):
         page_size: int = kwargs.pop("limit", 100)
         max_results: int = kwargs.pop("max_results", 1000)
 
-        # Use the client's offset-based pagination helper. (Calling
+        # Use the client's paging helper. (Calling
         # fetch_markets(offset=...) directly is wrong — the single-page
         # fetch_markets() has no offset parameter and raises TypeError.)
         all_raw: list[dict[str, Any]] = self._gamma.fetch_markets_all(

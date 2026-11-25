@@ -71,7 +71,7 @@ class TestDiscoverMarkets:
 
     def test_uses_paginating_fetch_not_single_page(self) -> None:
         """Regression: discover_markets must call fetch_markets_all (which
-        paginates via offset), NOT fetch_markets(offset=...) which has no offset
+        pages by cursor), NOT fetch_markets(offset=...) which has no offset
         param and raises TypeError against the real GammaClient. A MagicMock
         hides this because it accepts any kwargs; a spec'd fake does not.
         """
