@@ -585,6 +585,15 @@ def a_small_limit_does_not_multiply_the_requests_of_a_whole_tag_read() -> None:
     assert done.returncode == 0, (done.returncode, done.stdout, done.stderr)
     assert "4 'weather_tmax' markets found" in done.stdout, done.stdout
     assert len(stub.keyset_requests) == 1, stub.keyset_requests
+    # raising a small page must not make an invalid one valid: --limit 0 is still refused, no request
+    with world() as stub:
+        refused_limit = pmlab_command(
+            stub, "scan-markets", "--plugin", "weather_tmax", "--limit", "0"
+        )
+    said = " ".join((refused_limit.stdout + refused_limit.stderr).split())
+    assert refused_limit.returncode == 1, (refused_limit.returncode, said)
+    assert "page_size must be an int between 1 and 100" in said, said
+    assert stub.keyset_requests == [], stub.keyset_requests
     with world() as stub:
         helped = pmlab_command(stub, "scan-markets", "--help")
     text = " ".join(re.sub(r"[│╭╮╰╯─]", " ", helped.stdout).split())

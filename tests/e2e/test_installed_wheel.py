@@ -173,12 +173,13 @@ def test_gamma_discovery_by_tag_and_per_bin_markets_in_the_wheel(installed: Inst
     request and an unknown tag warns; and live Gamma's per-bin Yes/No temperature markets, recorded
     in ``tests/markets/fixtures/per_bin_markets.json`` and served by a stdlib HTTP server on
     127.0.0.1 behind 1,500 other markets, come back as one entry per city and day (client) and one
-    ``MarketSpec`` (plugin, which reads the whole tag, 1,132 markets here, not the first 1000) with each bin's
-    Yes token and price, tiling the line, resolving a reading and giving one training row per bin;
-    a stale event without tokens, an unreadable question and the lowest-temperature markets are
-    refused or left out, with one warning. The installed ``pmlab scan-markets --plugin
-    weather_tmax`` command reads the tag and lists the four entries (one request, ``tag_id`` on
-    the wire; ``--limit 1`` is still one full page, and its help says it is a page size); an
+    ``MarketSpec`` (plugin, which reads the whole tag, 1,132 markets here, not the first 1000)
+    with each bin's Yes token and price, tiling the line, resolving a reading and giving one
+    training row per bin; a stale event without tokens, an unreadable question and the
+    lowest-temperature markets are refused or left out, with one warning. The installed
+    ``pmlab scan-markets --plugin weather_tmax`` command reads the tag and lists the four entries
+    (one request, ``tag_id`` on the wire; ``--limit 1`` is still one full page, ``--limit 0`` is
+    still refused with no request, and its help says it is a page size); an
     injected client whose ``fetch_markets_all`` takes no ``tag_id`` (1.2.1's contract) is called as
     1.2.1 called it, with one warning, and a named ``tag_id`` is passed whatever the client is."""
     out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_gamma_tag_bins.py"))
