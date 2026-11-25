@@ -166,6 +166,22 @@ def test_gamma_discovery_pages_by_cursor_in_the_wheel(installed: Installed) -> N
     assert f"audit gamma keyset: OK (18 checks, pmlab {_pyproject_version()})" in out
 
 
+def test_gamma_discovery_by_tag_and_per_bin_markets_in_the_wheel(installed: Installed) -> None:
+    """1.3.0 (#86, #87): ``tag_id`` reaches the wire on every page (keyset and offset fallback) of
+    ``discover_tmax_markets`` (sync and async, scoped to the ``Daily Temperature`` tag by default,
+    ``None`` for the whole universe) and ``fetch_markets_all``, a bad one is refused before any
+    request and an unknown tag warns; and live Gamma's per-bin Yes/No temperature markets, recorded
+    in ``tests/markets/fixtures/per_bin_markets.json`` and served by a stdlib HTTP server on
+    127.0.0.1 behind 1,500 other markets, come back as one entry per city and day (client) and one
+    ``MarketSpec`` (plugin, which reads the whole tag, not the first 1000 markets) with each bin's
+    Yes token and price, tiling the line, resolving a reading and giving one training row per bin;
+    a stale event without tokens, an unreadable question and the lowest-temperature markets are
+    refused or left out, with one warning."""
+    out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_gamma_tag_bins.py"))
+    assert "FAIL" not in out, out
+    assert f"audit gamma tag bins: OK (17 checks, pmlab {_pyproject_version()})" in out
+
+
 def test_user_workflow_script(installed: Installed) -> None:
     panel = installed.workdir / "panel.parquet"
     out = _ok(installed.py(EXAMPLE, "--panel-out", panel))
