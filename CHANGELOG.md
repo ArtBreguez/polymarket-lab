@@ -4,6 +4,111 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-11-25
+
+The sharp edges the 1.1.0 audit left (#68), one commit each. Nothing public is added, renamed or
+removed (the API snapshot is untouched); what changes is what is refused or flagged *before* a number
+is computed from it, and two files that are no longer written half way. Every input that was valid
+keeps working; the ones that now raise or warn are listed.
+
+### Fixed
+
+- **`build_panel` refuses a repeated row.** Two rows with the same `market_id`, `outcome_label` and
+  `decision_date` (and `decision_horizon` / `horizon` when the rows carry one) double-weighted their
+  market in training and reached `min_train_rows` early, so the backtest ran a different number of
+  folds. It raises `PanelSchemaError` with the number of rows and an example key. Refused, not
+  deduplicated: the rows do not say which copy is right, and `docs/data.md` already defines the panel
+  as one row per bin of a market and decision. Rows that differ only by `decision_ts` on one date, or
+  by a horizon column that is not called `decision_horizon` or `horizon`, are repeats by this key; the
+  message says to name that column `decision_horizon` (the weather plugin already does), or to
+  deduplicate upstream.
+- **`OutcomeBin` and `MarketSpec` refuse impossible input.** A NaN bound (it compares False with
+  everything, so it accepted every value) and `lower` above `upper` raise; so do duplicate bin labels
+  and a `close_time` that is neither blank nor an ISO-8601 date or timestamp (the backtest's
+  decided-after-close guard skipped a time it could not read). An empty `outcome_bins` and a blank
+  `close_time` stay valid on purpose: a sparse Gamma payload is not discarded during discovery. The
+  weather and F1 plugins skip a market whose payload is not a valid `MarketSpec`, with a warning that
+  names it, instead of aborting the others.
+- **A GO gate has to allow something.** `HoldoutGateResult.from_dict` copied the decision as it found
+  it, so a gate file edited to `"decision": "GO"` over failing segments published a champion with
+  `Allowed segments: set()`. `from_dict` (and so `promote-champion`, as "Not a valid gate file") refuses
+  a decision other than `GO` or `NO_GO`, a `passes` that is not `true` or `false` (the string `"false"`
+  is truthy and allowed its segment) and a GO in which no segment passed; `ChampionManifest.publish`
+  checks the last one for a gate built in Python.
+- **`segment_allowed`, `PaperBroker(allowed_segments=...)` and `HoldoutGateResult.evaluate(required_segments=...)`
+  refuse a `str`.** `"Aires" in "Buenos Aires"` is a substring test, so a single segment passed bare
+  was matched by substring (or graded one segment per letter). They raise `TypeError` and say to pass
+  `{"Buenos Aires"}`.
+- **`CalibrationTracker` leaves out forecasts that are not probabilities, checks `n_bins` and reads
+  only a trade log.** A settled trade with a NaN, infinite or out-of-[0, 1] `model_prob` counted as
+  realized and then made `overall()` fail far from the cause; it is counted in `n_skipped` now, as the
+  watchdog already treats it. `n_bins` below 1 or not an int fails in the constructor. `from_path` on a
+  file that is not a JSON object with a `"trades"` list (a bare list, `{}`) raises a `ValueError` that
+  names the file and the shape, not `AttributeError`.
+- **`discover_tmax_markets` (sync and async) retries a transient page failure, ends where Gamma's
+  offsets end, and stops after a cap.** A timeout, a connection cut mid-request (`ReadError`,
+  `RemoteProtocolError`), a 408, 429 or 5xx is retried up to five tries with a doubling wait (1, 2, 4,
+  8 s, at most 30; a numeric `Retry-After` is honoured up to 60 s), so one *transient* failure on page
+  40 no longer loses the 39 before it; any other error raises at once, **a refused connection
+  included** (`ConnectError`: offline, a wrong `base_url`; nothing is listening, so retrying would only
+  delay the same error by 15 s, which 1.1.3 never did). **Live Gamma answers HTTP 422
+  `offset too large, use /markets/keyset` from offset 2100** (it serves offsets up to about 2000),
+  which raised at page 22 and discarded the 21 pages read, before this release as well. That 422 is
+  now the end of the offset space: what was read is returned, and a warning on the `pmlab` logger
+  says the result is incomplete (`GammaClient.fetch_markets_all` the same). The 422 is recognised by
+  its words (`offset too large` or `/markets/keyset` in the body) and only past the first page: a
+  422 on the first page, or any other 422 (one that merely mentions the offset included), still
+  raises. So a discovery over more than about 2100 active markets returns the first 2100 and warns,
+  it does not read them all, and **today that is no temperature market at all**: as of 2026-11-25
+  the first 2100 active markets hold none, so `discover_tmax_markets()` against live Gamma returns
+  `[]` with the warning, where it raised at page 22 before. Treat `[]` with that warning as "not
+  read", not as "no markets today". Moving discovery to `/markets/keyset` is #83, the priority
+  follow-up. It raises `RuntimeError` after 1000 pages (the cap counts pages, not markets:
+  `page_size=10` allows 10,000) instead of looping for ever on an API that ignores `offset`, and
+  `ValueError` for a reply that is not a list.
+- **The trade log is replaced atomically, and `settle_all` reads the UTC date.** `PaperBroker.record`
+  and `SettlementEngine.settle_all` rewrote the log with `write_text`, which truncates first: a crash or a
+  full disk left an empty or half-written log. They write a temporary file, sync it and rename it over the
+  old one (a new file keeps the mode `write_text` gave it, an existing one its mode, a symlink is
+  followed). Where the rename is refused (`PermissionError`, or `EBUSY`: a file another process holds
+  open on Windows, a Docker single-file bind mount) it falls back to `write_text`, as before, with a
+  warning (logged once that write has succeeded) that it was not atomic. The temporary file is removed
+  after that write only: if it fails too (a full disk after `write_text` truncated the log) the file is
+  kept, because it holds the whole new log, and the error names it. What still differs from `write_text` (checked on Linux): a hard
+  link to the log keeps the old content; a log in a directory that is not writable fails, because the
+  temporary file is made beside it; a read-only log (mode 0444) in a writable directory is replaced,
+  keeping its mode, where `write_text` raised; a process killed mid-write leaves a hidden
+  `.<name>.<pid>.<hex>.tmp`. CI has no Windows job, so the Windows paths are reasoned, not run.
+  `settle_all`'s default `today_str` was the machine's local date; it is the UTC date of `now_utc` now,
+  so an injected `now_utc` moves it. A trade's `target_date` is its market's local date, so for a city
+  far from UTC that pre-filter is a few hours early or late (and a due trade may log "matched no market
+  spec" near UTC midnight if the specs follow local dates); `plugin.is_truth_final` still decides that a
+  market is settled.
+- **`compare_metrics` judges metrics that are not numbers.** A string, mapping or list metric was skipped
+  when both sides had one, so a changed string read as `REPRODUCED`. They are compared by value (with the
+  same tolerance for numbers inside), and a number that became text fails. A backtest re-run only produces
+  numbers, so `pmlab reproduce` is unchanged for every record pmlab writes.
+
+### Changed
+
+- **`promote-champion` warns on stderr when `--plugin` is not a registered family** (naming the registered
+  ones) and records it as given. A typo no longer passes in silence; it is not refused, see below.
+
+### Left as it is, on purpose
+
+- **A GO gate with a failed segment still loads and publishes**, allowed on the segments that passed.
+  `docs/watchdog.md` documents that state, so "GO means every segment passed" would change documented
+  behaviour. The gate file carries no thresholds either, so a segment's numbers cannot be re-graded.
+- **`promote-champion --plugin` is not refused** for a family no installed plugin registers: the docs and
+  several flows promote with a label whose plugin is installed elsewhere. Refusing would be a deprecation
+  first (`docs/deprecation.md`), an error in 2.0.0.
+- **`pmlab backtest` with no trades still exits 0** and writes no `--output`; now documented in
+  `docs/cli.md`. A non-zero status would be a change of a frozen command's exit status (as
+  `settle-trades` was in 1.1.0), and would stop sweeps where some settings take no trades.
+- `fetch_markets_all` still does not retry a transient page failure (it is bounded by `max_results`; it
+  does end at the 422 above), and `champion.json`, `--output` and the cache are still written with
+  `write_text`: follow-ups.
+
 ## [1.2.0] — 2026-11-25
 
 The first part of the real-fee epic (#69): the fee model itself, as pure functions and one frozen
@@ -1747,7 +1852,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.1...v1.1.2
