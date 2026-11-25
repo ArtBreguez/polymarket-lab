@@ -590,7 +590,10 @@ class GammaClient:
                 transient.
             ValueError: If Gamma answers with something that is not a page of markets,
                 ``page_size`` is not an int between 1 and 100, or ``tag_id`` is not a positive int.
-            RuntimeError: If the cursor loops, or pages are still coming after 1000 of them.
+            RuntimeError: If the cursor loops, or pages are still coming after 1000 of them. The
+                cap counts pages, not markets (``page_size=100`` allows 100,000, ``page_size=10``
+                10,000) and is a loop guard, not a budget: scope the walk with *tag_id* instead of
+                relying on it, since the live universe is larger than it.
         """
         from pmlab.logging import get_logger
 

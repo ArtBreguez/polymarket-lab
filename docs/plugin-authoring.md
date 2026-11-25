@@ -55,6 +55,17 @@ Fetch currently open markets for your family from Polymarket.
 Use `GammaClient` from `pmlab.markets.gamma_client` to query the API.
 Return a list of `MarketSpec` objects.
 
+Scope the query: live Gamma holds over 100,000 active markets and `GammaClient.fetch_markets_all`
+and `discover_tmax_markets` take a numeric `tag_id` (`Weather` is 84, `Daily Temperature` 103040);
+the `tag` argument is ignored by Gamma. Gamma also lists many families as one Yes/No market per
+outcome tied together as an *event* (the temperature markets: one market per bin, `Will the
+highest temperature in Warsaw be -4°C or below on November 26?`). `WeatherTmaxPlugin` turns the
+bins of one city and day into one `MarketSpec`, with each bin's *Yes* token in
+`metadata["token_ids"]` and its Yes price in `metadata["outcome_schema"]`; its bins hold the whole
+degrees that round into them, so `fetch_truth` must return the reading in the unit of
+`spec.metadata["unit"]`. Do the same for your family: the rest of the pipeline expects one spec
+per decision, not one per Yes/No market.
+
 ### `fetch_features(spec, horizon, **kwargs) -> dict[str, float]`
 Generate numeric features for a single (market, decision horizon) pair.
 All feature values must be **float**. Feature names must be consistent across calls.
