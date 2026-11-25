@@ -17,7 +17,7 @@ import httpx
 import pytest
 import respx
 
-from pmlab.markets import async_gamma_client, gamma_client
+from pmlab.markets import async_gamma_client, gamma_client, tmax_bins
 from pmlab.markets.async_gamma_client import AsyncGammaClient
 from pmlab.markets.gamma_client import GammaClient, TmaxMarketInfo
 
@@ -809,6 +809,7 @@ class TestScopedByTag:
         ]
 
     def test_the_constant_is_the_live_tag(self) -> None:
+        assert tmax_bins.DAILY_TEMPERATURE_TAG_ID == DAILY_TEMPERATURE
         assert gamma_client.DAILY_TEMPERATURE_TAG_ID == DAILY_TEMPERATURE
 
     def test_a_scoped_walk_that_reads_nothing_says_the_tag_may_be_gone(

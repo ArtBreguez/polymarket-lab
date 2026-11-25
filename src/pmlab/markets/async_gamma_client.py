@@ -16,7 +16,6 @@ from pmlab.markets.gamma_client import (
     _RETRY_ATTEMPTS,
     _TRANSIENT_ERRORS,
     _TRANSIENT_STATUS,
-    DAILY_TEMPERATURE_TAG_ID,
     TmaxMarketInfo,
     _as_page,
     _check_page_size,
@@ -32,6 +31,7 @@ from pmlab.markets.gamma_client import (
     _warn_offset_exhausted,
     _warn_tag_matched_nothing,
 )
+from pmlab.markets.tmax_bins import DAILY_TEMPERATURE_TAG_ID
 
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 __all__ = ["AsyncGammaClient"]

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from pmlab.markets.tmax_bins import PerBinGroup, PerBinGrouper
+from pmlab.markets.tmax_bins import DAILY_TEMPERATURE_TAG_ID, PerBinGroup, PerBinGrouper
 
 if TYPE_CHECKING:
     from pmlab.markets.cache import DiskCache
@@ -91,10 +91,6 @@ _TRANSIENT_ERRORS = (httpx.TimeoutException, httpx.ReadError, httpx.RemoteProtoc
 # What Gamma's 422 says when the offset space is over; a 422 that merely names `offset` is not it.
 _OFFSET_EXHAUSTED_PHRASES = ("offset too large", "/markets/keyset")
 _sleep = time.sleep  # a name of its own so a test can replace it
-# Gamma's `Daily Temperature` tag (the parent `Weather` tag is 84). `/markets/keyset` takes it as
-# `tag_id`: on 2026-11-25 it listed 2,633 markets in 27 pages and the walk ended by itself, where
-# the unfiltered universe is over 100,000 markets. `tag` (by name) is ignored by live Gamma.
-DAILY_TEMPERATURE_TAG_ID = 103040
 
 
 def _retry_delay(attempt: int, response: httpx.Response | None) -> float:

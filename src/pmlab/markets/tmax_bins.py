@@ -40,6 +40,11 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
+# Gamma's `Daily Temperature` tag (the parent `Weather` tag is 84). `/markets/keyset` takes it as
+# `tag_id`: on 2026-11-25 it listed 2,633 markets in 27 pages and the walk ended by itself, where
+# the unfiltered universe is over 100,000 markets. `tag` (by name) is ignored by live Gamma.
+DAILY_TEMPERATURE_TAG_ID = 103040
+
 # Every bin is half-open: the lower end is in it, the upper end is not (see the module docstring).
 LOWER_INCLUSIVE = True
 UPPER_INCLUSIVE = False
@@ -311,7 +316,7 @@ class _Draft:
             elif any(b.label == bin_.label for b in self.bins):
                 self.conflict = REASON_LABEL
         self.bins.append(bin_)
-        if end:
+        if end and _instant(end) is not None:  # an end that cannot be read is not a close
             self.ends.append(end)
 
     def build(self) -> PerBinGroup:

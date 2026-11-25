@@ -354,6 +354,12 @@ class TestGrouping:
         (group,) = group_of(markets).groups()
         assert group.close_time == "2026-11-26T23:00:00Z"
 
+    def test_an_event_whose_only_close_is_unreadable_has_a_blank_one(self) -> None:
+        """Blank is what a MarketSpec accepts for "unknown"; ``"soon"`` it would refuse. The year
+        comes from the question here, since a close that cannot be read cannot give one."""
+        (group,) = group_of([market(1, day="November 27, 2026", end="soon")]).groups()
+        assert group.close_time == "" and group.target_date == "2026-11-27"
+
     def test_a_group_is_active_only_if_every_bin_is(self) -> None:
         a, b = market(1), market(2, bin_text="31°C")
         b["active"] = False
