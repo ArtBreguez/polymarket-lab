@@ -28,6 +28,18 @@ The market model, the edge a quote offers, what a trade costs, and how much to s
 
 ::: pmlab.CostModel
 
+::: pmlab.FeeSchedule
+
+::: pmlab.taker_fee
+
+::: pmlab.maker_fee
+
+::: pmlab.taker_fee_for_fills
+
+::: pmlab.taker_fee_on_stake
+
+::: pmlab.stake_fee_fraction
+
 ::: pmlab.flat_stake_size
 
 ::: pmlab.kelly_fraction

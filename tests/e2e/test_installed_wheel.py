@@ -31,6 +31,22 @@ NOTEBOOK_RUNNER = REPO / "tests" / "e2e" / "run_notebook.py"
 CLI_SURFACE_AUDIT = REPO / "tests" / "e2e" / "audit_cli_surface.py"
 TUTORIAL = REPO / "notebooks" / "tutorial.ipynb"
 OK_LINE = "pmlab e2e (as a user): OK"
+# The 1.2.0 fee model: six public names; Polymarket's category table and its lookup stay
+# module-internal until #71, so the built reference must not document them.
+FEE_MODEL_NAMES = (
+    "FeeSchedule",
+    "taker_fee",
+    "maker_fee",
+    "taker_fee_for_fills",
+    "stake_fee_fraction",
+    "taker_fee_on_stake",
+)
+FEE_MODEL_INTERNAL = (
+    "category_fee_schedule",
+    "POLYMARKET_CATEGORY_FEE_RATES",
+    "POLYMARKET_FEE_RATES_AS_OF",
+    "POLYMARKET_FEE_RATES_SOURCE_URL",
+)
 
 
 def _clean_env(**extra: str) -> dict[str, str]:
@@ -796,6 +812,10 @@ def test_the_built_reference_documents_the_public_api_and_the_deprecation(
     site = paths["site"]
     core = (site / "reference" / "core" / "index.html").read_text()
     assert 'id="pmlab.CostModel"' in core and 'id="pmlab.kelly_stake_size"' in core
+    for name in FEE_MODEL_NAMES:  # 1.2.0: all six, and none of the module-internal ones
+        assert f'id="pmlab.{name}"' in core, name
+    for name in FEE_MODEL_INTERNAL:
+        assert f'id="pmlab.{name}"' not in core, name
     plugins = (site / "reference" / "plugins" / "index.html").read_text()
     assert "Deprecated since 0.9.2 and will be removed in 2.0.0" in plugins
     # Only public names: nothing under an underscore or an internal module path.
@@ -1214,3 +1234,22 @@ def test_embargo_days_from_the_installed_wheel(installed: Installed) -> None:
     refused = backtest(work / "bad.json", "--embargo-days", "-1")
     assert refused.returncode == 1 and "embargo_days" in refused.stdout + refused.stderr
     assert backtest(work / "bad.json", "--embargo-days", "2.5").returncode == 2
+
+
+# ── 1.2.0 (#70): the fee model, from the installed wheel ──────────────────────────────────────────
+FEE_AUDIT = REPO / "tests" / "e2e" / "audit_fee_model.py"
+FEE_DOCS_PAGE = REPO / "tests" / "core" / "data" / "polymarket_fees_docs_2026-11-25.md"
+
+
+def test_the_fee_model_holds_in_the_installed_wheel(installed: Installed) -> None:
+    """The six new public names, imported from ``pmlab`` in the fresh venv (the category table is
+    module-internal in 1.2.0 and is read from ``pmlab.core.fee_schedule`` of the same wheel):
+    every category's 100-share fee equals the cent the saved docs page prints at all 21 prices,
+    the exponent sits on the whole ``p * (1 - p)``, a fee under one unit is not charged, a maker
+    pays nothing on a taker-only schedule, a float product like ``0.07 * 3`` carries no binary
+    noise into a rounded-up fee, bad input is refused, no fee is a negative zero or an ``inf``, a
+    float32 is read as its float64 value as the docstring says, and the stake helpers agree with
+    the per-share fee."""
+    out = _ok(installed.py(FEE_AUDIT, FEE_DOCS_PAGE))
+    assert "FAIL" not in out, out
+    assert f"audit fee model: OK (16 checks, pmlab {_pyproject_version()})" in out

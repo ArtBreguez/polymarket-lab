@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.1.3"
+__version__ = "1.2.0"
 
 from pmlab import datasets
 from pmlab._deprecation import PmlabDeprecationWarning
@@ -14,6 +14,14 @@ from pmlab.backtest.rolling_origin import RollingOriginResult, rolling_origin_ev
 from pmlab.config import PmlabSettings, get_settings
 from pmlab.core.costs import CostModel
 from pmlab.core.edge import DEFAULT_MIN_EDGE, QuoteEdges, compute_edge, quote_edges
+from pmlab.core.fee_schedule import (
+    FeeSchedule,
+    maker_fee,
+    stake_fee_fraction,
+    taker_fee,
+    taker_fee_for_fills,
+    taker_fee_on_stake,
+)
 from pmlab.core.fees import estimate_fee
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
 from pmlab.core.pnl import Position, settle_position
@@ -129,6 +137,12 @@ __all__ = [
     "segment_allowed",
     "estimate_fee",
     "CostModel",
+    "FeeSchedule",
+    "taker_fee",
+    "maker_fee",
+    "taker_fee_for_fills",
+    "taker_fee_on_stake",
+    "stake_fee_fraction",
     "flat_stake_size",
     "kelly_fraction",
     "kelly_stake_size",

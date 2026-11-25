@@ -1691,6 +1691,17 @@
         },
         "signature": "(root: Path | str) -> None"
       },
+      "FeeSchedule": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(rate: float, exponent: float = 1.0, taker_only: bool = True, rebate_rate: float = 0.0, enabled: bool = True, maker_rate: float | None = None, rounding: Literal['nearest', 'up', 'down'] = 'nearest', rounding_unit: float = 1e-05, rounding_scope: Literal['fill', 'order'] = 'fill') -> None"
+      },
       "FittedTargetEncoder": {
         "bases": [],
         "kind": "class",
@@ -2622,6 +2633,10 @@
         "kind": "function",
         "signature": "(ref: str, runs_dir: str | Path | None = None, registry_dir: str | Path | None = None) -> ReproducibilityRecord"
       },
+      "maker_fee": {
+        "kind": "function",
+        "signature": "(shares: float, price: float, schedule: FeeSchedule) -> float"
+      },
       "multiclass_brier": {
         "kind": "function",
         "signature": "(y_true: ArrayLike, y_prob: ArrayLike) -> MulticlassBrier"
@@ -2669,6 +2684,22 @@
       "settle_position": {
         "kind": "function",
         "signature": "(position: Position, winning_label: str, fee_paid: float = 0.0) -> float"
+      },
+      "stake_fee_fraction": {
+        "kind": "function",
+        "signature": "(price: float, schedule: FeeSchedule) -> float"
+      },
+      "taker_fee": {
+        "kind": "function",
+        "signature": "(shares: float, price: float, schedule: FeeSchedule) -> float"
+      },
+      "taker_fee_for_fills": {
+        "kind": "function",
+        "signature": "(fills: Iterable[tuple[float, float]], schedule: FeeSchedule) -> float"
+      },
+      "taker_fee_on_stake": {
+        "kind": "function",
+        "signature": "(stake: float, price: float, schedule: FeeSchedule) -> float"
       }
     },
     "pmlab.data": {
