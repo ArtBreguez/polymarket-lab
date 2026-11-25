@@ -105,10 +105,17 @@ class KeysetServer:
 
 
 class OffsetServer:
-    """A fake ``/markets`` by offset (the fallback for a Gamma that does not know the keyset)."""
+    """A fake ``/markets`` by offset (the fallback for a Gamma that does not know the keyset).
 
-    def __init__(self, total: int, failures: dict[int, list] | None = None) -> None:
+    ``overlap`` makes every page after the first start that many markets early, so the last
+    market(s) of a page come again at the top of the next one (offset paging under writes does).
+    """
+
+    def __init__(
+        self, total: int, failures: dict[int, list] | None = None, *, overlap: int = 0
+    ) -> None:
         self.total = total
+        self.overlap = overlap
         self.failures = {k: list(v) for k, v in (failures or {}).items()}
         self.calls: list[int] = []
 
@@ -118,8 +125,9 @@ class OffsetServer:
         scripted = self.failures.get(offset)
         if scripted:
             return scripted.pop(0)
+        start = max(offset - self.overlap, 0)
         return httpx.Response(
-            200, json=[tmax(i) for i in range(offset, min(offset + PAGE, self.total))]
+            200, json=[tmax(i) for i in range(start, min(offset + PAGE, self.total))]
         )
 
 
@@ -273,6 +281,21 @@ class TestEachMarketOnce:
         keyset = KeysetServer(pages=[[tmax(0), nameless[0]], [nameless[1]]])
         assert len(discover(keyset)) == 3
 
+    def test_a_market_with_a_condition_id_and_no_id_is_told_by_it(self, discover, sleeps) -> None:
+        """``id`` is what Gamma sends; a payload that only has ``conditionId`` is still one market."""
+        by_condition = [{**tmax(i), "id": None, "conditionId": f"0xc{i}"} for i in (0, 1)]
+        keyset = KeysetServer(
+            pages=[[by_condition[0], tmax(2)], [by_condition[0], by_condition[1]]]
+        )
+        found = discover(keyset)
+        assert [m.market_id for m in found] == ["0xc0", "2", "0xc1"]
+
+    def test_the_id_wins_over_the_condition_id(self, discover, sleeps) -> None:
+        """Two markets with one ``conditionId`` and two ids are two markets (an id is the key)."""
+        twins = [{**tmax(i), "conditionId": "0xsame"} for i in (1, 2)]
+        keyset = KeysetServer(pages=[[twins[0]], [twins[1]]])
+        assert [m.market_id for m in discover(keyset)] == ["1", "2"]
+
 
 # ---------------------------------------------------------------------------------------------
 # The cap, and a cursor that does not move
@@ -307,6 +330,18 @@ class TestARunawayLoopStops:
             discover(keyset)
         assert "6 markets" in str(err.value)  # three pages of PAGE
 
+    def test_the_message_blames_the_size_of_the_universe_not_a_loop(self, discover, sleeps) -> None:
+        """On live Gamma the cap fires because the universe is larger than 100,000 markets, with
+        every cursor new; a loop has its own error ("the same next_cursor twice"), so the cap's
+        must not send the reader looking for one."""
+        keyset = KeysetServer(total=10**9)
+        with pytest.raises(RuntimeError) as err:
+            discover(keyset)
+        message = str(err.value)
+        assert "the cap counts pages, not markets" in message
+        assert "larger than" in message and "6 markets" in message
+        assert "looping" not in message
+
 
 def test_the_default_cap_is_a_guard_of_at_least_1000_pages() -> None:
     assert gamma_client._MAX_DISCOVERY_PAGES >= 1000
@@ -330,18 +365,6 @@ class TestACursorThatDoesNotMove:
         with pytest.raises(RuntimeError, match="same next_cursor"):
             discover(keyset)
         assert keyset.cursors == [None, "cur1", "cur2"]
-    def test_the_message_blames_the_size_of_the_universe_not_a_loop(self, discover, sleeps) -> None:
-        """On live Gamma the cap fires because the universe is larger than 100,000 markets, with
-        every cursor new; a loop has its own error ("the same next_cursor twice"), so the cap's
-        must not send the reader looking for one."""
-        keyset = KeysetServer(total=10**9)
-        with pytest.raises(RuntimeError) as err:
-            discover(keyset)
-        message = str(err.value)
-        assert "the cap counts pages, not markets" in message
-        assert "larger than" in message and "6 markets" in message
-        assert "looping" not in message
-
 
 
 # ---------------------------------------------------------------------------------------------
@@ -518,6 +541,15 @@ class TestAKeysetThatIsRefused:
         with pytest.raises(RuntimeError, match="3 pages"):
             discover(keyset, OffsetServer(total=10**9))
 
+    def test_the_fallback_returns_a_market_served_on_two_offset_pages_once(
+        self, discover, sleeps
+    ) -> None:
+        """Offset paging under writes repeats the edge of a page; keyset paging never did, and the
+        fallback holds the same promise (a market is returned once, the first copy winning)."""
+        keyset = KeysetServer(total=10, failures={0: [status(404)]})
+        found = discover(keyset, OffsetServer(total=7, overlap=1))
+        assert [m.market_id for m in found] == [str(i) for i in range(7)]
+
     def test_the_fallback_is_for_the_first_request_only(self, discover, sleeps, caplog) -> None:
         keyset = KeysetServer(total=10)
         with caplog.at_level("WARNING", logger="pmlab"):
@@ -598,6 +630,17 @@ class TestFetchMarketsAll:
         assert [m["id"] for m in found] == ["0", "1", "2", "3", "4"]
         assert offset.calls == [0, 2, 4]
         assert "falling back" in " ".join(pmlab_warnings(caplog))
+
+    def test_the_offset_fallback_returns_a_repeated_market_once(self, sleeps) -> None:
+        """``fetch_markets_all`` used to return what offset paging served, repeats included."""
+        keyset = KeysetServer(total=10, failures={0: [status(404)]})
+        found = run_fetch_all(keyset, OffsetServer(total=7, overlap=1), max_results=1000)
+        assert [m["id"] for m in found] == [str(i) for i in range(7)]
+
+    def test_a_market_with_only_a_condition_id_is_returned_once(self, sleeps) -> None:
+        market = {"conditionId": "0xc0", "question": "Will it?"}
+        keyset = KeysetServer(pages=[[market, tmax(1)], [market]])
+        assert run_fetch_all(keyset, max_results=1000) == [market, tmax(1)]
 
     def test_a_later_error_raises(self, sleeps) -> None:
         keyset = KeysetServer(total=10, failures={1: [status(404)]})
