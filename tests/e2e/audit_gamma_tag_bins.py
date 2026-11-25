@@ -13,7 +13,8 @@ The stub here plays that on 127.0.0.1 (free port, stdlib ``http.server``, no net
 (``tests/markets/fixtures/per_bin_markets.json``: Atlanta and Warsaw on November 26 in full, Panama
 City with 3 of its 11 bins, Atlanta on May 15 with 1, a stale Jinan event with no token ids, and two
 lowest-temperature markets). Only the 32 carry the tag. A walk of the whole stub is 307 pages of 5;
-one scoped to the tag is 7.
+one scoped to the tag is 7. The plugin check puts 1,100 more markets under the tag, before the
+32, so that 1,132 are behind it: a walk that stopped at 1000 markets would find none of them.
 
 Every check is independent and reports on its own, so a run against an older wheel says which part
 it lacks.
@@ -209,10 +210,21 @@ class TagStub:
         self._server.server_close()
 
 
-def world(**kw: Any) -> TagStub:
-    """1,500 markets that are not weather, then the recorded ones, which carry the tag."""
+def lowest_clones(n: int) -> list[dict[str, Any]]:
+    """``n`` lowest-temperature markets (a family that is not read) with ids of their own."""
+    template = next(m for m in recorded() if "lowest temperature" in m["question"])
+    return [{**template, "id": f"low{i}"} for i in range(n)]
+
+
+def world(*, tagged_extra: int = 0, **kw: Any) -> TagStub:
+    """1,500 markets that are not weather, then the recorded ones, which carry the tag.
+
+    ``tagged_extra`` puts that many more markets under the tag, before the recorded ones: a walk
+    that stops at 1000 markets then never reaches the recorded ones.
+    """
     weather = recorded()
-    return TagStub([*filler(), *weather], {m["id"] for m in weather}, **kw)
+    extra = lowest_clones(tagged_extra)
+    return TagStub([*filler(), *extra, *weather], {m["id"] for m in [*extra, *weather]}, **kw)
 
 
 def discover(stub: TagStub, **kw: Any) -> list[Any]:
@@ -401,12 +413,17 @@ def plugin(stub: TagStub, client: GammaClient, truth: Any = None) -> WeatherTmax
 
 @check
 def the_plugin_reads_the_whole_tag_past_a_thousand_markets_and_builds_one_spec_per_day() -> None:
-    with world() as stub, GammaClient(base_url=stub.url) as client, logged_warnings() as said:
+    # 1,132 markets under the tag, the recorded 32 the last of them: past the 1000th
+    with (
+        world(tagged_extra=1100) as stub,
+        GammaClient(base_url=stub.url) as client,
+        logged_warnings() as said,
+    ):
         specs = plugin(stub, client).discover_markets(limit=PAGE)
     assert [s.market_id for s in specs] == ["479718", "1436284", "1451212", "1451693"]
     assert all(r["tag_id"] == str(TAG) for r in stub.keyset_requests)
-    # 32 markets under the tag: one full page, however small the limit named (5 here)
-    assert len(stub.keyset_requests) == 1, len(stub.keyset_requests)
+    # full pages of 100 however small the limit named (5 here): 11 of them, then 32 markets
+    assert len(stub.keyset_requests) == 12, len(stub.keyset_requests)
     assert {r["limit"] for r in stub.keyset_requests} == {"100"}, stub.keyset_requests
     atlanta = specs[-1]
     assert [b.label for b in atlanta.outcome_bins] == [
