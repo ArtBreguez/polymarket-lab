@@ -597,7 +597,7 @@ class GammaStub:
     """Gamma's ``/markets`` on 127.0.0.1 (stdlib ``http.server``, no network): ``total`` markets
     served by ``limit`` and ``offset`` (or the first page for ever, with ``ignore_offset``), and
     scripted replies (a 429, a 500, the 422) per offset. It does not know ``/markets/keyset`` (404),
-    like a Gamma that predates it, so these checks run the offset fallback of 1.2.2 (#83)."""
+    like a Gamma that predates it, so these checks run the offset fallback of 1.3.0 (#83)."""
 
     def __init__(
         self,

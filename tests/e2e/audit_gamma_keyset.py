@@ -1,4 +1,4 @@
-"""Market discovery pages by cursor on ``/markets/keyset`` (1.2.2, #83), used from the installed wheel.
+"""Market discovery pages by cursor on ``/markets/keyset`` (1.3.0, #83), used from the installed wheel.
 
 Standalone (public names only, no repo imports):  python audit_gamma_keyset.py
 Prints ``audit gamma keyset: OK`` and exits 0, or lists every check that failed and exits 1.

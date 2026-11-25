@@ -151,7 +151,7 @@ def test_the_sharp_edges_of_the_1_1_0_audit_hold_in_the_wheel(installed: Install
 
 
 def test_gamma_discovery_pages_by_cursor_in_the_wheel(installed: Installed) -> None:
-    """1.2.2 (#83): ``discover_tmax_markets`` (sync and async) and ``fetch_markets_all`` follow the
+    """1.3.0 (#83): ``discover_tmax_markets`` (sync and async) and ``fetch_markets_all`` follow the
     ``next_cursor`` of ``/markets/keyset`` against a stdlib HTTP server on 127.0.0.1 that plays live
     Gamma (``/markets`` ends at offset 2000 with a 422, the cursor is full of characters a query
     string must escape): all 2500 markets are read where offsets stopped at 2100, the last page has
