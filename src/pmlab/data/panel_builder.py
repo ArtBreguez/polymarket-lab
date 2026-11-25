@@ -11,7 +11,10 @@ A market is described by one row **per outcome bin** (the same ``market_id`` and
 ``decision_date``, a different ``outcome_label`` and ``market_price``): the backtest
 chooses between a market's bins, and a panel that shows it only the bin that won cannot
 tell a good decision from a lucky one. ``MarketPlugin.build_training_rows`` returns
-exactly those rows, and `build_panel` takes them as they come.
+exactly those rows, and `build_panel` takes them as they come. Each (``market_id``,
+``outcome_label``, ``decision_date``, and ``decision_horizon`` / ``horizon`` when present) appears
+once: a repeat is refused (``PanelSchemaError``), not dropped, because it would double-weight its
+market in training and change how many folds the backtest runs.
 """
 
 from __future__ import annotations
@@ -79,7 +82,9 @@ def build_panel(
 
     Raises:
         PanelSchemaError: on empty input, missing required columns, no
-            ``feature_*`` column, malformed ``decision_date``, or a feature that
+            ``feature_*`` column, malformed ``decision_date``, two rows with the same
+            ``market_id``, ``outcome_label`` and ``decision_date`` (and the same
+            ``decision_horizon`` / ``horizon`` when the rows carry one), or a feature that
             cannot be coerced to numeric.
         LeakageError: if ``check_leakage`` is True and leakage is detected, or, always, if
             the rows carry ``price_ts`` and ``decision_ts`` and a price was observed at or
@@ -117,6 +122,22 @@ def build_panel(
         impossible = df.loc[parsed.isna(), "decision_date"].iloc[0]
         raise PanelSchemaError(
             f"decision_date must be a real calendar date 'YYYY-MM-DD'; got e.g. {impossible!r}."
+        )
+
+    # One row per outcome bin of a market and decision (see the module docstring). A repeated row
+    # double-weights its market and reaches `min_train_rows` early, so the backtest would run a
+    # different number of folds; which copy is the right one is not for this function to guess.
+    key_cols = ["market_id", "outcome_label", "decision_date"]
+    key_cols += [c for c in ("decision_horizon", "horizon") if c in df.columns]
+    repeated = df.duplicated(subset=key_cols, keep=False)
+    if bool(repeated.any()):
+        dups = df.loc[repeated, key_cols]
+        example = ", ".join(f"{c}={v!r}" for c, v in dups.iloc[0].to_dict().items())
+        raise PanelSchemaError(
+            f"Panel has duplicated rows: {len(dups)} rows share {len(dups.drop_duplicates())} "
+            f"key(s), e.g. {example}. A panel has one row per {' + '.join(key_cols)}; "
+            "deduplicate upstream (a second snapshot of the same market and day, or a market "
+            "passed twice, double-weights it in training and changes how many folds run)."
         )
 
     for col in feature_cols:

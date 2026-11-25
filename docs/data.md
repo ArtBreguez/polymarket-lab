@@ -60,6 +60,10 @@ print(train[["market_id", "decision_date", "winning_label"]])
 coerces features to float, raises a clear error on a missing column or a bad date, and **refuses a
 price observed at or after the decision it informs**. A market with several bins is several rows,
 one per bin, each at that bin's own price (see [One row per bin](plugin-authoring.md#one-row-per-bin)).
+It also **refuses a repeated row**: two rows with the same `market_id`, `outcome_label` and
+`decision_date` (and the same `decision_horizon` or `horizon`, when the rows carry one) would
+double-weight that market in training and change how many folds the backtest runs, and nothing in the
+rows says which copy is right, so `PanelSchemaError` names the count and one key instead of dropping any.
 
 ```python
 sample = load_sample()

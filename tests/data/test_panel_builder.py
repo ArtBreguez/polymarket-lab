@@ -302,3 +302,76 @@ class TestBuildPanelUntimedWarning:
         with caplog.at_level(logging.WARNING), pytest.raises(PanelSchemaError):
             build_panel([])
         assert self._warnings(caplog) == []
+
+
+# ---------------------------------------------------------------------------
+# Duplicated rows (#68): a (market, bin, decision date, horizon) is one row
+# ---------------------------------------------------------------------------
+
+
+class TestBuildPanelDuplicates:
+    """The panel is one row per outcome bin of a market and decision (docs/data.md).
+
+    A repeated row double-weights its market in training and reaches ``min_train_rows`` early, so
+    the backtest runs a different number of folds. Which of two rows with the same key is the
+    right one cannot be told from the rows, so the panel is refused, not quietly thinned.
+    """
+
+    def test_an_exact_duplicate_is_refused(self):
+        rows = _bin_rows("m1") + _bin_rows("m2")
+        rows.append(dict(rows[0]))
+        with pytest.raises(PanelSchemaError, match="duplicate"):
+            build_panel([rows])
+
+    def test_the_same_key_with_other_features_is_refused_too(self):
+        # a re-fetched snapshot of the same market and day: which one is right is not ours to say
+        first = _bin_rows("m1")
+        again = _bin_rows("m1")
+        for r in again:
+            r["feature_x"] = 2.0
+        with pytest.raises(PanelSchemaError, match="duplicate"):
+            build_panel([first, again])
+
+    def test_the_error_counts_the_rows_and_names_a_key(self):
+        rows = _bin_rows("m1") + _bin_rows("m2") + [dict(_bin_rows("m2")[1])]
+        with pytest.raises(PanelSchemaError) as err:
+            build_panel(rows)
+        message = str(err.value)
+        assert "2 rows" in message  # both copies of the repeated key, not the one extra
+        assert "market_id='m2'" in message and "outcome_label='b'" in message
+        assert "decision_date='2025-01-05'" in message
+
+    def test_a_dict_row_repeated_across_the_input_is_caught(self):
+        row = _bin_rows("m1")[0]
+        with pytest.raises(PanelSchemaError, match="duplicate"):
+            build_panel([row, [row]])
+
+    def test_other_bins_other_dates_and_other_markets_are_not_duplicates(self):
+        panel = build_panel([_bin_rows("m1"), _bin_rows("m1", date="2025-01-06"), _bin_rows("m2")])
+        assert len(panel) == 9
+
+    def test_a_decision_horizon_is_part_of_the_key(self):
+        rows = []
+        for horizon in ("market_open", "previous_evening"):
+            for r in _bin_rows("m1"):
+                rows.append({**r, "decision_horizon": horizon})
+        assert len(build_panel([rows])) == 6  # two horizons on one date are two decisions
+        rows.append(dict(rows[0]))
+        with pytest.raises(PanelSchemaError, match="decision_horizon"):
+            build_panel([rows])
+
+    def test_a_horizon_column_is_part_of_the_key_as_well(self):
+        rows = [{**r, "horizon": h} for h in ("market_open", "morning_of") for r in _bin_rows("m1")]
+        assert len(build_panel([rows])) == 6
+
+    def test_the_check_comes_before_the_untimed_price_warning(self, caplog):
+        rows = _bin_rows("m1") + _bin_rows("m1")
+        with caplog.at_level(logging.WARNING), pytest.raises(PanelSchemaError):
+            build_panel([rows])
+        assert [r for r in caplog.records if r.name == "pmlab.data.panel_builder"] == []
+
+    def test_the_check_runs_without_check_leakage_and_with_it(self):
+        rows = _bin_rows("m1") * 2
+        for check_leakage in (False, True):
+            with pytest.raises(PanelSchemaError, match="duplicate"):
+                build_panel([rows], check_leakage=check_leakage)
