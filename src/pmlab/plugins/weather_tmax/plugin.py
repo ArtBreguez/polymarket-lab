@@ -14,6 +14,7 @@ each at that bin's own price observed before the decision. See the method for th
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import math
@@ -38,6 +39,24 @@ from pmlab.markets.tmax_bins import (
 from pmlab.plugins.base import MarketPlugin
 
 _logger = logging.getLogger(__name__)
+
+
+def _takes_tag_id(fetch: Callable[..., Any]) -> bool:
+    """Whether ``fetch`` can be called with the keyword ``tag_id``: it names it or takes ``**kwargs``.
+
+    A callable whose signature cannot be read is taken to (it is called as it would be, and fails
+    there if it cannot).
+    """
+    try:
+        parameters = inspect.signature(fetch).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    return any(
+        (p.name == "tag_id" and p.kind is not inspect.Parameter.POSITIONAL_ONLY)
+        or p.kind is inspect.Parameter.VAR_KEYWORD
+        for p in parameters
+    )
+
 
 # Why a bin, or a whole market, contributed no training row. Counted in the ``exclusions``
 # mapping a caller passes to ``build_training_rows`` (and logged when it passes none).
@@ -172,8 +191,11 @@ class WeatherTmaxPlugin(MarketPlugin):
         Keyword Args:
             tag_id (int | None): The Gamma tag to read; default 103040. ``None`` reads every
                 market, which is not worth it: the live universe is over 100,000 markets and the
-                walk is capped (pages, see ``GammaClient.fetch_markets_all``). A client that is not
-                `GammaClient` must accept ``tag_id`` (it is not passed when ``None``).
+                walk is capped (pages, see ``GammaClient.fetch_markets_all``). It is not passed when
+                ``None``. A client whose ``fetch_markets_all`` takes no ``tag_id`` (and no
+                ``**kwargs``), such as an injected replay client written for 1.2.1, is called as
+                1.2.1 called it when this is left out: unscoped, the first 1000 markets, and one
+                warning says so. Name a ``tag_id`` and it is passed whatever the client is.
             max_results (int): Read at most this many markets (in Gamma's order, ascending id).
                 Default: no limit under a tag (the page cap still applies), 1000 when ``tag_id`` is
                 ``None``.
@@ -186,8 +208,21 @@ class WeatherTmaxPlugin(MarketPlugin):
             )
 
         page_size: int = kwargs.pop("limit", 100)
+        tag_named = "tag_id" in kwargs  # the caller asked for a scope: theirs to see if it fails
         tag_id: int | None = kwargs.pop("tag_id", DAILY_TEMPERATURE_TAG_ID)
         max_results: int | None = kwargs.pop("max_results", None)
+        if (
+            tag_id is not None
+            and not tag_named
+            and not _takes_tag_id(self._gamma.fetch_markets_all)
+        ):
+            _logger.warning(
+                "discover_markets: gamma_client.fetch_markets_all takes no tag_id, so the Daily "
+                "Temperature tag (%d) is not read and the result is not scoped: the first 1000 "
+                "markets, as 1.2.1 did. Pass tag_id=None to say so, or a client that takes tag_id.",
+                tag_id,
+            )
+            tag_id = None
         if tag_id is not None:
             kwargs["tag_id"] = tag_id
             if max_results is None:

@@ -278,3 +278,105 @@ class TestScopedByTag:
         assert [p.get("tag_id") for p in seen][0] == "103040"
         assert sum(1 for p in seen if p.get("tag_id") == "103040") == 12
         assert sum(1 for p in seen if "tag_id" not in p) == 10  # ten pages of 100, then it stops
+
+
+class _Gamma121:
+    """An injected client with the ``fetch_markets_all`` contract of 1.2.1: no ``tag_id``, no
+    ``**kwargs``. A replay or caching client written then looks like this."""
+
+    def __init__(self, markets: list[dict[str, Any]]) -> None:
+        self.markets = markets
+        self.calls: list[dict[str, Any]] = []
+
+    def fetch_markets_all(
+        self,
+        tag: str | None = None,
+        keyword: str | None = None,
+        page_size: int = 100,
+        max_results: int = 1000,
+        active: bool = True,
+        closed: bool = False,
+    ) -> list[dict[str, Any]]:
+        self.calls.append({"page_size": page_size, "max_results": max_results, "tag": tag})
+        return self.markets
+
+
+class _Gamma121WithKwargs:
+    """What ``SampleGammaClient`` is: it absorbs whatever it is sent."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def fetch_markets_all(self, **kwargs: Any) -> list[dict[str, Any]]:
+        self.calls.append(kwargs)
+        return []
+
+
+class _SignatureUnreadable:
+    """``inspect.signature`` of it raises ``ValueError``, as of some C-level callables."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    @property
+    def fetch_markets_all(self) -> Any:
+        client = self
+
+        class _Opaque:
+            @property
+            def __signature__(self) -> Any:
+                raise ValueError("no signature found")
+
+            def __call__(self, **kwargs: Any) -> list[dict[str, Any]]:
+                client.calls.append(kwargs)
+                return []
+
+        return _Opaque()
+
+
+class TestAClientThatTakesNoTagId:
+    """Round 1 of #85 (MINOR-1): 1.3.0 must not break the injected client that 1.2.1 accepted."""
+
+    def test_the_default_call_is_the_1_2_1_call_and_says_it_is_not_scoped(self, caplog) -> None:
+        gamma = _Gamma121(recorded())
+        plugin = WeatherTmaxPlugin(gamma_client=gamma, clock=lambda: OBSERVED)
+        with caplog.at_level(logging.WARNING, logger="pmlab"):
+            specs = plugin.discover_markets()
+        assert [s.market_id for s in specs] == ["479718", "1436284", "1451212", "1451693"]
+        assert gamma.calls == [{"page_size": 100, "max_results": 1000, "tag": None}]
+        said = [r.getMessage() for r in caplog.records if "tag_id" in r.getMessage()]
+        assert len(said) == 1, said
+        assert "not scoped" in said[0] and "first 1000" in said[0] and "103040" in said[0], said
+
+    def test_the_arguments_that_were_there_still_go_through(self) -> None:
+        gamma = _Gamma121([])
+        WeatherTmaxPlugin(gamma_client=gamma).discover_markets(
+            limit=50, max_results=300, tag="weather"
+        )
+        assert gamma.calls == [{"page_size": 50, "max_results": 300, "tag": "weather"}]
+
+    def test_naming_the_tag_passes_it_whatever_the_client_is(self) -> None:
+        """The caller asked for a scope the client cannot give: that is theirs to see."""
+        plugin = WeatherTmaxPlugin(gamma_client=_Gamma121([]))
+        with pytest.raises(TypeError, match="tag_id"):
+            plugin.discover_markets(tag_id=103040)
+
+    def test_tag_id_none_is_unscoped_without_a_warning(self, caplog) -> None:
+        gamma = _Gamma121([])
+        with caplog.at_level(logging.WARNING, logger="pmlab"):
+            WeatherTmaxPlugin(gamma_client=gamma).discover_markets(tag_id=None)
+        assert gamma.calls == [{"page_size": 100, "max_results": 1000, "tag": None}]
+        assert [r for r in caplog.records if "tag_id" in r.getMessage()] == []
+
+    def test_a_client_that_takes_kwargs_is_scoped(self, caplog) -> None:
+        gamma = _Gamma121WithKwargs()
+        with caplog.at_level(logging.WARNING, logger="pmlab"):
+            WeatherTmaxPlugin(gamma_client=gamma).discover_markets()
+        (call,) = gamma.calls
+        assert call["tag_id"] == 103040 and call["max_results"] >= 100_000
+        assert [r for r in caplog.records if "tag_id" in r.getMessage()] == []
+
+    def test_a_client_whose_signature_cannot_be_read_is_scoped(self) -> None:
+        gamma = _SignatureUnreadable()
+        WeatherTmaxPlugin(gamma_client=gamma).discover_markets()
+        assert gamma.calls[0]["tag_id"] == 103040
