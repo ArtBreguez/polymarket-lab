@@ -17,7 +17,9 @@ from pmlab.markets.gamma_client import (
     _build_tmax_market_info,
     _check_page_size,
     _is_tmax_market,
+    _offset_exhausted,
     _retry_delay,
+    _warn_offset_exhausted,
 )
 
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
@@ -74,9 +76,10 @@ class AsyncGammaClient:
             markets = [m for m in markets if kw_lower in m.get("question", "").lower()]
         return markets
 
-    async def _get_page(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """One page of ``/markets``; a timeout, a connection cut mid-request, a 408, 429
-        or 5xx is retried with backoff (up to five tries), any other failure is raised."""
+    async def _get_page(self, params: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """One page of ``/markets``; a timeout, a connection cut mid-request, a 408, 429 or 5xx
+        is retried with backoff (up to five tries), any other failure is raised. ``None`` means
+        Gamma refused the offset as too large: the end of the offset space."""
         from pmlab.logging import get_logger
 
         url = f"{self.base_url}/markets"
@@ -90,6 +93,9 @@ class AsyncGammaClient:
                 delay = _retry_delay(attempt, None)
                 reason = type(exc).__name__
             else:
+                if _offset_exhausted(resp, params.get("offset")):
+                    _warn_offset_exhausted("discover_tmax_markets", params["offset"], resp)
+                    return None
                 if resp.status_code not in _TRANSIENT_STATUS or final:
                     resp.raise_for_status()
                     return _as_page(resp.json())
@@ -121,13 +127,21 @@ class AsyncGammaClient:
         429 or 5xx; a numeric ``Retry-After`` is honoured) is retried with backoff, so one failure
         does not lose the pages before it; after five tries, or on any other error (a refused
         connection included: nothing is listening, waiting does not help), the failure is raised.
+        Gamma stops serving offsets at about 2000 (HTTP 422 "offset too large"): that is the end
+        of what offset paging can read, so the markets read so far are returned and a warning
+        says the result is incomplete (deeper pages need ``/markets/keyset``).
+
+        Against the live API, as of 2026-11-25, that is the first 2100 active markets, and none
+        of them is a temperature market: ``discover_tmax_markets()`` returns ``[]`` with that
+        warning, where it used to raise at page 22, until discovery moves to ``/markets/keyset``
+        (#83). An empty result with the warning means "not read", not "no markets today".
 
         Args:
             page_size: Results per API page (max 100).
             active: If True, only fetch active markets.
 
         Returns:
-            List of parsed `TmaxMarketInfo` for every matching market.
+            List of parsed `TmaxMarketInfo` for every matching market read.
 
         Raises:
             httpx.HTTPStatusError: If a page keeps failing, or fails with an error that is not
@@ -150,6 +164,8 @@ class AsyncGammaClient:
                 "closed": False,
             }
             page = await self._get_page(params)
+            if page is None:  # Gamma's offset paging is over; keep what was read (warned)
+                return results
 
             for market in page:
                 if _is_tmax_market(market):

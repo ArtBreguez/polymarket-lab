@@ -254,3 +254,149 @@ class TestARunawayLoopStops:
 
 def test_the_default_cap_is_far_above_any_real_universe() -> None:
     assert gamma_client._MAX_DISCOVERY_PAGES >= 1000
+
+
+# ---------------------------------------------------------------------------------------------
+# The end of the offset space. Live Gamma answers HTTP 422 {"error": "offset too large, use
+# /markets/keyset for deeper pagination"} from offset 2100 on (200 up to 2000), so a discovery of
+# every active market failed at page 22 and threw away the 21 it had read (#68, review of #79).
+# ---------------------------------------------------------------------------------------------
+OFFSET_TOO_LARGE = {"error": "offset too large, use /markets/keyset for deeper pagination"}
+
+
+def offset_too_large() -> httpx.Response:
+    return httpx.Response(422, json=OFFSET_TOO_LARGE)
+
+
+# A 422 whose body merely mentions the offset is a bad request, not the end of the offset space:
+# only the sentence Gamma uses ("offset too large", or the "/markets/keyset" it points to) is.
+NOT_THE_END = [
+    {"error": "offset must be an integer"},
+    {"detail": [{"loc": ["query", "offset"], "msg": "value is not a valid integer"}]},
+    {"detail": "limit invalid for query limit=100&offset=200"},
+    "<html><body>Unprocessable Entity: offset</body></html>",
+]
+THE_END = [
+    OFFSET_TOO_LARGE,
+    {"error": "OFFSET TOO LARGE, USE /MARKETS/KEYSET FOR DEEPER PAGINATION"},
+    {"error": "offset too large"},
+    {"error": "use /markets/keyset"},
+]
+
+
+def reply_422(body: object) -> httpx.Response:
+    if isinstance(body, str):
+        return httpx.Response(422, text=body)
+    return httpx.Response(422, json=body)
+
+
+def run_fetch_all(server: Server, **kwargs) -> list[dict]:
+    with respx.mock:
+        respx.get(URL).mock(side_effect=server)
+        with GammaClient(base_url=BASE) as client:
+            return client.fetch_markets_all(page_size=PAGE, **kwargs)
+
+
+class TestTheEndOfTheOffsetSpace:
+    def test_discovery_returns_what_it_read_and_warns(self, discover, sleeps, caplog) -> None:
+        server = Server(total=10**6, failures={6: [offset_too_large()]})
+        with caplog.at_level("WARNING", logger="pmlab"):
+            found = discover(server)
+        assert [m.market_id for m in found] == [str(i) for i in range(6)]
+        assert server.calls == [0, 2, 4, 6] and sleeps == []  # not retried: nothing to wait for
+        warnings_ = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings_) == 1, warnings_
+        for needle in ("offset=6", "incomplete", "/markets/keyset", "6 markets"):
+            assert needle in warnings_[0], (needle, warnings_[0])
+
+    def test_it_is_the_end_whatever_the_page_it_comes_on(self, discover, sleeps) -> None:
+        server = Server(total=10**6, failures={2: [offset_too_large()]})
+        assert [m.market_id for m in discover(server)] == ["0", "1"]
+
+    def test_a_422_on_the_first_page_is_an_error_not_an_end(self, discover, sleeps) -> None:
+        server = Server(total=10**6, failures={0: [offset_too_large()]})
+        with pytest.raises(httpx.HTTPStatusError) as err:
+            discover(server)
+        assert err.value.response.status_code == 422 and server.calls == [0]
+
+    def test_a_422_that_is_not_about_the_offset_still_raises(self, discover, sleeps) -> None:
+        other_422 = httpx.Response(422, json={"error": "limit must be at most 100"})
+        server = Server(total=10**6, failures={2: [other_422]})
+        with pytest.raises(httpx.HTTPStatusError):
+            discover(server)
+
+    @pytest.mark.parametrize("body", NOT_THE_END)
+    def test_a_422_that_only_mentions_the_offset_still_raises(
+        self, discover, sleeps, body: object
+    ) -> None:
+        server = Server(total=10**6, failures={2: [reply_422(body)]})
+        with pytest.raises(httpx.HTTPStatusError) as err:
+            discover(server)
+        assert err.value.response.status_code == 422
+        assert server.calls == [0, 2] and sleeps == []
+
+    @pytest.mark.parametrize("body", THE_END)
+    def test_either_phrase_of_gamma_s_answer_is_the_end(
+        self, discover, sleeps, body: object
+    ) -> None:
+        server = Server(total=10**6, failures={2: [reply_422(body)]})
+        assert [m.market_id for m in discover(server)] == ["0", "1"]
+
+    def test_a_422_after_a_transient_failure_is_still_the_end(self, discover, sleeps) -> None:
+        server = Server(total=10**6, failures={2: [status(503), offset_too_large()]})
+        assert [m.market_id for m in discover(server)] == ["0", "1"]
+        assert server.calls == [0, 2, 2] and sleeps == [1.0]
+
+    def test_the_default_run_that_reaches_the_end_of_a_real_sized_universe(
+        self, discover, sleeps
+    ) -> None:
+        """21 full pages, then the 422 Gamma gives at offset 2100 (page_size 100 in real life)."""
+        server = Server(total=10**6, failures={42: [offset_too_large()]})
+        found = discover(server)
+        assert len(found) == 42 and server.calls[-1] == 42
+
+
+class TestFetchMarketsAllAtTheEndOfTheOffsetSpace:
+    def test_it_returns_what_it_read_and_warns(self, sleeps, caplog) -> None:
+        server = Server(total=10**6, failures={6: [offset_too_large()]})
+        with caplog.at_level("WARNING", logger="pmlab"):
+            found = run_fetch_all(server, max_results=1000)
+        assert [m["id"] for m in found] == [str(i) for i in range(6)]
+        assert server.calls == [0, 2, 4, 6]
+        text = " ".join(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
+        assert "offset=6" in text and "incomplete" in text and "/markets/keyset" in text
+
+    def test_the_keyword_filter_and_the_cap_still_apply_to_what_was_read(self, sleeps) -> None:
+        server = Server(total=10**6, failures={8: [offset_too_large()]})
+        found = run_fetch_all(server, max_results=1000, keyword="city1")
+        assert [m["id"] for m in found] == ["1"]
+        server = Server(total=10**6, failures={8: [offset_too_large()]})
+        assert len(run_fetch_all(server, max_results=3)) == 3
+
+    def test_a_422_on_the_first_page_raises(self, sleeps) -> None:
+        server = Server(total=10**6, failures={0: [offset_too_large()]})
+        with pytest.raises(httpx.HTTPStatusError):
+            run_fetch_all(server)
+
+    def test_a_422_that_is_not_about_the_offset_raises(self, sleeps) -> None:
+        server = Server(total=10**6, failures={2: [status(422)]})
+        with pytest.raises(httpx.HTTPStatusError):
+            run_fetch_all(server)
+
+    @pytest.mark.parametrize("body", NOT_THE_END)
+    def test_a_422_that_only_mentions_the_offset_raises(self, sleeps, body: object) -> None:
+        server = Server(total=10**6, failures={2: [reply_422(body)]})
+        with pytest.raises(httpx.HTTPStatusError) as err:
+            run_fetch_all(server)
+        assert err.value.response.status_code == 422 and server.calls == [0, 2]
+
+    @pytest.mark.parametrize("body", THE_END)
+    def test_either_phrase_of_gamma_s_answer_is_the_end(self, sleeps, body: object) -> None:
+        server = Server(total=10**6, failures={2: [reply_422(body)]})
+        assert [m["id"] for m in run_fetch_all(server, max_results=1000)] == ["0", "1"]
+
+    def test_a_cap_below_the_end_never_meets_it(self, sleeps, caplog) -> None:
+        server = Server(total=10**6, failures={6: [offset_too_large()]})
+        with caplog.at_level("WARNING", logger="pmlab"):
+            assert len(run_fetch_all(server, max_results=4)) == 4
+        assert server.calls == [0, 2] and "incomplete" not in caplog.text
