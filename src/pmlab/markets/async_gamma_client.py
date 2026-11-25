@@ -59,10 +59,12 @@ class AsyncGammaClient:
         active: bool = True,
         closed: bool = False,
     ) -> list[dict[str, Any]]:
-        """Fetch one page of markets, optionally filtered by tag and by a keyword in the question.
+        """Fetch one page of markets, optionally filtered by a keyword in the question.
 
         Args:
-            tag: Gamma tag to filter by.
+            tag: Sent as the ``tag`` query parameter. Live Gamma ignores it (it filters by
+                ``tag_id``), so it narrows nothing there; use *keyword* for a client-side filter.
+                `discover_tmax_markets` takes ``tag_id``.
             keyword: Keep only markets whose question contains this (case-insensitive).
             limit: Page size requested from the API.
             active: Only active markets.

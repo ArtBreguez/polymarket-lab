@@ -67,6 +67,10 @@ The `concurrency` parameter controls the `asyncio.Semaphore` — how many tokens
 
 ### Parallel scan pattern
 
+Live Gamma ignores the `tag` argument of `fetch_markets` (it filters by a numeric `tag_id`), so the
+example below fetches one page of whatever Gamma lists first; use `keyword` to narrow a page, or
+`discover_tmax_markets(tag_id=...)` to scope a walk.
+
 ```python
 import asyncio
 from pmlab import AsyncGammaClient, AsyncClobClient
