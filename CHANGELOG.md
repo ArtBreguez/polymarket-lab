@@ -4,6 +4,128 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-25
+
+Live weather discovery returns real temperature markets (#83, #86, #87). Against live Gamma a default
+`GammaClient().discover_tmax_markets()` now makes 27 requests, takes about ten seconds (11 s on
+2026-11-25) and returns 148 entries, one per city and day, and `WeatherTmaxPlugin().discover_markets()`
+returns the same 148 as `MarketSpec`s; 1.2.1 made 22 requests and returned `[]` with a warning. 1.2.2
+was never published: its paging by cursor (#83) is part of this release and its entry is merged here.
+
+One public parameter is added, so this is a minor release: a keyword-only `tag_id` on
+`GammaClient.discover_tmax_markets`, `AsyncGammaClient.discover_tmax_markets` and
+`GammaClient.fetch_markets_all`. The API snapshot changes for those three signatures and nothing else.
+
+### Added
+
+- **`tag_id`: read one Gamma tag.** Keyword-only, `int | None`, sent as the `tag_id` query parameter
+  on every page, on the keyset and on the offset fallback alike. Live Gamma honours it (it ignores
+  the `tag` argument, which is sent as `tag`). `fetch_markets_all` defaults to `None`, every market,
+  as before; `discover_tmax_markets` defaults to 103040, Gamma's `Daily Temperature` tag (`Weather`
+  is 84), see Changed. A `tag_id` that is not a positive int raises `ValueError` before any request,
+  and a scoped walk that reads no market at all logs a warning that the tag may have been retired
+  (Gamma answers a tag it does not know with an empty page, not an error).
+- **The per-bin temperature markets are recognised.** The temperature markets live Gamma lists have
+  no temperature bins as their outcomes: each is a Yes/No market for one bin (`Will the highest
+  temperature in Warsaw be -4°C or below on November 26?`), tied to the others of its city and day as
+  an event, and the outcome-label filter kept none of the 1,654 under the tag. `pmlab.markets.tmax_bins`
+  (an internal module, not public API; both Gamma clients and the weather plugin use it, so they
+  cannot disagree) reads the four forms (`N°C`, `between A-B°F`, `N°C or higher`, `N°C or below`;
+  negative degrees included), groups the bins of a city and day and carries each bin's Yes token id and
+  Yes price. Gamma resolves on whole degrees, so a bin holds the readings that round into it and is
+  half-open (`33°C` is [32.5, 33.5), `40°C or higher` is [39.5, ∞)): the bins of a full event tile the
+  line. Refused, with one warning per call counting what and why: a question in this wording that
+  cannot be read, outcomes that are not Yes/No, no Yes token id (4 stale May events under the tag, 44
+  markets, have none and no prices), a date whose year cannot be told, an event whose bins mix °C and
+  °F, name two days or repeat a label. A price Gamma did not give is NaN in `TmaxMarketInfo` and None in
+  the spec, never a stand-in.
+
+### Changed
+
+- **`discover_tmax_markets` reads the `Daily Temperature` tag by default.** A default call is 27
+  requests (2,633 markets on 2026-11-25) and the walk ends by itself, where the unfiltered universe is
+  over 100,000 markets. `tag_id=None` reads every market, as 1.2.2 would have: see Not changed.
+- **`discover_tmax_markets` (sync and async) returns the per-bin markets, one `TmaxMarketInfo` per
+  city and day**: `outcome_labels` are the bins from the lowest to the highest, `token_ids` their Yes
+  tokens, `outcome_prices` their Yes prices, `market_id` the event's id on Gamma, `target_date` ISO,
+  `end_date` the earliest close of its bins. The multi-outcome form (one market whose outcomes are
+  `30°C`, `31°C`) is parsed as before and listed first. Lowest-temperature markets are not read.
+- **`WeatherTmaxPlugin.discover_markets` reads the whole `Daily Temperature` tag and builds one spec
+  per city and day.** It read "the first 1000 markets by id" (none of them weather on live Gamma), and
+  its own filter took a per-bin market for a two-outcome market whose bins were "Yes" and "No" (78 of
+  the 1,654 got through). A spec has the bins in order, each bin's Yes token in
+  `metadata["token_ids"]`, its Yes price in `metadata["outcome_schema"]`, an ISO `target_date` (the
+  legacy form keeps the question's year-less text, so the end of the target day is now checked for
+  these), and `event_id`, `bin_market_ids` and `bins_complete` (False when some of the day's bins have
+  closed, so the rest are not the whole distribution). Truth lookup and `build_training_rows` work on
+  it unchanged (`fetch_truth` must return the reading in the unit of `metadata["unit"]`). Under a tag
+  `max_results` defaults to no limit (the page cap still applies), and a `limit` (page size) from 1
+  to 99 is raised to 100 then, since the same markets are 27 requests instead of 2,633 / `limit`
+  (`limit=3` was 878 requests, `limit=2` stopped on the 1000-page cap; a `limit` the client refuses,
+  such as 0, is still refused); with `tag_id=None`, or with an
+  explicit `max_results`, the page size named is kept and the old call is made (`max_results=1000`,
+  no `tag_id`). A client injected as `gamma_client` whose `fetch_markets_all` takes neither `tag_id`
+  nor `**kwargs` (one written for 1.2.1) is still called as 1.2.1 called it when no `tag_id` is
+  named: unscoped, the first 1000 markets, and one warning says the result is not scoped (it would
+  have raised `TypeError`); a `tag_id` named with such a client is passed on, and its `TypeError` is
+  the caller's to see. `pmlab scan-markets --plugin weather_tmax` therefore makes 27 requests (it
+  made 10) and lists 148 rows (it listed none); `--tag` is unchanged (still sent as `tag`) and its
+  help now says so; the help of `--limit` said "Max markets to fetch" and now says it is a page
+  size, not a number of markets.
+- **`fetch_markets_all` retries, and is capped like discovery.** It had no retry: a 429 or a 5xx on
+  page 3 lost the two pages before it. It now shares discovery's pager: a timeout, a connection cut
+  mid-request, a 408, 429 or 5xx is retried with backoff (`Retry-After` honoured), and it stops, with
+  a `RuntimeError`, after 1000 pages. Pages come in Gamma's order, ascending market id, so a
+  `max_results` below the number of matching markets is the oldest of them, not the newest.
+- **A Gamma that does not serve `/markets/keyset` is paged by offset, with a warning.** If the
+  first keyset reply is a 4xx other than 401, 403, 408 and 429 (a 404 or 405 from a deployment that
+  predates the endpoint, a 400 or 422 from one that rejects the path), or a 501, the three methods
+  fall back to `/markets` by `offset` with the retry, the cap and the HTTP 422 end of 1.2.1 intact, and
+  log that the result may be incomplete. A 401 or 403 raises: the offset path would meet the same wall.
+- **The cap counts pages, not markets, and is a loop guard** (kept as #79 set it: `page_size=100`
+  allows 100,000 markets, `page_size=10` 10,000). It is not a budget, and its error says so: the cap
+  counts pages, not markets, so a universe larger than the markets read ends the walk (a cursor that
+  comes back raises its own, earlier error). Scope the walk with `tag_id` instead of leaning on it;
+  the docstrings of `discover_tmax_markets` and `fetch_markets_all` say the same (#88).
+
+### Fixed
+
+- **Discovery is no longer cut at the first 2100 markets.** Live Gamma serves `/markets` by `offset`
+  only up to about 2000 and answers HTTP 422 `offset too large, use /markets/keyset` after that,
+  which 1.2.1 turned into "what was read is returned, with a warning" (and, on 2026-11-25, into `[]`:
+  the first 2100 active markets held no temperature market). The three methods now ask
+  `/markets/keyset` for `limit`, `active` and `closed` and send each reply's `next_cursor` back as
+  `after_cursor` until a reply has none (Gamma leaves the key out of the last page), so that limit is
+  gone, and the 1.2.1 statement that live discovery returns `[]` with the warning no longer holds
+  (the 1.2.1 entry stays as it was released). A market served on two pages is returned once, the
+  first copy winning, and `max_results` counts unique markets. The offset fallback holds the same
+  promise, so `fetch_markets_all` on a Gamma without the keyset no longer returns the repeats it was
+  served.
+- **A cursor that comes back raises at once.** A Gamma that ignored `after_cursor` would answer the
+  first page for ever, pointing at the same cursor; the second time a `next_cursor` is seen the
+  call raises `RuntimeError` instead of reading 1000 pages of it. A reply that is not
+  `{"markets": [...], "next_cursor": "..."}` raises `ValueError` naming `/markets/keyset`, and a 4xx
+  after the first page (an invalid cursor is HTTP 422) raises `httpx.HTTPStatusError`: a cursor that
+  stops working is not an end of the data, and nothing is silently cut.
+- **A per-bin temperature market is never a spec whose bins are "Yes" and "No".** See Changed.
+
+### Not changed
+
+- **An unscoped pass over live Gamma does not finish inside the cap.** `discover_tmax_markets(tag_id=None)`
+  reads 1000 pages of 100 new markets each (100,000 markets) and raises the cap's `RuntimeError`,
+  discarding what it read: the live universe is larger than that. The walks we timed took between
+  209 s and about 27 minutes (one request at a time; Gamma's speed varies). The weather markets are
+  mostly at the far end: walking up by id, the first market above id 7,150,000 is about the 79,000th
+  and the 100,000th has an id near 7,257,000; of the 1,654 "highest temperature" markets under the
+  tag, 48 are inside those 100,000 (45 old May markets and 3 newer ones) and the other 1,606 are
+  beyond. Nothing in the library calls it unscoped.
+- **Lowest-temperature markets are not read** (979 of the 2,633 under the tag): another family.
+- **The two multi-outcome recognisers still disagree**: the Gamma client's wants a resolution-source
+  hint and °C or °F in the outcome labels, the plugin's rejects a market only when both are missing.
+  Only the per-bin recogniser is shared; unifying the others is left open.
+- **`--limit` of `scan-markets` is the page size**, as before (1 to 100), not a count of markets;
+  only a read of a whole tag by the weather plugin raises a value below 100 (see Changed).
+
 ## [1.2.1] — 2026-11-25
 
 The sharp edges the 1.1.0 audit left (#68), one commit each. Nothing public is added, renamed or
@@ -1852,7 +1974,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.2...v1.1.3

@@ -234,9 +234,23 @@ def status_cmd(
 @app.command("scan-markets")
 def scan_markets_cmd(
     plugin: str = typer.Option(..., "--plugin", "-p", help="Plugin family name"),
-    tag: str | None = typer.Option(None, "--tag", help="Gamma API tag filter"),
+    tag: str | None = typer.Option(
+        None,
+        "--tag",
+        help=(
+            "Sent to Gamma as the `tag` parameter, which live Gamma ignores; the weather plugin "
+            "already reads Gamma's Daily Temperature tag (tag_id 103040)"
+        ),
+    ),
     keyword: str | None = typer.Option(None, "--keyword", help="Keyword filter"),
-    limit: int = typer.Option(100, "--limit", help="Max markets to fetch"),
+    limit: int = typer.Option(
+        100,
+        "--limit",
+        help=(
+            "Page size of each Gamma request (1-100), not a number of markets; the weather "
+            "plugin reads its whole tag whatever it is (a value below 100 is raised to 100 there)"
+        ),
+    ),
 ) -> None:
     """Discover open markets from Polymarket Gamma API."""
     from pmlab.config import get_settings

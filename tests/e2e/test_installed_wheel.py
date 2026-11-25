@@ -150,6 +150,43 @@ def test_the_sharp_edges_of_the_1_1_0_audit_hold_in_the_wheel(installed: Install
     assert "exits **0**" in (REPO / "docs" / "cli.md").read_text()
 
 
+def test_gamma_discovery_pages_by_cursor_in_the_wheel(installed: Installed) -> None:
+    """1.3.0 (#83): ``discover_tmax_markets`` (sync and async) and ``fetch_markets_all`` follow the
+    ``next_cursor`` of ``/markets/keyset`` against a stdlib HTTP server on 127.0.0.1 that plays live
+    Gamma (``/markets`` ends at offset 2000 with a 422, the cursor is full of characters a query
+    string must escape): all 2500 markets are read where offsets stopped at 2100, the last page has
+    no cursor and nothing more is asked, a market on two pages is returned once (on the offset
+    fallback too), a 429 and a 500 on a cursor page are retried in place (in ``fetch_markets_all``
+    too), a Gamma without the endpoint falls back to offsets with a warning (a 401 or 403 does not),
+    an invalid cursor, a reply that is not a keyset page, a cursor that does not move and an endless
+    one (the cap of 1000 pages, in ``fetch_markets_all`` too, whose message says the cap counts
+    pages and not that the cursor loops) raise."""
+    out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_gamma_keyset.py"))
+    assert "FAIL" not in out, out
+    assert f"audit gamma keyset: OK (18 checks, pmlab {_pyproject_version()})" in out
+
+
+def test_gamma_discovery_by_tag_and_per_bin_markets_in_the_wheel(installed: Installed) -> None:
+    """1.3.0 (#86, #87): ``tag_id`` reaches the wire on every page (keyset and offset fallback) of
+    ``discover_tmax_markets`` (sync and async, scoped to the ``Daily Temperature`` tag by default,
+    ``None`` for the whole universe) and ``fetch_markets_all``, a bad one is refused before any
+    request and an unknown tag warns; and live Gamma's per-bin Yes/No temperature markets, recorded
+    in ``tests/markets/fixtures/per_bin_markets.json`` and served by a stdlib HTTP server on
+    127.0.0.1 behind 1,500 other markets, come back as one entry per city and day (client) and one
+    ``MarketSpec`` (plugin, which reads the whole tag, 1,132 markets here, not the first 1000)
+    with each bin's Yes token and price, tiling the line, resolving a reading and giving one
+    training row per bin; a stale event without tokens, an unreadable question and the
+    lowest-temperature markets are refused or left out, with one warning. The installed
+    ``pmlab scan-markets --plugin weather_tmax`` command reads the tag and lists the four entries
+    (one request, ``tag_id`` on the wire; ``--limit 1`` is still one full page, ``--limit 0`` is
+    still refused with no request, and its help says it is a page size); an
+    injected client whose ``fetch_markets_all`` takes no ``tag_id`` (1.2.1's contract) is called as
+    1.2.1 called it, with one warning, and a named ``tag_id`` is passed whatever the client is."""
+    out = _ok(installed.py(REPO / "tests" / "e2e" / "audit_gamma_tag_bins.py"))
+    assert "FAIL" not in out, out
+    assert f"audit gamma tag bins: OK (20 checks, pmlab {_pyproject_version()})" in out
+
+
 def test_user_workflow_script(installed: Installed) -> None:
     panel = installed.workdir / "panel.parquet"
     out = _ok(installed.py(EXAMPLE, "--panel-out", panel))

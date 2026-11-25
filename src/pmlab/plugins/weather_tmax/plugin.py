@@ -14,10 +14,12 @@ each at that bin's own price observed before the decision. See the method for th
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import math
 import re
+import sys
 from collections import Counter
 from collections.abc import Callable, MutableMapping
 from datetime import UTC, date, datetime, timedelta
@@ -27,9 +29,39 @@ from pydantic import ValidationError
 
 from pmlab._deprecation import deprecated
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
+from pmlab.markets.tmax_bins import (
+    DAILY_TEMPERATURE_TAG_ID,
+    LOWER_INCLUSIVE,
+    UPPER_INCLUSIVE,
+    PerBinGroup,
+    PerBinGrouper,
+)
 from pmlab.plugins.base import MarketPlugin
 
 _logger = logging.getLogger(__name__)
+
+# Gamma serves at most this many markets a page. A walk of a whole tag (2,633 markets) uses it
+# whatever page size the caller named: the result is the same, and a small one multiplies the
+# requests (``limit=3`` was 878 of them, ``limit=2`` hit the 1000-page cap).
+_FULL_PAGE = 100
+
+
+def _takes_tag_id(fetch: Callable[..., Any]) -> bool:
+    """Whether ``fetch`` can be called with the keyword ``tag_id``: it names it or takes ``**kwargs``.
+
+    A callable whose signature cannot be read is taken to (it is called as it would be, and fails
+    there if it cannot).
+    """
+    try:
+        parameters = inspect.signature(fetch).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    return any(
+        (p.name == "tag_id" and p.kind is not inspect.Parameter.POSITIONAL_ONLY)
+        or p.kind is inspect.Parameter.VAR_KEYWORD
+        for p in parameters
+    )
+
 
 # Why a bin, or a whole market, contributed no training row. Counted in the ``exclusions``
 # mapping a caller passes to ``build_training_rows`` (and logged when it passes none).
@@ -135,16 +167,47 @@ class WeatherTmaxPlugin(MarketPlugin):
     def discover_markets(self, **kwargs: Any) -> list[MarketSpec]:
         """Fetch open temperature markets from the Polymarket Gamma API.
 
-        Paginates through the Gamma API until all markets are retrieved,
-        then filters by:
-          1. Question matches ``highest temperature in ... on ...?`` (regex).
-          2. Description references an authoritative source (soft check).
-          3. Outcomes contain temperature bins with °C or °F (soft check).
+        Reads Gamma's ``Daily Temperature`` tag (103040), all of it, paging by cursor: 27 pages
+        and about 2,600 markets on 2026-11-25. Not "the first 1000 markets by id", which on live
+        Gamma held none of them. Two kinds of market become a `MarketSpec`:
+
+        * **per-bin** markets, what live Gamma lists: one Yes/No market per bin, ``Will the highest
+          temperature in Warsaw be -4°C or below on November 26?``. The bins of one city and day
+          are one spec: ``outcome_bins`` from the lowest to the highest (a bin holds the whole
+          degrees that round into it, half-open: ``33°C`` is ``[32.5, 33.5)``), and in the
+          metadata ``token_ids`` (each bin's *Yes* token), ``outcome_schema`` (each bin's Yes
+          price), ``bin_market_ids``, ``event_id`` and ``bins_complete`` (False when some of the
+          day's bins are already closed, so the rest are not the whole distribution). The
+          ``target_date`` is ISO. What is in ``pmlab.markets.tmax_bins``; a market it cannot read
+          (a question it cannot parse, no Yes token id, an event whose bins disagree) is left out,
+          and one warning says how many and why.
+        * **multi-outcome** markets, one market whose outcomes are the bins (``30°C``, ``31°C``):
+          the question matches ``highest temperature in ... on ...?`` (regex), the description
+          references an authoritative source and the outcomes carry °C or °F (the last two are soft
+          checks). These are listed first.
 
         Every spec records when its prices were seen (``metadata["price_observed_at"]``,
         one clock reading per call) and that they came from discovery
         (``metadata["price_source"]``): a training row may only use a price observed
         before its decision, and cannot tell that without a time.
+
+        Every keyword is optional; any that is not named below goes to ``fetch_markets_all``.
+
+        Keyword Args:
+            tag_id (int | None): The Gamma tag to read; default 103040. ``None`` reads every
+                market, which is not worth it: the live universe is over 100,000 markets and the
+                walk is capped (pages, see ``GammaClient.fetch_markets_all``). It is not passed when
+                ``None``. A client whose ``fetch_markets_all`` takes no ``tag_id`` (and no
+                ``**kwargs``), such as an injected replay client written for 1.2.1, is called as
+                1.2.1 called it when this is left out: unscoped, the first 1000 markets, and one
+                warning says so. Name a ``tag_id`` and it is passed whatever the client is.
+            max_results (int): Read at most this many markets (in Gamma's order, ascending id).
+                Default: no limit under a tag (the page cap still applies), 1000 when ``tag_id`` is
+                ``None``.
+            limit (int): Page size (1 to 100), default 100; not a number of markets. When the
+                whole tag is read (a ``tag_id`` and no ``max_results``) a page smaller than 100 is
+                raised to 100: the result is the same, 27 requests instead of 2,633 / ``limit``.
+                A value the client refuses (0, a negative, a bool, a float) is still refused.
         """
         if self._gamma is None:
             raise RuntimeError(
@@ -153,9 +216,37 @@ class WeatherTmaxPlugin(MarketPlugin):
             )
 
         page_size: int = kwargs.pop("limit", 100)
-        max_results: int = kwargs.pop("max_results", 1000)
+        tag_named = "tag_id" in kwargs  # the caller asked for a scope: theirs to see if it fails
+        tag_id: int | None = kwargs.pop("tag_id", DAILY_TEMPERATURE_TAG_ID)
+        max_results: int | None = kwargs.pop("max_results", None)
+        if (
+            tag_id is not None
+            and not tag_named
+            and not _takes_tag_id(self._gamma.fetch_markets_all)
+        ):
+            _logger.warning(
+                "discover_markets: gamma_client.fetch_markets_all takes no tag_id, so the Daily "
+                "Temperature tag (%d) is not read and the result is not scoped: the first 1000 "
+                "markets, as 1.2.1 did. Pass tag_id=None to say so, or a client that takes tag_id.",
+                tag_id,
+            )
+            tag_id = None
+        if tag_id is not None:
+            kwargs["tag_id"] = tag_id
+            if max_results is None:
+                max_results = sys.maxsize  # the tag bounds the walk; the page cap guards it
+                # a valid small page only: 0, -5, True, 2.5 or "5" stay as they are, for the
+                # client to refuse as it always did
+                if (
+                    isinstance(page_size, int)
+                    and not isinstance(page_size, bool)
+                    and 1 <= page_size < _FULL_PAGE
+                ):
+                    page_size = _FULL_PAGE
+        elif max_results is None:
+            max_results = 1000
 
-        # Use the client's offset-based pagination helper. (Calling
+        # Use the client's paging helper. (Calling
         # fetch_markets(offset=...) directly is wrong — the single-page
         # fetch_markets() has no offset parameter and raises TypeError.)
         all_raw: list[dict[str, Any]] = self._gamma.fetch_markets_all(
@@ -164,7 +255,10 @@ class WeatherTmaxPlugin(MarketPlugin):
 
         observed_at = _iso_utc(self._clock())
         specs: list[MarketSpec] = []
+        grouper = PerBinGrouper()
         for raw in all_raw:
+            if grouper.offer(raw):  # the per-bin wording: the grouper's, taken or refused
+                continue
             if not self._is_tmax_market(raw):
                 continue
             try:
@@ -177,6 +271,16 @@ class WeatherTmaxPlugin(MarketPlugin):
                     raw.get("id", raw.get("market_id")),
                     "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()),
                 )
+        for group in grouper.groups():
+            try:
+                specs.append(_spec_of_group(group, observed_at))
+            except ValidationError as exc:
+                _logger.warning(
+                    "discover_markets: event %r skipped, it is not a valid MarketSpec: %s",
+                    group.market_id,
+                    "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()),
+                )
+        grouper.warn_refused("discover_markets")
         return specs
 
     def fetch_features(self, spec: MarketSpec, horizon: str, **kwargs: Any) -> dict[str, float]:
@@ -198,7 +302,11 @@ class WeatherTmaxPlugin(MarketPlugin):
         return result
 
     def fetch_truth(self, spec: MarketSpec, **kwargs: Any) -> float | None:
-        """Return the official maximum temperature observation in Celsius, or None."""
+        """Return the official maximum temperature observation, or None.
+
+        In the unit of the market (``spec.metadata["unit"]``, ``"C"`` or ``"F"``): the bins are in
+        that unit, and a reading in the other one lands in the wrong bin or none.
+        """
         city: str = spec.metadata.get("city", "")
         target_date: str = spec.metadata.get("target_date", "")
         if self._truth is None:
@@ -586,6 +694,49 @@ class WeatherTmaxPlugin(MarketPlugin):
 # ---------------------------------------------------------------------------
 # Module-level helpers (not part of the plugin class)
 # ---------------------------------------------------------------------------
+
+
+def _spec_of_group(group: PerBinGroup, observed_at: str | None) -> MarketSpec:
+    """The `MarketSpec` of the per-bin markets of one city and day.
+
+    Shaped like `WeatherTmaxPlugin._build_spec`'s: one bin per outcome, and ``token_ids`` and
+    ``outcome_schema`` aligned with them, except that a token is the bin's *Yes* token and a price
+    its Yes price (the market's other outcome, No, is not a bin). A price Gamma did not give is None.
+    """
+    prices = [b.price for b in group.bins]
+    known = [p for p in prices if p is not None]
+    return MarketSpec(
+        market_id=group.market_id,
+        slug=group.slug,
+        question=group.question,
+        outcome_bins=[
+            OutcomeBin(
+                label=b.label,
+                lower=b.lower,
+                upper=b.upper,
+                lower_inclusive=LOWER_INCLUSIVE,
+                upper_inclusive=UPPER_INCLUSIVE,
+            )
+            for b in group.bins
+        ],
+        close_time=group.close_time,
+        market_family="range",
+        tags=["weather", "temperature"],
+        metadata={
+            "city": group.city,
+            "target_date": group.target_date,
+            "token_ids": [b.token_id for b in group.bins],
+            "outcome_schema": [{"label": b.label, "price": b.price} for b in group.bins],
+            "market_price": max(known) if known else None,
+            "price_source": "discovery",
+            **({"price_observed_at": observed_at} if observed_at else {}),
+            "unit": group.unit,
+            "question": group.question,
+            "event_id": group.event_id,
+            "bin_market_ids": [b.market_id for b in group.bins],
+            "bins_complete": group.complete,
+        },
+    )
 
 
 def _price_or_none(value: Any) -> float | None:

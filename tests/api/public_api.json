@@ -1212,7 +1212,7 @@
           "discover_tmax_markets": {
             "async": true,
             "kind": "method",
-            "signature": "(self, page_size: int = 100, active: bool = True) -> list[TmaxMarketInfo]"
+            "signature": "(self, page_size: int = 100, active: bool = True, *, tag_id: int | None = 103040) -> list[TmaxMarketInfo]"
           },
           "fetch_markets": {
             "async": true,
@@ -1723,7 +1723,7 @@
           },
           "discover_tmax_markets": {
             "kind": "method",
-            "signature": "(self, page_size: int = 100, active: bool = True) -> list[TmaxMarketInfo]"
+            "signature": "(self, page_size: int = 100, active: bool = True, *, tag_id: int | None = 103040) -> list[TmaxMarketInfo]"
           },
           "fetch_markets": {
             "kind": "method",
@@ -1731,7 +1731,7 @@
           },
           "fetch_markets_all": {
             "kind": "method",
-            "signature": "(self, tag: str | None = None, keyword: str | None = None, page_size: int = 100, max_results: int = 1000, active: bool = True, closed: bool = False) -> list[dict[str, Any]]"
+            "signature": "(self, tag: str | None = None, keyword: str | None = None, page_size: int = 100, max_results: int = 1000, active: bool = True, closed: bool = False, *, tag_id: int | None = None) -> list[dict[str, Any]]"
           }
         },
         "signature": "(base_url: str = 'https://gamma-api.polymarket.com', timeout: float = 30.0, cache: DiskCache | None = None) -> None"

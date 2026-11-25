@@ -1,0 +1,732 @@
+{
+ "markets": [
+  {
+   "id": "2247194",
+   "question": "Will the highest temperature in Atlanta be between 88-89°F on May 15?",
+   "slug": "highest-temperature-in-atlanta-on-may-15-2026-88-89f",
+   "endDate": "2026-05-15T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.4995\", \"0.5005\"]",
+   "clobTokenIds": "[\"79887382406353244817525301519927539462642211786818976621440287109964337409391\", \"5741392248245282950450756591573159689967577582749767526072439405977858524514\"]",
+   "groupItemTitle": "88-89°F",
+   "groupItemThreshold": "8",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Hartsfield-Jackson International Airport Station in degrees Fahrenheit on 15 May '26.",
+   "events": [
+    {
+     "id": "479718",
+     "slug": "highest-temperature-in-atlanta-on-may-15-2026",
+     "title": "Highest temperature in Atlanta on May 15?",
+     "endDate": "2026-05-15T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "2290078",
+   "question": "Will the highest temperature in Jinan be 15°C or below on May 20?",
+   "slug": "highest-temperature-in-jinan-on-may-20-2026-15corbelow",
+   "endDate": "2026-05-20T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "groupItemTitle": "15°C or below",
+   "groupItemThreshold": "0",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Jinan Yaoqiang International Airport Station in degrees Celsius on 20 May '26.",
+   "events": [
+    {
+     "id": "497034",
+     "slug": "highest-temperature-in-jinan-on-may-20-2026",
+     "title": "Highest temperature in Jinan on May 20?",
+     "endDate": "2026-05-20T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "2290079",
+   "question": "Will the highest temperature in Jinan be 16°C on May 20?",
+   "slug": "highest-temperature-in-jinan-on-may-20-2026-16c",
+   "endDate": "2026-05-20T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "groupItemTitle": "16°C",
+   "groupItemThreshold": "1",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Jinan Yaoqiang International Airport Station in degrees Celsius on 20 May '26.",
+   "events": [
+    {
+     "id": "497034",
+     "slug": "highest-temperature-in-jinan-on-may-20-2026",
+     "title": "Highest temperature in Jinan on May 20?",
+     "endDate": "2026-05-20T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "2290080",
+   "question": "Will the highest temperature in Jinan be 17°C on May 20?",
+   "slug": "highest-temperature-in-jinan-on-may-20-2026-17c",
+   "endDate": "2026-05-20T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "groupItemTitle": "17°C",
+   "groupItemThreshold": "2",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Jinan Yaoqiang International Airport Station in degrees Celsius on 20 May '26.",
+   "events": [
+    {
+     "id": "497034",
+     "slug": "highest-temperature-in-jinan-on-may-20-2026",
+     "title": "Highest temperature in Jinan on May 20?",
+     "endDate": "2026-05-20T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "2290081",
+   "question": "Will the highest temperature in Jinan be 18°C on May 20?",
+   "slug": "highest-temperature-in-jinan-on-may-20-2026-18c",
+   "endDate": "2026-05-20T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "groupItemTitle": "18°C",
+   "groupItemThreshold": "3",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature recorded at the Jinan Yaoqiang International Airport Station in degrees Celsius on 20 May '26.",
+   "events": [
+    {
+     "id": "497034",
+     "slug": "highest-temperature-in-jinan-on-may-20-2026",
+     "title": "Highest temperature in Jinan on May 20?",
+     "endDate": "2026-05-20T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7221168",
+   "question": "Will the highest temperature in Panama City be 32°C on November 23?",
+   "slug": "highest-temperature-in-panama-city-on-november-23-2026-32c",
+   "endDate": "2026-11-23T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0005\", \"0.9995\"]",
+   "clobTokenIds": "[\"90043009756950317894048199877747590479818141645190734531855682875704764458107\", \"12022144283302366613971356326033789430886846601082021653844210421308244904316\"]",
+   "groupItemTitle": "32°C",
+   "groupItemThreshold": "4",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Marcos A. Gelabert Intl Airport (MPMG) on 23 Nov '26.",
+   "events": [
+    {
+     "id": "1436284",
+     "slug": "highest-temperature-in-panama-city-on-november-23-2026",
+     "title": "Highest temperature in Panama City on November 23?",
+     "endDate": "2026-11-23T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7221170",
+   "question": "Will the highest temperature in Panama City be 34°C on November 23?",
+   "slug": "highest-temperature-in-panama-city-on-november-23-2026-34c",
+   "endDate": "2026-11-23T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0005\", \"0.9995\"]",
+   "clobTokenIds": "[\"91577132907137469518669802880029780166296048210145161369811295220995582589926\", \"75962756217749752397449892133213210265076300391517777291315076071527635010475\"]",
+   "groupItemTitle": "34°C",
+   "groupItemThreshold": "6",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Marcos A. Gelabert Intl Airport (MPMG) on 23 Nov '26.",
+   "events": [
+    {
+     "id": "1436284",
+     "slug": "highest-temperature-in-panama-city-on-november-23-2026",
+     "title": "Highest temperature in Panama City on November 23?",
+     "endDate": "2026-11-23T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7221171",
+   "question": "Will the highest temperature in Panama City be 35°C on November 23?",
+   "slug": "highest-temperature-in-panama-city-on-november-23-2026-35c",
+   "endDate": "2026-11-23T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0005\", \"0.9995\"]",
+   "clobTokenIds": "[\"10160576368153504179263668167289348532044334260187496754069756365221989732984\", \"112987700249474944671472208960463827637293746237770321522841307005331993723671\"]",
+   "groupItemTitle": "35°C",
+   "groupItemThreshold": "7",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Marcos A. Gelabert Intl Airport (MPMG) on 23 Nov '26.",
+   "events": [
+    {
+     "id": "1436284",
+     "slug": "highest-temperature-in-panama-city-on-november-23-2026",
+     "title": "Highest temperature in Panama City on November 23?",
+     "endDate": "2026-11-23T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7279523",
+   "question": "Will the lowest temperature in Munich be -8°C or below on November 25?",
+   "slug": "lowest-temperature-in-munich-on-november-25-2026-neg-8corbelow",
+   "endDate": "2026-11-25T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.04\", \"0.96\"]",
+   "clobTokenIds": "[\"1010025272990953041055626547380528264263930518823419476859522323847147683840\", \"1010025272990953041055626547380528264263930518823419476859522323847147683841\"]",
+   "groupItemTitle": "-8°C or below",
+   "groupItemThreshold": "0",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the lowest temperature reported at Munich Airport (EDDM) on 25 Nov '26.",
+   "events": [
+    {
+     "id": "1446124",
+     "slug": "lowest-temperature-in-munich-on-november-25-2026",
+     "title": "Lowest temperature in Munich on November 25?",
+     "endDate": "2026-11-25T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7279524",
+   "question": "Will the lowest temperature in Munich be -7°C on November 25?",
+   "slug": "lowest-temperature-in-munich-on-november-25-2026-neg-7c",
+   "endDate": "2026-11-25T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.15\", \"0.85\"]",
+   "clobTokenIds": "[\"1010025272990953041055626547380528264263930518823419476859522323847147684096\", \"1010025272990953041055626547380528264263930518823419476859522323847147684097\"]",
+   "groupItemTitle": "-7°C",
+   "groupItemThreshold": "1",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the lowest temperature reported at Munich Airport (EDDM) on 25 Nov '26.",
+   "events": [
+    {
+     "id": "1446124",
+     "slug": "lowest-temperature-in-munich-on-november-25-2026",
+     "title": "Lowest temperature in Munich on November 25?",
+     "endDate": "2026-11-25T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302417",
+   "question": "Will the highest temperature in Warsaw be -6°C or below on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-neg-6corbelow",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0005\", \"0.9995\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447572480\", \"1247728086219201498406314736214203923777243359339220549468345977071447572481\"]",
+   "groupItemTitle": "-6°C or below",
+   "groupItemThreshold": "0",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302418",
+   "question": "Will the highest temperature in Warsaw be -5°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-neg-5c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0005\", \"0.9995\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447572736\", \"1247728086219201498406314736214203923777243359339220549468345977071447572737\"]",
+   "groupItemTitle": "-5°C",
+   "groupItemThreshold": "1",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302419",
+   "question": "Will the highest temperature in Warsaw be -4°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-neg-4c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0005\", \"0.9995\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447572992\", \"1247728086219201498406314736214203923777243359339220549468345977071447572993\"]",
+   "groupItemTitle": "-4°C",
+   "groupItemThreshold": "2",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302420",
+   "question": "Will the highest temperature in Warsaw be -3°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-neg-3c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0015\", \"0.9985\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447573248\", \"1247728086219201498406314736214203923777243359339220549468345977071447573249\"]",
+   "groupItemTitle": "-3°C",
+   "groupItemThreshold": "3",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302421",
+   "question": "Will the highest temperature in Warsaw be -2°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-neg-2c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.09\", \"0.91\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447573504\", \"1247728086219201498406314736214203923777243359339220549468345977071447573505\"]",
+   "groupItemTitle": "-2°C",
+   "groupItemThreshold": "4",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302422",
+   "question": "Will the highest temperature in Warsaw be -1°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-neg-1c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.09\", \"0.91\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447573760\", \"1247728086219201498406314736214203923777243359339220549468345977071447573761\"]",
+   "groupItemTitle": "-1°C",
+   "groupItemThreshold": "5",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302423",
+   "question": "Will the highest temperature in Warsaw be 0°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-0c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.075\", \"0.925\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447574016\", \"1247728086219201498406314736214203923777243359339220549468345977071447574017\"]",
+   "groupItemTitle": "0°C",
+   "groupItemThreshold": "6",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302424",
+   "question": "Will the highest temperature in Warsaw be 1°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-1c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.61\", \"0.39\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447574272\", \"1247728086219201498406314736214203923777243359339220549468345977071447574273\"]",
+   "groupItemTitle": "1°C",
+   "groupItemThreshold": "7",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302425",
+   "question": "Will the highest temperature in Warsaw be 2°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-2c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.225\", \"0.775\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447574528\", \"1247728086219201498406314736214203923777243359339220549468345977071447574529\"]",
+   "groupItemTitle": "2°C",
+   "groupItemThreshold": "8",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302426",
+   "question": "Will the highest temperature in Warsaw be 3°C on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-3c",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.065\", \"0.935\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447574784\", \"1247728086219201498406314736214203923777243359339220549468345977071447574785\"]",
+   "groupItemTitle": "3°C",
+   "groupItemThreshold": "9",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7302427",
+   "question": "Will the highest temperature in Warsaw be 4°C or higher on November 26?",
+   "slug": "highest-temperature-in-warsaw-on-november-26-2026-4corhigher",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.095\", \"0.905\"]",
+   "clobTokenIds": "[\"1247728086219201498406314736214203923777243359339220549468345977071447575040\", \"1247728086219201498406314736214203923777243359339220549468345977071447575041\"]",
+   "groupItemTitle": "4°C or higher",
+   "groupItemThreshold": "10",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Warsaw Chopin Airport (EPWA) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451212",
+     "slug": "highest-temperature-in-warsaw-on-november-26-2026",
+     "title": "Highest temperature in Warsaw on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305054",
+   "question": "Will the highest temperature in Atlanta be 43°F or below on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-43forbelow",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.006\", \"0.994\"]",
+   "clobTokenIds": "[\"67857505016436878178046716737165772986298723299366579901028308983658630294975\", \"57619264567512706666680634662852789455764166186590718899014185217571236379012\"]",
+   "groupItemTitle": "43°F or below",
+   "groupItemThreshold": "0",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305055",
+   "question": "Will the highest temperature in Atlanta be between 44-45°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-44-45f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.006\", \"0.994\"]",
+   "clobTokenIds": "[\"21667435095858143930237356221520954268497605562497913343262612445061315871177\", \"9548009103684617020045571533205129909895028166928690213032767521102483657273\"]",
+   "groupItemTitle": "44-45°F",
+   "groupItemThreshold": "1",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305056",
+   "question": "Will the highest temperature in Atlanta be between 46-47°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-46-47f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0195\", \"0.9805\"]",
+   "clobTokenIds": "[\"45659015197427226348627516718847066949931303859650581909529590739256983937874\", \"37857820992781972838906681606538980061476777942254451108880082873181556095515\"]",
+   "groupItemTitle": "46-47°F",
+   "groupItemThreshold": "2",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305057",
+   "question": "Will the highest temperature in Atlanta be between 48-49°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-48-49f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.215\", \"0.785\"]",
+   "clobTokenIds": "[\"1914520962414658004635379317370238965649702907696247743871744186899510847661\", \"36759414109072435629393241350859690408128091092833068813552996341185916250565\"]",
+   "groupItemTitle": "48-49°F",
+   "groupItemThreshold": "3",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305058",
+   "question": "Will the highest temperature in Atlanta be between 50-51°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-50-51f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.565\", \"0.435\"]",
+   "clobTokenIds": "[\"95786968351190765448420805794118499780382247923267899945395538364386700805499\", \"22595741359262059374375490008350923704485595564127658624610295336652540541607\"]",
+   "groupItemTitle": "50-51°F",
+   "groupItemThreshold": "4",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305059",
+   "question": "Will the highest temperature in Atlanta be between 52-53°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-52-53f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.195\", \"0.805\"]",
+   "clobTokenIds": "[\"76451460859764210780291318288606185885558531822616208772020494922518834291358\", \"698195806822541805616339774779094654350237320014613534332281033125041938374\"]",
+   "groupItemTitle": "52-53°F",
+   "groupItemThreshold": "5",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305060",
+   "question": "Will the highest temperature in Atlanta be between 54-55°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-54-55f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.027\", \"0.973\"]",
+   "clobTokenIds": "[\"48195613244723063984919840089757794716583341761147865185590677456312498823313\", \"59545800460548991789406219304339539937102153699293966969896139337590306916043\"]",
+   "groupItemTitle": "54-55°F",
+   "groupItemThreshold": "6",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305061",
+   "question": "Will the highest temperature in Atlanta be between 56-57°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-56-57f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.009\", \"0.991\"]",
+   "clobTokenIds": "[\"114210965209660770875736852967040088656260447916325118484824363699012716502544\", \"20886192138773608933538189719507949998575203442813192755613936509466720841262\"]",
+   "groupItemTitle": "56-57°F",
+   "groupItemThreshold": "7",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305062",
+   "question": "Will the highest temperature in Atlanta be between 58-59°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-58-59f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.006\", \"0.994\"]",
+   "clobTokenIds": "[\"50495406509054242752931348251623475977152710982947444783743648460921140007928\", \"64407083263357385328191213359343686177431545080419072038818622604992707955783\"]",
+   "groupItemTitle": "58-59°F",
+   "groupItemThreshold": "8",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305063",
+   "question": "Will the highest temperature in Atlanta be between 60-61°F on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-60-61f",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.001\", \"0.999\"]",
+   "clobTokenIds": "[\"85291900913920171755398098004497486411627124178838922877949116839311142442743\", \"40187233154435575480283400694817702164350848173382140254066703735456086603394\"]",
+   "groupItemTitle": "60-61°F",
+   "groupItemThreshold": "9",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  },
+  {
+   "id": "7305064",
+   "question": "Will the highest temperature in Atlanta be 62°F or higher on November 26?",
+   "slug": "highest-temperature-in-atlanta-on-november-26-2026-62forhigher",
+   "endDate": "2026-11-26T12:00:00Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0005\", \"0.9995\"]",
+   "clobTokenIds": "[\"45355127782596211088799652377431707386531729556874203857714558279620640417381\", \"114436566340647334323234764170680934950210707377932444761523003284649804227257\"]",
+   "groupItemTitle": "62°F or higher",
+   "groupItemThreshold": "10",
+   "active": true,
+   "closed": false,
+   "negRisk": true,
+   "description": "This market will resolve to the temperature range that contains the highest temperature reported at Hartsfield-Jackson International Airport (KATL) on 26 Nov '26.",
+   "events": [
+    {
+     "id": "1451693",
+     "slug": "highest-temperature-in-atlanta-on-november-26-2026",
+     "title": "Highest temperature in Atlanta on November 26?",
+     "endDate": "2026-11-26T12:00:00Z"
+    }
+   ]
+  }
+ ]
+}

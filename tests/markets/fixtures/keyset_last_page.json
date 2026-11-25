@@ -1,0 +1,26 @@
+{
+ "markets": [
+  {
+   "id": "559656",
+   "question": "Will Wes Moore win the 2028 Democratic presidential nomination?",
+   "conditionId": "0x61d9486c0f7e14ed98f3b177b6adcb3cd45646c92e8bbfbf209789b86472d4b6",
+   "slug": "will-wes-moore-win-the-2028-democratic-presidential-nomination-714",
+   "endDate": "2028-11-08T04:59:00Z",
+   "startDate": "2025-07-11T18:36:00.839Z",
+   "outcomes": "[\"Yes\", \"No\"]",
+   "outcomePrices": "[\"0.0205\", \"0.9795\"]",
+   "clobTokenIds": "[\"90227223115596293448966158151606153337847900483048338623540402385929720677904\", \"105134691322323565615831879054043168027913414000042547943201361115853277749482\"]",
+   "active": true,
+   "closed": false,
+   "groupItemTitle": "Wes Moore",
+   "feeType": "politics_elections_fees",
+   "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.05,
+    "takerOnly": true,
+    "rebateRate": 0.25
+   },
+   "description": "This market will resolve to “Yes” if the named individual wins and accepts the 2028 nomination of the Democratic Party for U.S. president. Otherwise, this marke"
+  }
+ ]
+}
