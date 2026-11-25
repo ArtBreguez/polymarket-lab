@@ -102,8 +102,9 @@ class GammaStub:
     ``script`` replaces the reply to the request for the market at a position (a failure to retry, a
     422); ``keyset_status`` answers every keyset request with that status (a Gamma without the
     endpoint, or one that refuses us); ``overlap`` repeats the previous page's last market at the
-    top of the page (keyset and offset alike); ``ignore_cursor`` is an API that answers the first page whatever the cursor;
-    ``trailing_empty`` gives the last full page a cursor to one more page, which is empty.
+    top of the page (keyset and offset alike); ``ignore_cursor`` is an API that answers the first
+    page whatever the cursor; ``trailing_empty`` gives the last full page a cursor to one more page,
+    which is empty.
     """
 
     def __init__(
