@@ -34,7 +34,23 @@ _TMAX_SOURCE_HINTS = (
 
 @dataclass
 class TmaxMarketInfo:
-    """Parsed representation of a Polymarket temperature-max market."""
+    """Parsed representation of a Polymarket temperature-max market.
+
+    Two kinds of entry share this type, and the fields mean different things:
+
+    * a **multi-outcome** market (one market whose outcomes are the bins, ``30°C``, ``31°C``):
+      every field is that market's own;
+    * a **per-bin** entry (what live Gamma lists: one Yes/No market per bin, grouped by city and
+      day): ``market_id`` is the *event's* id on Gamma (its slug when the markets name no event),
+      ``slug`` is the event's, ``question`` is synthesised
+      (``Highest temperature in Warsaw on November 26?``), ``outcome_labels`` are the bins from the
+      lowest to the highest (``-4°C or below``, ``88-89°F``), ``token_ids`` are each bin's *Yes*
+      token, ``outcome_prices`` each bin's *Yes* price (NaN where Gamma gave none, never a stand-in),
+      ``target_date`` is ISO, ``end_date`` is the earliest close of its bins and ``active`` is
+      True only if all of them are. An event with some bins closed already has only the rest.
+
+    `GammaClient.discover_tmax_markets` says what is read and what is refused.
+    """
 
     market_id: str
     question: str
