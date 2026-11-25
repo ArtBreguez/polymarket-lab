@@ -234,7 +234,14 @@ def status_cmd(
 @app.command("scan-markets")
 def scan_markets_cmd(
     plugin: str = typer.Option(..., "--plugin", "-p", help="Plugin family name"),
-    tag: str | None = typer.Option(None, "--tag", help="Gamma API tag filter"),
+    tag: str | None = typer.Option(
+        None,
+        "--tag",
+        help=(
+            "Sent to Gamma as the `tag` parameter, which live Gamma ignores; the weather plugin "
+            "already reads Gamma's Daily Temperature tag (tag_id 103040)"
+        ),
+    ),
     keyword: str | None = typer.Option(None, "--keyword", help="Keyword filter"),
     limit: int = typer.Option(100, "--limit", help="Max markets to fetch"),
 ) -> None:

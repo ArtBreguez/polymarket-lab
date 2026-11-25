@@ -109,3 +109,31 @@ def test_scan_markets_delegates_to_plugin(monkeypatch):
     assert "Highest temperature in NYC" in result.output
     assert fake.called_with is not None
     assert fake.called_with.get("limit") == 50
+
+
+def test_scan_markets_reads_the_weather_tag_and_the_per_bin_markets(monkeypatch):
+    """The real plugin through the command, against markets recorded from live Gamma: one row per
+    city and day, read from the Daily Temperature tag (#86, #87). ``--limit`` is the page size."""
+    import json
+    from pathlib import Path
+
+    import httpx
+    import respx
+
+    recorded = json.loads(
+        (Path(__file__).parent / "markets" / "fixtures" / "per_bin_markets.json").read_text()
+    )["markets"]
+    seen: list[dict[str, str]] = []
+
+    def keyset(request: httpx.Request) -> httpx.Response:
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"markets": recorded})
+
+    monkeypatch.setenv("PMLAB_GAMMA_API_BASE", "https://mock-gamma.test")
+    with respx.mock:
+        respx.get("https://mock-gamma.test/markets/keyset").mock(side_effect=keyset)
+        result = runner.invoke(app, ["scan-markets", "--plugin", "weather_tmax"])
+    assert result.exit_code == 0, result.output
+    assert "4 'weather_tmax' markets found" in result.output
+    assert "Highest temperature in Atlanta on November 26?" in result.output
+    assert seen and all(r["tag_id"] == "103040" for r in seen)
