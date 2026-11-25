@@ -368,6 +368,68 @@ def fills_are_rounded_per_fill_or_per_order() -> None:
 
 
 @check
+def a_negative_zero_never_reaches_a_field_or_a_fee() -> None:
+    for field in ("rate", "rebate_rate", "maker_rate"):
+        for zero in (-0.0, Decimal("-0"), "-0"):
+            schedule = FeeSchedule(**{"rate": 0.05, field: zero})
+            value = getattr(schedule, field)
+            assert value == 0.0 and math.copysign(1.0, value) == 1.0, (field, zero, value)
+            assert repr(schedule.to_dict()[field]) == "0.0", (field, zero)  # what the tracker logs
+    up = FeeSchedule(rate=0.05, taker_only=False, rounding="up")
+    for what, fee in {
+        "taker, -0.0 shares": taker_fee(-0.0, 0.5, up),
+        "taker, -0.0 price": taker_fee(10, -0.0, up),
+        "maker, -0.0 shares": maker_fee(-0.0, 0.5, up),
+        "stake, -0.0": taker_fee_on_stake(-0.0, 0.5, up),
+        "fills, -0.0 shares": taker_fee_for_fills([(-0.0, 0.5)], up),
+    }.items():
+        assert fee == 0.0 and math.copysign(1.0, fee) == 1.0, (what, fee)
+
+
+@check
+def a_fee_that_does_not_fit_a_float_is_refused_and_not_returned_as_inf() -> None:
+    schedule = FeeSchedule(rate=0.05)
+    assert taker_fee(1e308, 0.5, schedule) == 1.25e306  # large and finite: still returned
+    order = FeeSchedule(rate=0.05, rounding_scope="order")
+    for fn, args in (
+        (taker_fee_for_fills, ([(1.7e308, 0.5)] * 100, order)),  # each fill fits, the sum does not
+        (taker_fee_for_fills, ([(1.7e308, 0.5)] * 100, schedule)),
+        (taker_fee_on_stake, (1e300, 5e-324, FeeSchedule(rate=0.05, exponent=0.5))),
+        (stake_fee_fraction, (5e-324, FeeSchedule(rate=0.05, exponent=1e-10))),
+    ):
+        message = refused(ValueError, fn, *args)
+        assert "overflows a float" in message, (fn.__name__, message)
+
+
+@check
+def the_fifteen_digit_rule_holds_for_a_tiny_rate_and_a_float_product_exponent() -> None:
+    for tiny in (1e-7, "1e-7", Decimal("1E-7")):
+        assert FeeSchedule(rate=tiny).rate == 1e-7
+        for rounding in ("nearest", "up", "down"):
+            assert taker_fee(1e6, 0.5, FeeSchedule(rate=tiny, rounding=rounding)) == 0.025
+    assert taker_fee(100, 0.5, FeeSchedule(rate=1e-7)) == 0.0  # 2.5e-6: below one unit
+    product = FeeSchedule(rate=0.07 * 3, exponent=0.1 * 3)  # 0.30000000000000004 in binary
+    assert (product.rate, product.exponent) == (0.21, 0.3)
+    assert product == FeeSchedule(rate=Decimal("0.21"), exponent=Decimal("0.3"))
+    assert taker_fee(100, 0.5, product) == taker_fee(100, 0.5, FeeSchedule(rate=0.21, exponent=0.3))
+
+
+@check
+def float32_is_read_as_its_float64_value_and_the_class_docstring_says_so() -> None:
+    import numpy as np  # a dependency of pmlab
+
+    narrow = np.float32(0.07)
+    assert FeeSchedule(rate=narrow).rate == 0.0700000002980232 != 0.07
+    assert FeeSchedule(rate=float(str(narrow))).rate == 0.07  # the conversion the docs name
+    up = {"rounding": "up", "rounding_unit": 0.01}
+    assert taker_fee(100, 0.5, FeeSchedule(rate=narrow * 3, **up)) == 5.26  # noisy before pmlab
+    assert taker_fee(100, 0.5, FeeSchedule(rate=0.07 * 3, **up)) == 5.25
+    doc = FeeSchedule.__doc__ or ""
+    for words in ("float32", "float16", "float(str(x))", "type: ignore", "negative zero"):
+        assert words in doc, (words, doc)
+
+
+@check
 def a_schedule_round_trips_and_nothing_in_the_backtest_moved() -> None:
     schedule = FeeSchedule(rate=0.07, exponent=2.0, taker_only=False, maker_rate=0.01)
     assert FeeSchedule(**schedule.to_dict()) == schedule

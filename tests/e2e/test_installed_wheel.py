@@ -1247,8 +1247,9 @@ def test_the_fee_model_holds_in_the_installed_wheel(installed: Installed) -> Non
     every category's 100-share fee equals the cent the saved docs page prints at all 21 prices,
     the exponent sits on the whole ``p * (1 - p)``, a fee under one unit is not charged, a maker
     pays nothing on a taker-only schedule, a float product like ``0.07 * 3`` carries no binary
-    noise into a rounded-up fee, bad input is refused, and the stake helpers agree with the
-    per-share fee."""
+    noise into a rounded-up fee, bad input is refused, no fee is a negative zero or an ``inf``, a
+    float32 is read as its float64 value as the docstring says, and the stake helpers agree with
+    the per-share fee."""
     out = _ok(installed.py(FEE_AUDIT, FEE_DOCS_PAGE))
     assert "FAIL" not in out, out
-    assert f"audit fee model: OK (12 checks, pmlab {_pyproject_version()})" in out
+    assert f"audit fee model: OK (16 checks, pmlab {_pyproject_version()})" in out
