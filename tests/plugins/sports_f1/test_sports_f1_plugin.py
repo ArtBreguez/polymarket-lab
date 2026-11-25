@@ -130,3 +130,29 @@ class TestF1BuildTrainingRow:
         assert row is not None
         assert row["winning_label"] == "Norris"
         assert isinstance(row["winning_label"], str)
+
+
+class TestF1DiscoveryKeepsGoingPastAnUnbuildableMarket:
+    """A token without a name used to become a bin called "?", twice over: now the market is
+    skipped with a warning and the others are still discovered (#68: MarketSpec validates)."""
+
+    def test_a_market_whose_tokens_have_no_names_is_skipped(self, caplog) -> None:
+        mock_gamma = MagicMock()
+        mock_gamma.fetch_markets.return_value = [
+            {
+                "id": "nameless",
+                "question": "F1 nameless GP winner?",
+                "tokens": [{"price": 0.5}, {"price": 0.5}],
+            },
+            {
+                "id": "ok",
+                "question": "F1 Monaco GP winner 2026?",
+                "endDate": "2026-05-25T16:00:00Z",
+                "tokens": [{"outcome": "Norris"}, {"outcome": "Hamilton"}],
+            },
+        ]
+        plugin = SportsF1Plugin(gamma_client=mock_gamma)
+        with caplog.at_level("WARNING", logger="pmlab.plugins.sports_f1.plugin"):
+            markets = plugin.discover_markets()
+        assert [m.market_id for m in markets] == ["ok"]
+        assert "nameless" in caplog.text and "skipped" in caplog.text
