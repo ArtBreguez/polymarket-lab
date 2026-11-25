@@ -380,3 +380,52 @@ class TestAClientThatTakesNoTagId:
         gamma = _SignatureUnreadable()
         WeatherTmaxPlugin(gamma_client=gamma).discover_markets()
         assert gamma.calls[0]["tag_id"] == 103040
+
+
+class TestASmallLimitDoesNotMultiplyTheRequests:
+    """Round 1 of #85 (MINOR-2): ``limit`` is the page size, and the tag holds 2,633 markets, so
+    ``--limit 3`` was 878 requests and ``--limit 2`` hit the 1000-page cap and raised."""
+
+    def test_a_whole_tag_is_read_in_full_pages_whatever_limit_is(self) -> None:
+        for limit in (1, 2, 3, 10, 99, 100):
+            plugin, gamma = plugin_over([])
+            plugin.discover_markets(limit=limit)
+            assert gamma.fetch_markets_all.call_args.kwargs["page_size"] == 100, limit
+
+    def test_an_explicit_bound_keeps_the_page_size_asked_for(self) -> None:
+        plugin, gamma = plugin_over([])
+        plugin.discover_markets(limit=3, max_results=10)
+        assert gamma.fetch_markets_all.call_args.kwargs["page_size"] == 3
+
+    def test_unscoped_keeps_the_page_size_asked_for(self) -> None:
+        plugin, gamma = plugin_over([])
+        plugin.discover_markets(limit=3, tag_id=None)
+        assert gamma.fetch_markets_all.call_args.kwargs["page_size"] == 3
+
+    def test_a_bigger_page_than_gamma_serves_is_left_to_the_client(self) -> None:
+        plugin, gamma = plugin_over([])
+        plugin.discover_markets(limit=250)
+        assert gamma.fetch_markets_all.call_args.kwargs["page_size"] == 250
+
+    def test_through_the_real_client_limit_1_is_the_same_walk_in_the_same_requests(self) -> None:
+        filler = [{"id": f"f{i}", "question": "Will it rain?"} for i in range(250)]
+        universe = [*filler, *recorded()]  # 282 markets under the tag: three pages of 100
+        seen: list[dict[str, str]] = []
+
+        def keyset(request: httpx.Request) -> httpx.Response:
+            params = dict(request.url.params)
+            seen.append(params)
+            start = int(params["after_cursor"].removeprefix("c")) if "after_cursor" in params else 0
+            size = int(params["limit"])
+            body: dict[str, Any] = {"markets": universe[start : start + size]}
+            if start + size < len(universe):
+                body["next_cursor"] = f"c{start + size}"
+            return httpx.Response(200, json=body)
+
+        with respx.mock:
+            respx.get(f"{BASE}/markets/keyset").mock(side_effect=keyset)
+            with GammaClient(base_url=BASE) as client:
+                plugin = WeatherTmaxPlugin(gamma_client=client, clock=lambda: OBSERVED)
+                specs = plugin.discover_markets(limit=1)
+        assert [s.market_id for s in specs] == ["479718", "1436284", "1451212", "1451693"]
+        assert len(seen) == 3 and {p["limit"] for p in seen} == {"100"}, [p["limit"] for p in seen]

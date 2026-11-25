@@ -397,7 +397,9 @@ def the_plugin_reads_the_whole_tag_past_a_thousand_markets_and_builds_one_spec_p
         specs = plugin(stub, client).discover_markets(limit=PAGE)
     assert [s.market_id for s in specs] == ["479718", "1436284", "1451212", "1451693"]
     assert all(r["tag_id"] == str(TAG) for r in stub.keyset_requests)
-    assert len(stub.keyset_requests) == 7, len(stub.keyset_requests)
+    # 32 markets under the tag: one full page, however small the limit named (5 here)
+    assert len(stub.keyset_requests) == 1, len(stub.keyset_requests)
+    assert {r["limit"] for r in stub.keyset_requests} == {"100"}, stub.keyset_requests
     atlanta = specs[-1]
     assert [b.label for b in atlanta.outcome_bins] == [
         m["groupItemTitle"] for m in raw_by_event("1451693")

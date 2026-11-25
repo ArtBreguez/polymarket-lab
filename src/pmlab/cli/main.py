@@ -243,7 +243,14 @@ def scan_markets_cmd(
         ),
     ),
     keyword: str | None = typer.Option(None, "--keyword", help="Keyword filter"),
-    limit: int = typer.Option(100, "--limit", help="Max markets to fetch"),
+    limit: int = typer.Option(
+        100,
+        "--limit",
+        help=(
+            "Page size of each Gamma request (1-100), not a number of markets; the weather "
+            "plugin reads its whole tag whatever it is (a value below 100 is raised to 100 there)"
+        ),
+    ),
 ) -> None:
     """Discover open markets from Polymarket Gamma API."""
     from pmlab.config import get_settings
