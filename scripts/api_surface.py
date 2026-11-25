@@ -31,7 +31,8 @@ import json
 import re
 import sys
 import types
-from pathlib import Path
+import typing
+from pathlib import Path, PurePath
 from typing import Any
 
 SNAPSHOT_PATH = Path(__file__).resolve().parent.parent / "tests" / "api" / "public_api.json"
@@ -220,7 +221,8 @@ def _default_text(default: Any) -> str | None:
 
 
 # By class name, not `isinstance`: newer Typer no longer depends on `click` (it carries its own
-# copy of these classes), so the classes themselves cannot be imported by a stable name.
+# copy of these classes), and Typer wraps some of Click's (`TyperPath`, `TyperChoice`), so the
+# classes themselves cannot be imported by a stable name.
 _TYPE_LABELS = {
     "BoolParamType": "bool",
     "IntParamType": "int",
@@ -229,22 +231,79 @@ _TYPE_LABELS = {
     "FloatRange": "float",
     "StringParamType": "str",
     "Path": "path",
+    "TyperPath": "path",
 }
+_ANNOTATION_LABELS: dict[Any, str] = {bool: "bool", int: "int", float: "float", str: "str"}
+
+
+def _ranged(name: str, low: Any, high: Any) -> str:
+    """``int`` -> ``int[1..9]`` for a type with bounds (``[0..]`` when there is only a lower one)."""
+    if low is None and high is None:
+        return name
+    return f"{name}[{'' if low is None else low}..{'' if high is None else high}]"
 
 
 def _type_name(param_type: Any) -> str:
-    """A parameter's type from the class of its type object, not the library's own label for it.
+    """A Click-based Typer's parameter type, from the class of its type object, not Click's label.
 
     The label (``text``, ``integer``, ``integer range``) changed between click releases, so a
     user's fresh install would see the API "change" because a dependency was upgraded.
     """
     cls_name = type(param_type).__name__
-    if cls_name == "Choice":
+    if cls_name.endswith("Choice"):  # click.Choice, typer's TyperChoice
         return "choice[" + ",".join(str(c) for c in param_type.choices) + "]"
     name = _TYPE_LABELS.get(cls_name, cls_name)
-    low, high = getattr(param_type, "min", None), getattr(param_type, "max", None)
-    if low is not None or high is not None:  # IntRange / FloatRange
-        name += f"[{'' if low is None else low}..{'' if high is None else high}]"
+    return _ranged(name, getattr(param_type, "min", None), getattr(param_type, "max", None))
+
+
+def _annotation_name(annotation: Any, low: Any, high: Any) -> str | None:
+    """A Click-free Typer's parameter type (its Python annotation), worded as ``_type_name`` words
+    the same option, so the snapshot is identical under both. ``None`` for an annotation not known."""
+    origin, args = typing.get_origin(annotation), typing.get_args(annotation)
+    if origin is typing.Literal:
+        return "choice[" + ",".join(str(a) for a in args) + "]"
+    if origin in (typing.Union, types.UnionType):  # `X | None`: an optional option is still an X
+        present = [a for a in args if a is not type(None)]
+        return _annotation_name(present[0], low, high) if len(present) == 1 else None
+    if origin is list and len(args) == 1:  # a repeatable option: Click says the element's type
+        return _annotation_name(args[0], low, high)
+    if origin is not None or not isinstance(annotation, type):
+        return None
+    if issubclass(annotation, enum.Enum):
+        return "choice[" + ",".join(str(member.value) for member in annotation) + "]"
+    if issubclass(annotation, PurePath):
+        return "path"
+    label = _ANNOTATION_LABELS.get(annotation)
+    return None if label is None else _ranged(label, low, high)
+
+
+def _param_type_name(param: Any) -> str:
+    """A parameter's type under either of Typer's object models.
+
+    Up to Typer 0.28 an option is a Click one and carries a ``ParamType`` (``param.type``). From
+    0.29 Typer no longer builds on Click: the option carries a ``type_descriptor`` whose
+    ``annotation`` is the Python type, and its bounds are on the option itself. Anything else is
+    refused by name rather than guessed at: a wrong label would pass for an API change.
+    """
+    legacy = getattr(param, "type", None)
+    if legacy is not None:
+        return _type_name(legacy)
+    descriptor = getattr(param, "type_descriptor", None)
+    if descriptor is None:
+        raise RuntimeError(
+            f"cannot read the type of the option {param.name!r}: this Typer exposes neither "
+            "`.type` (Typer < 0.29) nor `.type_descriptor` (Typer >= 0.29); teach "
+            "scripts/api_surface.py::_param_type_name its object model"
+        )
+    name = _annotation_name(
+        descriptor.annotation, getattr(param, "min", None), getattr(param, "max", None)
+    )
+    if name is None:
+        raise RuntimeError(
+            f"no label for the type {descriptor.annotation!r} of the option {param.name!r}: add it "
+            "to scripts/api_surface.py::_annotation_name, worded as Typer < 0.29 words it (Click's "
+            "class name, lower-cased for a path), so the snapshot is the same under every Typer"
+        )
     return name
 
 
@@ -257,7 +316,7 @@ def _describe_param(param: Any) -> dict[str, Any]:
         "required": bool(param.required),
         "multiple": bool(param.multiple),
         "flag": bool(getattr(param, "is_flag", False)),
-        "type": _type_name(param.type),
+        "type": _param_type_name(param),
         "default": _default_text(param.default),
         "envvar": [envvar] if isinstance(envvar, str) else (list(envvar) if envvar else None),
     }

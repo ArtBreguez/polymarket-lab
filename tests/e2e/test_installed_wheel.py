@@ -28,6 +28,7 @@ PERF_SCRIPT = REPO / "examples" / "perf_budget.py"
 DOC_RUNNER = REPO / "tests" / "e2e" / "run_doc_examples.py"
 WALKTHROUGH = REPO / "tests" / "e2e" / "run_doc_walkthrough.py"
 NOTEBOOK_RUNNER = REPO / "tests" / "e2e" / "run_notebook.py"
+CLI_SURFACE_AUDIT = REPO / "tests" / "e2e" / "audit_cli_surface.py"
 TUTORIAL = REPO / "notebooks" / "tutorial.ipynb"
 OK_LINE = "pmlab e2e (as a user): OK"
 
@@ -647,6 +648,23 @@ def test_every_command_and_option_in_the_snapshot_is_in_the_installed_cli(
         for param in spec["params"]:
             for flag in param["flags"]:
                 assert flag in out, f"`pmlab {command} --help` lost {flag}"
+
+
+def test_the_cli_and_its_surface_reader_work_under_the_typer_pip_resolved(
+    installed: Installed,
+) -> None:
+    """Typer 0.29 dropped Click, and with it the object model ``scripts/api_surface.py`` read the
+    CLI from. The wheel venv installs unpinned dependencies, so it gets the newest Typer: the toy
+    app (one option of every kind) must read the same under it as under the locked one, and the
+    installed ``pmlab`` must still list and run every command."""
+    out = _ok(installed.py(CLI_SURFACE_AUDIT, API_SURFACE))
+    assert out.startswith("audit cli surface: OK "), out
+    typer_version = out.split()[-1]
+    top = _ok(_run([installed.pmlab, "--help"], cwd=installed.workdir, COLUMNS="200"))
+    for command in _snapshot()["cli"]["commands"]:
+        assert command in top, f"`pmlab --help` (Typer {typer_version}) lost {command}"
+    version = _ok(_run([installed.pmlab, "version"], cwd=installed.workdir))
+    assert version.strip() == "pmlab " + _pyproject_version(), f"Typer {typer_version}"
 
 
 def test_a_deprecated_path_warns_the_caller_from_the_installed_wheel(installed: Installed) -> None:
