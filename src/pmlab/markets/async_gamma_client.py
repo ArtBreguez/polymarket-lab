@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from pmlab.markets.fees import FeeSnapshot, fee_fields, first_token_id, resolve_fee_snapshot
 from pmlab.markets.gamma_client import (
     _KEYSET_PATH,
     _MAX_DISCOVERY_PAGES,
@@ -19,9 +21,11 @@ from pmlab.markets.gamma_client import (
     TmaxMarketInfo,
     _as_page,
     _check_page_size,
+    _check_slug,
     _check_tag_id,
     _keyset_refused,
     _KeysetWalk,
+    _market_of_slug,
     _offset_capped,
     _offset_exhausted,
     _retry_delay,
@@ -32,6 +36,10 @@ from pmlab.markets.gamma_client import (
     _warn_tag_matched_nothing,
 )
 from pmlab.markets.tmax_bins import DAILY_TEMPERATURE_TAG_ID
+
+if TYPE_CHECKING:
+    from pmlab.markets.async_clob_client import AsyncClobClient
+    from pmlab.markets.cache import DiskCache
 
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 __all__ = ["AsyncGammaClient"]
@@ -47,11 +55,18 @@ class AsyncGammaClient:
     Args:
         base_url: The Gamma API root.
         timeout: Per-request timeout, in seconds.
+        cache: Optional `DiskCache` for ``fetch_fee_snapshot``; an entry lives for the cache's TTL.
     """
 
-    def __init__(self, base_url: str = GAMMA_API_BASE, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str = GAMMA_API_BASE,
+        timeout: float = 30.0,
+        cache: DiskCache | None = None,
+    ) -> None:
         self.base_url = base_url
         self._client = httpx.AsyncClient(timeout=timeout)
+        self._cache = cache
 
     async def fetch_markets(
         self,
@@ -88,6 +103,61 @@ class AsyncGammaClient:
             kw_lower = keyword.lower()
             markets = [m for m in markets if kw_lower in m.get("question", "").lower()]
         return markets
+
+    async def fetch_fee_snapshot(
+        self,
+        slug: str,
+        *,
+        category: str | None = None,
+        clob: AsyncClobClient | None = None,
+    ) -> FeeSnapshot:
+        """The fee schedule of the market with this slug, as it is on Gamma now.
+
+        The same as `GammaClient.fetch_fee_snapshot`, with an `AsyncClobClient` for the optional
+        ``base_fee`` check: Gamma's ``feeSchedule`` is the schedule, a ``base_fee`` that disagrees
+        on whether a fee is charged only warns (naming the market), and the category default
+        stands in only when Gamma gives no schedule (see `resolve_fee_snapshot`).
+
+        Args:
+            slug: The market's slug.
+            category: The category whose default is the fallback if Gamma gives no schedule
+                (``"weather"``, ``"sports"``).
+            clob: An `AsyncClobClient` to read ``base_fee`` with, or ``None`` to skip that check.
+
+        Returns:
+            The snapshot, seen now.
+
+        Raises:
+            LookupError: If Gamma has no market with that slug.
+            ValueError: If ``slug`` is not a non-empty string, Gamma's reply is not a list of
+                markets, or a fallback is needed and ``category`` is missing or unknown.
+            httpx.HTTPStatusError: If Gamma answers with an error status.
+        """
+        _check_slug(slug)
+        entry = await self._fee_entry(slug)
+        market = entry["market"]
+        token = first_token_id(market)
+        base_fee = await clob.fetch_fee_rate(token) if clob is not None and token else None
+        return resolve_fee_snapshot(
+            market, base_fee=base_fee, category=category, seen_at=entry["seen_at"]
+        )
+
+    async def _fee_entry(self, slug: str) -> dict[str, Any]:
+        """``{"seen_at": ISO, "market": the fee keys of the market}``, from the cache or Gamma."""
+        key = f"gamma:fee-market:{slug}"
+        if self._cache is not None:
+            cached = self._cache.get(key)
+            if isinstance(cached, dict) and "seen_at" in cached and "market" in cached:
+                return cached
+        resp = await self._send("/markets", {"slug": slug}, slug)
+        resp.raise_for_status()
+        entry = {
+            "seen_at": datetime.now(UTC).isoformat(),
+            "market": fee_fields(_market_of_slug(resp.json(), slug)),
+        }
+        if self._cache is not None:
+            self._cache.set(key, entry)
+        return entry
 
     async def _send(self, path: str, params: dict[str, Any], label: str) -> httpx.Response:
         """GET *path*; a timeout, a connection cut mid-request, a 408, 429 or 5xx is retried with

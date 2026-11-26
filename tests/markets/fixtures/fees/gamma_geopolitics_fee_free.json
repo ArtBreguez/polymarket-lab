@@ -1,0 +1,15 @@
+{
+  "active": true,
+  "clobTokenIds": "[\"350977769852917329387037893294763093471844346281449484439085576212613048126\", \"87073899845581463485186346288398658568334162612963837182986759797304993556208\"]",
+  "closed": false,
+  "conditionId": "0x6bd56627aa21311850825edb27e53434a0e17a4f782be0086bc07f71eee00d0d",
+  "endDate": "2027-01-01T04:59:00Z",
+  "feeType": null,
+  "feesEnabled": false,
+  "groupItemTitle": "December 31, 2026",
+  "id": "560317",
+  "outcomePrices": "[\"0.0185\", \"0.9815\"]",
+  "outcomes": "[\"Yes\", \"No\"]",
+  "question": "Putin out as President of Russia by December 31, 2026?",
+  "slug": "putin-out-before-2027-346"
+}

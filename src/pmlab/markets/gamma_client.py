@@ -10,15 +10,17 @@ import time
 from collections.abc import Generator
 from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from pmlab.markets.fees import FeeSnapshot, fee_fields, first_token_id, resolve_fee_snapshot
 from pmlab.markets.tmax_bins import DAILY_TEMPERATURE_TAG_ID, PerBinGroup, PerBinGrouper
 
 if TYPE_CHECKING:
     from pmlab.markets.cache import DiskCache
+    from pmlab.markets.clob_client import ClobClient
 
 # ---------------------------------------------------------------------------
 # Tmax market filtering constants
@@ -326,6 +328,20 @@ def _check_tag_id(tag_id: Any) -> None:
         return
     if isinstance(tag_id, bool) or not isinstance(tag_id, int) or tag_id < 1:
         raise ValueError(f"tag_id must be a positive int (or None for no scope), got {tag_id!r}")
+
+
+def _check_slug(slug: Any) -> None:
+    if not isinstance(slug, str) or not slug.strip():
+        raise ValueError(f"slug must be a non-empty string, got {slug!r}")
+
+
+def _market_of_slug(payload: Any, slug: str) -> dict[str, Any]:
+    """The market named ``slug`` in a ``/markets?slug=`` reply: ``LookupError`` if there is none,
+    ``ValueError`` (as for any page) if the reply is not a list of markets."""
+    for market in _as_page(payload):
+        if isinstance(market, dict) and market.get("slug") == slug:
+            return market
+    raise LookupError(f"Gamma has no market with slug {slug!r}")
 
 
 def _warn_tag_matched_nothing(where: str, params: dict[str, Any]) -> None:
@@ -637,6 +653,65 @@ class GammaClient:
             all_markets = [m for m in all_markets if kw_lower in m.get("question", "").lower()]
 
         return all_markets[:max_results]
+
+    def fetch_fee_snapshot(
+        self,
+        slug: str,
+        *,
+        category: str | None = None,
+        clob: ClobClient | None = None,
+    ) -> FeeSnapshot:
+        """The fee schedule of the market with this slug, as it is on Gamma now.
+
+        Reads the market (``GET /markets?slug=``) and its ``feesEnabled``, ``feeSchedule`` and
+        ``feeType`` (see `resolve_fee_snapshot` for what they mean and when the category default
+        stands in). With a *clob* client it also asks CLOB's ``/fee-rate`` for the market's first
+        token and checks that the two agree on whether a fee is charged: when they do not, Gamma's
+        schedule wins and a warning names the market. With a ``cache``, the market is read once per
+        TTL and the snapshot keeps the moment it was first read (so asking again inside the TTL is
+        the same snapshot, and `FeeScheduleStore.record` ignores the repeat).
+
+        Args:
+            slug: The market's slug.
+            category: The category whose default is the fallback if Gamma gives no schedule
+                (``"weather"``, ``"sports"``); see `resolve_fee_snapshot`.
+            clob: A `ClobClient` to read ``base_fee`` with, or ``None`` to skip that check.
+
+        Returns:
+            The snapshot, seen now.
+
+        Raises:
+            LookupError: If Gamma has no market with that slug.
+            ValueError: If ``slug`` is not a non-empty string, Gamma's reply is not a list of
+                markets, or a fallback is needed and ``category`` is missing or unknown.
+            httpx.HTTPStatusError: If Gamma answers with an error status (after the retries
+                `fetch_markets_all` makes).
+        """
+        _check_slug(slug)
+        entry = self._fee_entry(slug)
+        market = entry["market"]
+        token = first_token_id(market)
+        base_fee = clob.fetch_fee_rate(token) if clob is not None and token else None
+        return resolve_fee_snapshot(
+            market, base_fee=base_fee, category=category, seen_at=entry["seen_at"]
+        )
+
+    def _fee_entry(self, slug: str) -> dict[str, Any]:
+        """``{"seen_at": ISO, "market": the fee keys of the market}``, from the cache or Gamma."""
+        key = f"gamma:fee-market:{slug}"
+        if self._cache is not None:
+            cached = self._cache.get(key)
+            if isinstance(cached, dict) and "seen_at" in cached and "market" in cached:
+                return cached
+        resp = self._send(_OFFSET_PATH, {"slug": slug}, slug)
+        resp.raise_for_status()
+        entry = {
+            "seen_at": datetime.now(UTC).isoformat(),
+            "market": fee_fields(_market_of_slug(resp.json(), slug)),
+        }
+        if self._cache is not None:
+            self._cache.set(key, entry)
+        return entry
 
     def _send(self, path: str, params: dict[str, Any], label: str) -> httpx.Response:
         """GET *path*; a timeout, a connection cut mid-request, a 408, 429 or 5xx is retried with

@@ -1192,13 +1192,18 @@
             "kind": "method",
             "signature": "(self) -> None"
           },
+          "fetch_fee_rate": {
+            "async": true,
+            "kind": "method",
+            "signature": "(self, token_id: str) -> int | None"
+          },
           "fetch_prices": {
             "async": true,
             "kind": "method",
             "signature": "(self, token_ids: list[str]) -> dict[str, float]"
           }
         },
-        "signature": "(base_url: str = 'https://clob.polymarket.com', timeout: float = 15.0, concurrency: int = 10) -> None"
+        "signature": "(base_url: str = 'https://clob.polymarket.com', timeout: float = 15.0, concurrency: int = 10, cache: DiskCache | None = None) -> None"
       },
       "AsyncGammaClient": {
         "bases": [],
@@ -1214,13 +1219,18 @@
             "kind": "method",
             "signature": "(self, page_size: int = 100, active: bool = True, *, tag_id: int | None = 103040) -> list[TmaxMarketInfo]"
           },
+          "fetch_fee_snapshot": {
+            "async": true,
+            "kind": "method",
+            "signature": "(self, slug: str, *, category: str | None = None, clob: AsyncClobClient | None = None) -> FeeSnapshot"
+          },
           "fetch_markets": {
             "async": true,
             "kind": "method",
             "signature": "(self, tag: str | None = None, keyword: str | None = None, limit: int = 100, active: bool = True, closed: bool = False) -> list[dict[str, Any]]"
           }
         },
-        "signature": "(base_url: str = 'https://gamma-api.polymarket.com', timeout: float = 30.0) -> None"
+        "signature": "(base_url: str = 'https://gamma-api.polymarket.com', timeout: float = 30.0, cache: DiskCache | None = None) -> None"
       },
       "BacktestConfig": {
         "bases": [],
@@ -1410,12 +1420,16 @@
             "kind": "method",
             "signature": "(self) -> None"
           },
+          "fetch_fee_rate": {
+            "kind": "method",
+            "signature": "(self, token_id: str) -> int | None"
+          },
           "fetch_prices": {
             "kind": "method",
             "signature": "(self, token_ids: list[str]) -> dict[str, float]"
           }
         },
-        "signature": "(base_url: str = 'https://clob.polymarket.com', timeout: float = 15.0) -> None"
+        "signature": "(base_url: str = 'https://clob.polymarket.com', timeout: float = 15.0, cache: DiskCache | None = None) -> None"
       },
       "ConformalForecaster": {
         "bases": [
@@ -1702,6 +1716,49 @@
         },
         "signature": "(rate: float, exponent: float = 1.0, taker_only: bool = True, rebate_rate: float = 0.0, enabled: bool = True, maker_rate: float | None = None, rounding: Literal['nearest', 'up', 'down'] = 'nearest', rounding_unit: float = 1e-05, rounding_scope: Literal['fill', 'order'] = 'fill') -> None"
       },
+      "FeeScheduleStore": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "as_of": {
+            "kind": "method",
+            "signature": "(self, cutoff: datetime | date | str, market_ids: Iterable[str] | None = None) -> dict[str, FeeSnapshot]"
+          },
+          "history": {
+            "kind": "method",
+            "signature": "(self, market_id: str) -> list[FeeSnapshot]"
+          },
+          "record": {
+            "kind": "method",
+            "signature": "(self, snapshots: Iterable[FeeSnapshot]) -> int"
+          },
+          "root": {
+            "kind": "property"
+          }
+        },
+        "signature": "(root: Path | str) -> None"
+      },
+      "FeeSnapshot": {
+        "bases": [],
+        "kind": "class",
+        "members": {
+          "fallback": {
+            "kind": "property"
+          },
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> FeeSnapshot"
+          },
+          "seen_on": {
+            "kind": "property"
+          },
+          "to_dict": {
+            "kind": "method",
+            "signature": "(self) -> dict[str, Any]"
+          }
+        },
+        "signature": "(market_id: str, seen_at: datetime, schedule: FeeSchedule, source: FeeSource, slug: str | None = None, fee_type: str | None = None, base_fee: int | None = None, category: str | None = None) -> None"
+      },
       "FittedTargetEncoder": {
         "bases": [],
         "kind": "class",
@@ -1724,6 +1781,10 @@
           "discover_tmax_markets": {
             "kind": "method",
             "signature": "(self, page_size: int = 100, active: bool = True, *, tag_id: int | None = 103040) -> list[TmaxMarketInfo]"
+          },
+          "fetch_fee_snapshot": {
+            "kind": "method",
+            "signature": "(self, slug: str, *, category: str | None = None, clob: ClobClient | None = None) -> FeeSnapshot"
           },
           "fetch_markets": {
             "kind": "method",
@@ -2664,6 +2725,10 @@
       "resettle_trades": {
         "kind": "function",
         "signature": "(trades: Sequence[Mapping[str, Any]], *, now_utc: datetime) -> ResettleResult"
+      },
+      "resolve_fee_snapshot": {
+        "kind": "function",
+        "signature": "(market: Mapping[str, Any], *, base_fee: int | None = None, category: str | None = None, seen_at: datetime | date | str | None = None) -> FeeSnapshot"
       },
       "resolve_seeds": {
         "kind": "function",
