@@ -3,11 +3,13 @@
 Standalone (public names only, no repo imports; needs the network):  python audit_fee_schedule_live.py
 Prints ``audit fee schedule live: OK`` and exits 0, or lists every check that failed and exits 1.
 
-Read-only GETs, about ten: one page of the newest active markets to find a market that charges a fee,
-Gamma's ``geopolitics`` tag to find one that does not, then ``/markets?slug=`` and CLOB's
-``/fee-rate`` for each, sync and async. It is the check that what ``base_fee`` means (a flag: 1000
-where a fee is charged, 0 where not, never the rate) is still what Polymarket serves: if CLOB and
-Gamma stop agreeing on whether a fee is charged, ``fetch_fee_snapshot`` warns and this audit fails.
+Read-only GETs, about a dozen: one page of the newest active markets to find a market that charges a
+fee, Gamma's ``geopolitics`` tag to find one that does not, one page of the newest closed markets to
+find a closed one, then ``/markets/slug/{slug}`` and CLOB's ``/fee-rate`` for each, sync and async.
+It is the check that what ``base_fee`` means (a flag: 1000 where a fee is charged, 0 where not, never
+the rate) is still what Polymarket serves: if CLOB and Gamma stop agreeing on whether a fee is
+charged, ``fetch_fee_snapshot`` warns and this audit fails. It is also the check that a *closed*
+market is read: ``/markets?slug=`` lists open markets only and answers ``[]`` for a closed one.
 """
 
 from __future__ import annotations
@@ -85,7 +87,23 @@ def _find() -> tuple[str, str | None]:
     return charging, free
 
 
+def _find_closed() -> str:
+    """The slug of the newest closed market that carries a fee schedule."""
+    newest = _page(
+        {"limit": 100, "closed": "true", "order": "id", "ascending": "false"}, "/markets"
+    )
+    return next(
+        m["slug"]
+        for m in newest
+        if m.get("closed") is True
+        and m.get("feesEnabled") is True
+        and isinstance(m.get("feeSchedule"), dict)
+        and _has_tokens(m)
+    )
+
+
 SLUGS = _find()
+CLOSED = _find_closed()
 WARNINGS = _Warnings()
 logging.getLogger("pmlab").addHandler(WARNINGS)
 
@@ -134,6 +152,21 @@ def the_async_clients_read_the_same_schedule() -> None:
     with_clob, without_clob = asyncio.run(both())
     assert with_clob.schedule == without_clob.schedule == sync.schedule, (with_clob, sync)
     assert with_clob.base_fee == sync.base_fee and without_clob.base_fee is None
+
+
+@check
+def a_closed_market_is_read_by_both_clients() -> None:
+    async def read() -> pmlab.FeeSnapshot:
+        async with AsyncGammaClient() as gamma:
+            return await gamma.fetch_fee_snapshot(CLOSED)
+
+    before = len(WARNINGS.messages)
+    with GammaClient() as gamma:
+        snap = gamma.fetch_fee_snapshot(CLOSED)
+    assert snap.source == "gamma" and not snap.fallback and snap.slug == CLOSED, snap
+    assert snap.schedule.enabled and 0.0 < snap.schedule.rate < 1.0 and snap.fee_type, snap
+    assert asyncio.run(read()).schedule == snap.schedule
+    _no_new_warnings(before)
 
 
 @check

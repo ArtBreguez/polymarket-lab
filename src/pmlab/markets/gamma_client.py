@@ -12,6 +12,7 @@ from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 import httpx
 
@@ -95,6 +96,7 @@ _MAX_DISCOVERY_PAGES = 1000
 # that does not know the keyset endpoint (and live Gamma refuses it from offset 2100).
 _KEYSET_PATH = "/markets/keyset"
 _OFFSET_PATH = "/markets"
+_SLUG_PATH = "/markets/slug/"
 # One page is asked for up to this many times (the first try included) before its failure is
 # raised: a 429 or a 5xx on page 40 should not cost the 39 pages before it.
 _RETRY_ATTEMPTS = 5
@@ -335,13 +337,36 @@ def _check_slug(slug: Any) -> None:
         raise ValueError(f"slug must be a non-empty string, got {slug!r}")
 
 
-def _market_of_slug(payload: Any, slug: str) -> dict[str, Any]:
-    """The market named ``slug`` in a ``/markets?slug=`` reply: ``LookupError`` if there is none,
-    ``ValueError`` (as for any page) if the reply is not a list of markets."""
-    for market in _as_page(payload):
-        if isinstance(market, dict) and market.get("slug") == slug:
-            return market
-    raise LookupError(f"Gamma has no market with slug {slug!r}")
+def _slug_path(slug: str) -> str:
+    """The path that serves one market by slug, the slug percent-encoded as a single segment."""
+    return f"{_SLUG_PATH}{quote(slug, safe='')}"
+
+
+def _market_of_slug(resp: httpx.Response, slug: str) -> dict[str, Any]:
+    """The market in a ``GET /markets/slug/{slug}`` reply.
+
+    This route serves a market whatever its state. ``GET /markets?slug=`` does not: it lists open
+    markets only and answers ``[]`` (HTTP 200) for a closed one, which is how a market that exists
+    looked like one that does not (checked on live Gamma, 2026-11-26).
+
+    Raises:
+        LookupError: If Gamma answers 404 (``slug not found``), or with a market of another slug.
+        httpx.HTTPStatusError: For any other error status (422 ``slug is invalid``, for one).
+        ValueError: If the reply is not a JSON object.
+    """
+    if resp.status_code == 404:
+        raise LookupError(f"Gamma has no market with slug {slug!r}")
+    resp.raise_for_status()
+    payload = resp.json()
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Gamma {_SLUG_PATH}{{slug}} returned a {type(payload).__name__}, not a market object"
+        )
+    if payload.get("slug") != slug:
+        raise LookupError(
+            f"Gamma has no market with slug {slug!r} (it answered {payload.get('slug')!r})"
+        )
+    return payload
 
 
 def _warn_tag_matched_nothing(where: str, params: dict[str, Any]) -> None:
@@ -663,13 +688,16 @@ class GammaClient:
     ) -> FeeSnapshot:
         """The fee schedule of the market with this slug, as it is on Gamma now.
 
-        Reads the market (``GET /markets?slug=``) and its ``feesEnabled``, ``feeSchedule`` and
-        ``feeType`` (see `resolve_fee_snapshot` for what they mean and when the category default
-        stands in). With a *clob* client it also asks CLOB's ``/fee-rate`` for the market's first
-        token and checks that the two agree on whether a fee is charged: when they do not, Gamma's
-        schedule wins and a warning names the market. With a ``cache``, the market is read once per
-        TTL and the snapshot keeps the moment it was first read (so asking again inside the TTL is
-        the same snapshot, and `FeeScheduleStore.record` ignores the repeat).
+        Reads the market (``GET /markets/slug/{slug}``, which serves open and closed markets alike)
+        and its ``feesEnabled``, ``feeSchedule`` and ``feeType`` (see `resolve_fee_snapshot` for
+        what they mean and when the category default stands in). For a closed market that is the
+        schedule Gamma still carries today, seen now: it says nothing about what the market charged
+        when it traded, so a backtest needs a snapshot taken then (`FeeScheduleStore`). With a
+        *clob* client it also asks CLOB's ``/fee-rate`` for the market's first token and checks that
+        the two agree on whether a fee is charged: when they do not, Gamma's schedule wins and a
+        warning names the market. With a ``cache``, the market is read once per TTL and the snapshot
+        keeps the moment it was first read (so asking again inside the TTL is the same snapshot, and
+        `FeeScheduleStore.record` ignores the repeat).
 
         Args:
             slug: The market's slug.
@@ -681,11 +709,11 @@ class GammaClient:
             The snapshot, seen now.
 
         Raises:
-            LookupError: If Gamma has no market with that slug.
-            ValueError: If ``slug`` is not a non-empty string, Gamma's reply is not a list of
-                markets, or a fallback is needed and ``category`` is missing or unknown.
-            httpx.HTTPStatusError: If Gamma answers with an error status (after the retries
-                `fetch_markets_all` makes).
+            LookupError: If Gamma has no market with that slug (it answers 404).
+            ValueError: If ``slug`` is not a non-empty string, Gamma's reply is not a market object,
+                or a fallback is needed and ``category`` is missing or unknown.
+            httpx.HTTPStatusError: If Gamma answers with another error status (after the retries
+                `fetch_markets_all` makes; 422 for a slug that cannot be one).
         """
         _check_slug(slug)
         entry = self._fee_entry(slug)
@@ -703,11 +731,10 @@ class GammaClient:
             cached = self._cache.get(key)
             if isinstance(cached, dict) and "seen_at" in cached and "market" in cached:
                 return cached
-        resp = self._send(_OFFSET_PATH, {"slug": slug}, slug)
-        resp.raise_for_status()
+        resp = self._send(_slug_path(slug), {}, slug)
         entry = {
             "seen_at": datetime.now(UTC).isoformat(),
-            "market": fee_fields(_market_of_slug(resp.json(), slug)),
+            "market": fee_fields(_market_of_slug(resp, slug)),
         }
         if self._cache is not None:
             self._cache.set(key, entry)

@@ -1319,9 +1319,10 @@ def test_fee_schedules_are_read_from_the_live_endpoints_in_the_wheel(installed: 
     market (found on Gamma's newest active page) has its ``feeSchedule`` from Gamma, and CLOB's
     ``/fee-rate`` ``base_fee`` is a positive flag that agrees with it (no warning), never the rate;
     a live fee-free geopolitics market has ``feesEnabled: false`` and a ``base_fee`` of 0; the async
-    clients read the same schedule; inside the cache's TTL the snapshot is the first sighting and
-    ``FeeScheduleStore`` keeps it once and shows it only strictly after it was seen; an unknown slug
-    is a ``LookupError``."""
+    clients read the same schedule; a *closed* market is read by both (``/markets?slug=`` lists open
+    markets only and answers ``[]`` for a closed one); inside the cache's TTL the snapshot is the
+    first sighting and ``FeeScheduleStore`` keeps it once and shows it only strictly after it was
+    seen; an unknown slug is a ``LookupError``."""
     out = _ok(installed.py(FEE_LIVE_AUDIT))
     assert "FAIL" not in out, out
-    assert f"audit fee schedule live: OK (5 checks, pmlab {_pyproject_version()})" in out
+    assert f"audit fee schedule live: OK (6 checks, pmlab {_pyproject_version()})" in out

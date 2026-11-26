@@ -29,6 +29,7 @@ from pmlab.markets.gamma_client import (
     _offset_capped,
     _offset_exhausted,
     _retry_delay,
+    _slug_path,
     _TmaxCollector,
     _unseen,
     _warn_keyset_refused,
@@ -113,7 +114,8 @@ class AsyncGammaClient:
     ) -> FeeSnapshot:
         """The fee schedule of the market with this slug, as it is on Gamma now.
 
-        The same as `GammaClient.fetch_fee_snapshot`, with an `AsyncClobClient` for the optional
+        The same as `GammaClient.fetch_fee_snapshot` (``GET /markets/slug/{slug}``, so a closed
+        market is read too), with an `AsyncClobClient` for the optional
         ``base_fee`` check: Gamma's ``feeSchedule`` is the schedule, a ``base_fee`` that disagrees
         on whether a fee is charged only warns (naming the market), and the category default
         stands in only when Gamma gives no schedule (see `resolve_fee_snapshot`).
@@ -128,10 +130,11 @@ class AsyncGammaClient:
             The snapshot, seen now.
 
         Raises:
-            LookupError: If Gamma has no market with that slug.
-            ValueError: If ``slug`` is not a non-empty string, Gamma's reply is not a list of
-                markets, or a fallback is needed and ``category`` is missing or unknown.
-            httpx.HTTPStatusError: If Gamma answers with an error status.
+            LookupError: If Gamma has no market with that slug (it answers 404).
+            ValueError: If ``slug`` is not a non-empty string, Gamma's reply is not a market object,
+                or a fallback is needed and ``category`` is missing or unknown.
+            httpx.HTTPStatusError: If Gamma answers with another error status (422 for a slug that
+                cannot be one).
         """
         _check_slug(slug)
         entry = await self._fee_entry(slug)
@@ -149,11 +152,10 @@ class AsyncGammaClient:
             cached = self._cache.get(key)
             if isinstance(cached, dict) and "seen_at" in cached and "market" in cached:
                 return cached
-        resp = await self._send("/markets", {"slug": slug}, slug)
-        resp.raise_for_status()
+        resp = await self._send(_slug_path(slug), {}, slug)
         entry = {
             "seen_at": datetime.now(UTC).isoformat(),
-            "market": fee_fields(_market_of_slug(resp.json(), slug)),
+            "market": fee_fields(_market_of_slug(resp, slug)),
         }
         if self._cache is not None:
             self._cache.set(key, entry)
