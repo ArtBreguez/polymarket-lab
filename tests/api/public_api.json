@@ -1757,7 +1757,7 @@
             "signature": "(self) -> dict[str, Any]"
           }
         },
-        "signature": "(market_id: str, seen_at: datetime, schedule: FeeSchedule, source: FeeSource, slug: str | None = None, fee_type: str | None = None, base_fee: int | None = None, category: str | None = None) -> None"
+        "signature": "(market_id: str, seen_at: datetime, schedule: FeeSchedule, source: Literal['gamma', 'clob', 'category_default'], slug: str | None = None, fee_type: str | None = None, base_fee: int | None = None, category: str | None = None) -> None"
       },
       "FittedTargetEncoder": {
         "bases": [],

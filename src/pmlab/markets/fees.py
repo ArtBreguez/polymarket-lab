@@ -61,9 +61,11 @@ if TYPE_CHECKING:
 
 __all__ = ["FeeScheduleStore", "FeeSnapshot", "parse_fee_rate", "resolve_fee_snapshot"]
 
+# Where a snapshot's schedule came from: Gamma's ``feeSchedule`` (or its ``feesEnabled: false``), CLOB's
+# ``base_fee`` of 0 when Gamma said nothing, or the category default (a fallback). `FeeSnapshot.source`
+# spells the three out instead of naming this alias: the alias is not a public name, and a public
+# signature that names one nobody can import cannot be annotated against.
 FeeSource = Literal["gamma", "clob", "category_default"]
-"""Where a snapshot's schedule came from: Gamma's ``feeSchedule`` (or its ``feesEnabled: false``),
-CLOB's ``base_fee`` of 0 when Gamma said nothing, or the category default (a fallback)."""
 
 # The Gamma keys a fee is read from; the cache keeps these and nothing else of a market.
 _FEE_MARKET_KEYS = (
@@ -132,7 +134,7 @@ class FeeSnapshot:
     market_id: str
     seen_at: datetime
     schedule: FeeSchedule
-    source: FeeSource
+    source: Literal["gamma", "clob", "category_default"]
     slug: str | None = None
     fee_type: str | None = None
     base_fee: int | None = None
