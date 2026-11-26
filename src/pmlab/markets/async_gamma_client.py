@@ -56,7 +56,10 @@ class AsyncGammaClient:
     Args:
         base_url: The Gamma API root.
         timeout: Per-request timeout, in seconds.
-        cache: Optional `DiskCache` for ``fetch_fee_snapshot``; an entry lives for the cache's TTL.
+        cache: Optional `DiskCache` for ``fetch_fee_snapshot``; an entry lives for the cache's own
+            TTL (`DiskCache` defaults to one hour; ``PMLAB_CACHE_TTL`` is not read here). Keys
+            carry the slug, not ``base_url``: give a staging and a production client each its own
+            cache directory.
     """
 
     def __init__(

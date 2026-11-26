@@ -556,7 +556,16 @@ def fetch_gamma_markets(
 
 
 class GammaClient:
-    """Stateful Gamma API client with optional TTL disk cache."""
+    """Stateful Gamma API client with optional TTL disk cache.
+
+    Args:
+        base_url: The Gamma API root.
+        timeout: Per-request timeout, in seconds.
+        cache: Optional `DiskCache` for ``fetch_markets`` and ``fetch_fee_snapshot``; an entry
+            lives for the cache's own TTL (`DiskCache` defaults to one hour; ``PMLAB_CACHE_TTL``
+            is not read here). Keys carry the query or the slug, not ``base_url``: give a staging
+            and a production client each its own cache directory.
+    """
 
     def __init__(
         self,

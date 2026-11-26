@@ -237,6 +237,19 @@ def test_the_guide_pages_run_as_written_from_the_installed_wheel(installed: Inst
     assert "14.29 shares" in sizing and "0.1154 of the bankroll" in sizing and "25.0 USDC" in sizing
 
 
+def test_the_market_data_page_runs_as_written_from_the_installed_wheel(
+    installed: Installed,
+) -> None:
+    """``docs/reference/markets.md``: the fee-schedule example, from the built wheel, prints what the
+    page shows (a snapshot from a Gamma market object, kept in a ``FeeScheduleStore``)."""
+    page = REPO / "docs" / "reference" / "markets.md"
+    out = _ok(
+        installed.py(WALKTHROUGH, page, "--cwd", installed.workdir / "markets-page", "--session")
+    )
+    assert "FAIL" not in out and "1/1 blocks ran" in out
+    assert "0.01 gamma False" in out and "['2247194'] {}" in out
+
+
 def test_the_package_description_is_the_readme_and_renders_on_pypi(installed: Installed) -> None:
     """PyPI shows the wheel's long description. It must be the README, and `twine check --strict`
     (which renders it with the library PyPI uses) must pass."""

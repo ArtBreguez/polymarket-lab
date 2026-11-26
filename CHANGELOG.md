@@ -25,32 +25,44 @@ and `AsyncGammaClient` gain a trailing `cache=None`).
   (`py-clob-client` `client.py` lines 450-458 and 476-490), the v2 clients ask for it only for a v1
   order and take a v2 order's fee from the market's rate and exponent (`py-clob-client-v2` `fees.py`
   line 31), and the v2 exchange has no fee-rate field in an order at all. The sources, with commits
-  and lines, are in the docs of `pmlab.markets.fees`.
+  and lines, are on the market data clients page of the docs ("Where `base_fee` comes from") and in
+  the docstring of `pmlab.markets.fees`.
 - **`resolve_fee_snapshot(market, base_fee=, category=, seen_at=)` returns a `FeeSnapshot`**: the
   schedule of a Gamma market object (`feesEnabled`, `feeType`, `feeSchedule {rate, exponent,
   takerOnly, rebateRate}`) as a `FeeSchedule`, with where it came from (`source`: `"gamma"`,
   `"clob"` or `"category_default"`), `fee_type`, `base_fee` and the moment it was seen. No network.
   Gamma's schedule wins: when `base_fee` and Gamma disagree on whether a fee is charged, a warning
-  names the market and Gamma's answer stands. `feesEnabled: false` is an answer (the market is
+  names the market and Gamma's answer stands; a category default that `base_fee` contradicts
+  (`feesEnabled` true with no readable schedule, CLOB 0) is kept and warned about the same way.
+  `FeeSnapshot.source` is typed `Literal["gamma", "clob", "category_default"]` in the signature.
+  `feesEnabled: false` is an answer (the market is
   fee-free whatever its category charges). Only when Gamma says nothing usable is the 1.2.0
   category default used, and the snapshot says so (`fallback`, `category`); that needs a `category`
   and raises `ValueError`, naming the market, without one.
 - **`GammaClient.fetch_fee_snapshot(slug, category=, clob=)` and its async twin**, and
   **`ClobClient.fetch_fee_rate(token_id)` and its async twin.** The first reads the market by slug
-  and, given a CLOB client, checks `base_fee` of its first token against the schedule. A request that
+  (`GET /markets/slug/{slug}`, which serves closed markets too: `GET /markets?slug=` lists open
+  markets only and answers `[]` for a closed one, so the market that exists looked unknown; a 404 is
+  the `LookupError`) and, given a CLOB client, checks `base_fee` of its first token against the
+  schedule. For a closed market it is the schedule Gamma still carries, seen now. A request that
   fails, or a reply with no usable `base_fee`, is unknown (`None`, never 0: the official clients read
   a missing `base_fee` as 0, which would make a reply that says nothing look fee-free).
 - **`cache=` on `ClobClient`, `AsyncClobClient` and `AsyncGammaClient`** (`GammaClient` had it): a
   `DiskCache` holds the market's fee fields and each token's `base_fee` for the cache's TTL. The
   snapshot keeps the moment the market was first read, so asking again inside the TTL returns the
-  same snapshot. A failure is never cached.
+  same snapshot. A failure is never cached. The TTL is the cache's own (`DiskCache` defaults to one
+  hour; the clients do not read `PMLAB_CACHE_TTL`) and the keys do not carry the host, so a staging
+  and a production client need separate cache directories.
 - **`FeeScheduleStore(root)`**: snapshots kept with the moment they were seen, in the
   `fee_schedules` family of a `FeatureSnapshotStore` (one parquet file; the layout is not a frozen
   format). `as_of(cutoff)` returns, for each market, the latest snapshot seen strictly before the
   cutoff (a date is its midnight, UTC), never a later one, so a backtest prices a trade with the
-  schedule that was known then; `history(market_id)` lists them all, so a fee change shows.
-- Recorded fixtures from the live endpoints (fee-free geopolitics, sports v3, weather, a market with
-  missing fields), and one end-to-end test that reads live Gamma and CLOB from the built wheel.
+  schedule that was known then; `history(market_id)` lists them all, so a fee change shows. A second
+  snapshot for the same market and moment is ignored (the first stays), and a warning names the market
+  when its schedule or source differs from the one kept.
+- Recorded fixtures from the live endpoints (fee-free geopolitics, sports v3, weather, a market that
+  had closed that day, a Jinan bin with gaps, the 404 of an unknown slug), and one end-to-end test
+  that reads live Gamma and CLOB from the built wheel, closed markets included.
 
 ### Not changed
 

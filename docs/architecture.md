@@ -55,7 +55,7 @@ paths such as `pmlab.core.costs` are internal; see [Public API and stability](ap
 | `pmlab.plugins` | `MarketPlugin` (the ABC a family implements), `PluginRegistry`, `WeatherTmaxPlugin` (the reference plugin: temperature markets). `pmlab.plugins.sports_f1` is a skeleton for categorical F1 markets. |
 | `pmlab.features` | `add_lags`, `add_rolling_stats`, `encode_cyclical`, `encode_onehot`, `clip_outliers`, `add_missing_indicators`, `add_interactions`, `TargetEncoder`, `FittedTargetEncoder`. See [Features](features.md). |
 | `pmlab.data` | `FeatureSnapshotStore` (point-in-time), `build_panel`, `build_panel_from_snapshots`, `check_no_leakage`, `check_price_timing`. See [Data layer](data.md). |
-| `pmlab.markets` | `GammaClient`, `ClobClient`, `AsyncGammaClient`, `AsyncClobClient`, `DiskCache`, `TypedCache`. See [Async clients](async-clients.md). |
+| `pmlab.markets` | `GammaClient`, `ClobClient`, `AsyncGammaClient`, `AsyncClobClient`, `DiskCache`, `TypedCache`, and the fee schedule a market carries (`FeeSnapshot`, `resolve_fee_snapshot`, `FeeScheduleStore`; see [Market data clients](reference/markets.md)). See [Async clients](async-clients.md). |
 | `pmlab.backtest` | `rolling_origin_eval`, `compute_metrics`, `BacktestMetrics`, `HoldoutGateResult`, `purged_kfold`, `embargoed_split`. No lookahead. |
 | `pmlab.modeling` | `MarketForecaster` (the interface), `LGBMForecaster`, `SklearnForecaster`, `EnsembleForecaster`, `ConformalForecaster`, `CalibratedForecaster`, `TunedForecaster`, the calibrators, `brier_decomposition`, `ChampionManifest`, `ModelRegistry`. See [Modeling](modeling.md). |
 | `pmlab.execution` | `EdgeSignal`, `PaperBroker`, `SettlementEngine`, `LiveBroker`, `resettle_trades`. |

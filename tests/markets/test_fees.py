@@ -113,7 +113,7 @@ class TestWhatBaseFeeMeans:
     The official clients (py-clob-client ``client.py`` lines 450-458 and 476-490, and the v2 TS
     client's ``getFeeRateBps``) pass it into the signed v1 order; the v2 clients and the v2 exchange
     take the rate from the market's ``fd`` / ``feeSchedule`` instead (``py_clob_client_v2/fees.py``
-    line 31). The citation is in the pull request of #71 and in ``resolve_fee_snapshot``'s docs.
+    line 31). The citations are on the market data clients page of the docs.
     """
 
     def test_it_is_the_same_1000_on_markets_whose_rates_differ_fivefold(self) -> None:
