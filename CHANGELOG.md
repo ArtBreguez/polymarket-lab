@@ -4,6 +4,60 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-11-26
+
+Per-market fee schedules (#71, part of epic #69): pmlab reads the fee a market carries from
+Polymarket instead of assuming one, and keeps what it read together with when it read it. Nothing
+that already ran changes: `CostModel`, the backtests and the brokers still charge the flat 30 bps
+`taker_bps` until #72 wires the schedule in, so no number a user has seen moves.
+
+A minor release: three public names, four methods and one optional parameter are added. The API
+snapshot changes for those and nothing else (the constructors of `ClobClient`, `AsyncClobClient`
+and `AsyncGammaClient` gain a trailing `cache=None`).
+
+### Added
+
+- **`base_fee` is a flag, not the rate.** CLOB's `GET /fee-rate?token_id=` answers `{"base_fee":
+  1000}`; that is the `feeRateBps` of a v1 order, in basis points, and it is 1000 on every market that
+  charges a fee (Gamma `rate` 0.01 and 0.05 alike, six `feeType` values sampled on 2026-11-26) and 0
+  on one that does not. So `rate` is never `base_fee / 10_000`: that 0.10 would make a 0.05 market
+  twice and a 0.01 market ten times too dear. The official clients pass it into the signed v1 order
+  (`py-clob-client` `client.py` lines 450-458 and 476-490), the v2 clients ask for it only for a v1
+  order and take a v2 order's fee from the market's rate and exponent (`py-clob-client-v2` `fees.py`
+  line 31), and the v2 exchange has no fee-rate field in an order at all. The sources, with commits
+  and lines, are in the docs of `pmlab.markets.fees`.
+- **`resolve_fee_snapshot(market, base_fee=, category=, seen_at=)` returns a `FeeSnapshot`**: the
+  schedule of a Gamma market object (`feesEnabled`, `feeType`, `feeSchedule {rate, exponent,
+  takerOnly, rebateRate}`) as a `FeeSchedule`, with where it came from (`source`: `"gamma"`,
+  `"clob"` or `"category_default"`), `fee_type`, `base_fee` and the moment it was seen. No network.
+  Gamma's schedule wins: when `base_fee` and Gamma disagree on whether a fee is charged, a warning
+  names the market and Gamma's answer stands. `feesEnabled: false` is an answer (the market is
+  fee-free whatever its category charges). Only when Gamma says nothing usable is the 1.2.0
+  category default used, and the snapshot says so (`fallback`, `category`); that needs a `category`
+  and raises `ValueError`, naming the market, without one.
+- **`GammaClient.fetch_fee_snapshot(slug, category=, clob=)` and its async twin**, and
+  **`ClobClient.fetch_fee_rate(token_id)` and its async twin.** The first reads the market by slug
+  and, given a CLOB client, checks `base_fee` of its first token against the schedule. A request that
+  fails, or a reply with no usable `base_fee`, is unknown (`None`, never 0: the official clients read
+  a missing `base_fee` as 0, which would make a reply that says nothing look fee-free).
+- **`cache=` on `ClobClient`, `AsyncClobClient` and `AsyncGammaClient`** (`GammaClient` had it): a
+  `DiskCache` holds the market's fee fields and each token's `base_fee` for the cache's TTL. The
+  snapshot keeps the moment the market was first read, so asking again inside the TTL returns the
+  same snapshot. A failure is never cached.
+- **`FeeScheduleStore(root)`**: snapshots kept with the moment they were seen, in the
+  `fee_schedules` family of a `FeatureSnapshotStore` (one parquet file; the layout is not a frozen
+  format). `as_of(cutoff)` returns, for each market, the latest snapshot seen strictly before the
+  cutoff (a date is its midnight, UTC), never a later one, so a backtest prices a trade with the
+  schedule that was known then; `history(market_id)` lists them all, so a fee change shows.
+- Recorded fixtures from the live endpoints (fee-free geopolitics, sports v3, weather, a market with
+  missing fields), and one end-to-end test that reads live Gamma and CLOB from the built wheel.
+
+### Not changed
+
+- No default number: nothing reads a `FeeSnapshot` yet (#72).
+- `category_fee_schedule` and the category table stay internal to `pmlab.core.fee_schedule`; the
+  `category` argument is a plain string, one of the table's keys.
+
 ## [1.3.0] — 2026-11-25
 
 Live weather discovery returns real temperature markets (#83, #86, #87). Against live Gamma a default
@@ -1974,7 +2028,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.1.3...v1.2.0
