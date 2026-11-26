@@ -406,8 +406,10 @@ class FeeScheduleStore:
     One parquet file (the ``fee_schedules`` family of a `FeatureSnapshotStore` in ``root``), so it
     shares that store's point-in-time rule: a read at a cutoff gets, for each market, the latest
     snapshot seen **strictly before** it, and a market first seen at or after it has none (never the
-    later one). Recording the same sighting twice changes nothing; a changed fee is a new snapshot,
-    and `history` lists them all.
+    later one). Recording the same sighting twice changes nothing; a changed fee is a new snapshot
+    (with its own ``seen_at``), and `history` lists them all. Every sighting with a new ``seen_at``
+    is a row, even when nothing changed, so a daily pass over many markets grows the file by one row
+    per market per pass, and each `record` rewrites it: record in batches.
 
     Args:
         root: The directory of the store (created if missing).
@@ -428,9 +430,15 @@ class FeeScheduleStore:
     def record(self, snapshots: Iterable[FeeSnapshot]) -> int:
         """Add snapshots, in one write.
 
+        A snapshot is identified by its market and the moment it was seen. One whose market and
+        moment are stored already (or earlier in the same call) is ignored and the first stays: that
+        is what makes recording the same sighting twice harmless. If the one that is ignored has a
+        *different* schedule or source, a warning names the market and both, because a fee that
+        changed between two sightings with the same ``seen_at`` (a ``date``, say, which is a
+        midnight) would otherwise be lost without a trace: give each sighting its own moment.
+
         Args:
-            snapshots: What ``resolve_fee_snapshot`` or ``fetch_fee_snapshot`` returned. One whose
-                market and moment are stored already is ignored.
+            snapshots: What ``resolve_fee_snapshot`` or ``fetch_fee_snapshot`` returned.
 
         Returns:
             The number of snapshots in the store after the write.
@@ -438,14 +446,50 @@ class FeeScheduleStore:
         Raises:
             TypeError: If an item is not a ``FeeSnapshot``.
         """
-        rows: list[dict[str, Any]] = []
-        for snap in snapshots:
+        snaps = list(snapshots)
+        for snap in snaps:
             if not isinstance(snap, FeeSnapshot):
                 raise TypeError(f"record takes FeeSnapshot objects, got {snap!r}")
+        self._warn_if_a_sighting_changed(snaps)
+        rows: list[dict[str, Any]] = []
+        for snap in snaps:
             row = snap.to_dict()
             row["captured_at"] = row.pop("seen_at")
             rows.append(row)
         return self._store.append(_FAMILY, rows)
+
+    def _warn_if_a_sighting_changed(self, snaps: list[FeeSnapshot]) -> None:
+        """Warn for each snapshot the store is about to drop because its market and moment are taken
+        by a first one with another schedule or source."""
+        if not snaps:
+            return
+        import pandas as pd
+
+        kept: dict[tuple[str, datetime], FeeSnapshot] = {}
+        stored = self._store.load(_FAMILY)
+        if not stored.empty:
+            same_place = stored["market_id"].isin({s.market_id for s in snaps}) & stored[
+                "captured_at"
+            ].isin(pd.to_datetime([s.seen_at for s in snaps], utc=True))
+            for row in stored[same_place].to_dict("records"):
+                first = _snapshot_of(row)
+                kept[(first.market_id, first.seen_at)] = first
+        for snap in snaps:
+            first = kept.setdefault((snap.market_id, snap.seen_at), snap)
+            if first is not snap and (first.schedule, first.source) != (snap.schedule, snap.source):
+                _warn(
+                    "fee schedule of market %s: one is already recorded for %s (%s, rate %s, %s); "
+                    "the new one (%s, rate %s, %s) is ignored. A snapshot is its market and the "
+                    "moment it was seen: give each sighting its own seen_at",
+                    snap.slug or snap.market_id,
+                    snap.seen_at.isoformat(),
+                    first.source,
+                    first.schedule.rate,
+                    "charges" if first.schedule.enabled else "no fee",
+                    snap.source,
+                    snap.schedule.rate,
+                    "charges" if snap.schedule.enabled else "no fee",
+                )
 
     def as_of(
         self, cutoff: datetime | date | str, market_ids: Iterable[str] | None = None
