@@ -313,11 +313,16 @@ def resolve_fee_snapshot(
 
     Raises:
         TypeError: If ``market`` is not a mapping.
-        ValueError: If the market has no ``id``, ``conditionId`` or ``slug``, ``seen_at`` has no
-            timezone, or a fallback is needed and ``category`` is missing or unknown.
+        ValueError: If the market has no ``id``, ``conditionId`` or ``slug``, ``base_fee`` is not
+            ``None`` or a non-negative int, ``seen_at`` has no timezone, or a fallback is needed and
+            ``category`` is missing or unknown.
     """
     if not isinstance(market, Mapping):
         raise TypeError(f"market must be a Gamma market object (a mapping), got {market!r}")
+    if base_fee is not None and (
+        isinstance(base_fee, bool) or not isinstance(base_fee, int) or base_fee < 0
+    ):
+        raise ValueError(f"base_fee must be None or a non-negative int (bps), got {base_fee!r}")
     market_id, slug = _identity(market)
     name = f"market {slug or market_id!r} (id {market_id})"
     seen = datetime.now(UTC) if seen_at is None else _utc(seen_at, "seen_at")

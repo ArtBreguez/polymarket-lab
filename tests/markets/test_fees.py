@@ -240,6 +240,15 @@ class TestFallbackToTheCategoryDefault:
             resolve_fee_snapshot(market, category="astrology", seen_at=SEEN)
 
 
+class TestBaseFeeArgument:
+    @pytest.mark.parametrize("bad", ["1000", 12.5, -1, True, float("nan")])
+    def test_a_base_fee_that_is_not_a_whole_number_of_basis_points_is_refused(
+        self, bad: object
+    ) -> None:
+        with pytest.raises(ValueError, match="base_fee"):
+            resolve_fee_snapshot(gamma("sports_v3"), base_fee=bad, seen_at=SEEN)  # type: ignore[arg-type]
+
+
 class TestAMarketWithMissingFields:
     def test_the_recorded_one_reads_through_its_gaps(self) -> None:
         market = gamma("missing_fields")
