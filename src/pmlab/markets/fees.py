@@ -297,7 +297,9 @@ def resolve_fee_snapshot(
     ``base_fee`` is CLOB's ``/fee-rate`` answer (`parse_fee_rate`). It is a flag, 1000 on every
     market that charges a fee and 0 on one that does not, not the rate: ``rate`` is never
     ``base_fee / 10_000``. When it and Gamma disagree on whether a fee is charged, Gamma's schedule
-    wins and a warning names the market. See the ``pmlab.markets.fees`` module docs for the sources.
+    wins and a warning names the market; a category default that it contradicts (``feesEnabled``
+    true with no readable schedule, CLOB 0) is kept, and warned about the same way. The sources are
+    listed in "Fee schedules" of the market data clients page of the docs.
 
     Args:
         market: A Gamma market object (``id``, ``slug``, ``feesEnabled``, ``feeType``,
@@ -350,13 +352,24 @@ def resolve_fee_snapshot(
         )
 
     charges = schedule.enabled and schedule.rate > 0.0
-    if source == "gamma" and base_fee is not None and charges != (base_fee > 0):
-        _warn(
-            "%s: Gamma says %s but CLOB /fee-rate says base_fee %d; using Gamma's schedule",
-            name,
-            f"a fee is charged (rate {schedule.rate})" if charges else "no fee is charged",
-            base_fee,
-        )
+    if base_fee is not None and charges != (base_fee > 0):
+        says = f"a fee is charged (rate {schedule.rate})" if charges else "no fee is charged"
+        if source == "gamma":
+            _warn(
+                "%s: Gamma says %s but CLOB /fee-rate says base_fee %d; using Gamma's schedule",
+                name,
+                says,
+                base_fee,
+            )
+        else:  # the category default: a guess that CLOB's flag contradicts, and which stays
+            _warn(
+                "%s: Gamma gave no usable schedule, so the %s category default is used, and it "
+                "says %s but CLOB /fee-rate says base_fee %d",
+                name,
+                used_category,
+                says,
+                base_fee,
+            )
     return FeeSnapshot(
         market_id=market_id,
         seen_at=seen,

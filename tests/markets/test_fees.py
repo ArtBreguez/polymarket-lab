@@ -9,27 +9,47 @@ fields the code reads (a key the market does not carry is absent, as received):
 * ``gamma_sports_v3.json``: ``sports_fees_v3``, rate 0.05; ``/fee-rate`` is ``{"base_fee": 1000}``;
 * ``gamma_weather.json``: a "highest temperature" bin, ``weather_fees``, rate 0.01;
   ``/fee-rate`` is ``{"base_fee": 1000}``;
-* ``gamma_missing_fields.json``: a stale Jinan weather bin: ``conditionId`` is ``""``, no
-  ``clobTokenIds``, no ``outcomePrices`` (so there is no token to ask CLOB about);
-* ``gamma_by_slug_unknown.json``: ``/markets?slug=`` for a slug that does not exist: ``[]``, HTTP 200.
+* ``gamma_missing_fields.json``: a stale Jinan weather bin. Its *fee* fields are all there (a full
+  ``feeSchedule``, ``feesEnabled: true``); what it lacks is ``conditionId`` (``""``),
+  ``clobTokenIds`` and ``outcomePrices``, so there is no token to ask CLOB about;
+* ``gamma_closed_crypto.json``: a ``crypto_fees_v2`` market (rate 0.01) that had closed that day, as
+  ``/markets/slug/<slug>`` serves it;
+* ``gamma_slug_not_found.json``: what that route answers (HTTP 404) for a slug that is no market;
+* ``gamma_query_slug_of_a_closed_market.json``: what ``/markets?slug=<slug>`` answers for the closed
+  market above: ``[]``, HTTP 200 (it lists open markets only), which is why the clients do not use it.
 
 Also recorded that day: the 222 fee-charging markets of one sample (six fee types, rates 0.01 and
 0.05) all had ``takerBaseFee`` and ``makerBaseFee`` 1000, CLOB's ``base_fee`` was 1000 for one market
 of each fee type, and the 8 fee-free markets had ``base_fee`` 0.
+
+**What is not recorded behaviour.** The fallback tests (``TestFallbackToTheCategoryDefault``) build
+their input by deleting fee keys from a recorded market: no recorded reply lacks them. Of 400 live
+Gamma markets sampled the same day (open and closed, both ends of the id range) every one had
+``feesEnabled`` as a boolean, and a ``feeSchedule`` exactly when it was true, so live Gamma does not
+trigger the fallback today. Those tests say what pmlab does if one ever does; a market that really
+lacks ``feesEnabled`` should be recorded when it shows up. ``TestWhatWasRecorded`` holds the
+assertions that compare recorded constants with each other.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, date, datetime
+import time
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from pmlab.core.fee_schedule import FeeSchedule, category_fee_schedule
-from pmlab.markets.fees import FeeSnapshot, parse_fee_rate, resolve_fee_snapshot
+from pmlab.markets.fees import (
+    FeeScheduleStore,
+    FeeSnapshot,
+    parse_fee_rate,
+    resolve_fee_snapshot,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fees"
 SEEN = datetime(2026, 11, 26, 18, 0, tzinfo=UTC)
@@ -106,18 +126,10 @@ class TestWhatBaseFeeMeans:
         # 1000 bps is 0.10: reading it as the rate would double sports (0.05) and make weather (0.01)
         # ten times too dear
         sports = resolve_fee_snapshot(gamma("sports_v3"), base_fee=1000, seen_at=SEEN)
-        assert sports.base_fee / 10_000 == 0.10
         assert sports.schedule.rate == 0.05
         assert sports.source == "gamma"
         weather = resolve_fee_snapshot(gamma("weather"), base_fee=1000, seen_at=SEEN)
         assert weather.schedule.rate == 0.01
-
-    def test_gammas_own_taker_base_fee_is_the_same_flag(self) -> None:
-        # the Gamma object carries the number too, equal to CLOB's reply on every recorded market
-        assert gamma("sports_v3")["takerBaseFee"] == clob("sports_v3")["base_fee"]
-        assert gamma("weather")["makerBaseFee"] == clob("weather")["base_fee"]
-        assert "takerBaseFee" not in gamma("geopolitics_fee_free")  # and it is absent when free
-        assert clob("geopolitics_fee_free")["base_fee"] == 0
 
     @pytest.mark.parametrize("name", NAMES)
     def test_both_sources_agree_on_every_recorded_market(
@@ -128,6 +140,24 @@ class TestWhatBaseFeeMeans:
         assert warnings_of(caplog) == []
         assert snap.source == "gamma" and not snap.fallback
         assert (snap.schedule.enabled and snap.schedule.rate > 0) == (snap.base_fee > 0)
+
+
+class TestWhatWasRecorded:
+    """Facts about the recorded replies, not about pmlab: they compare constants with each other and
+    document the finding the mapping rests on (they would pass with any implementation)."""
+
+    def test_base_fee_over_ten_thousand_is_no_recorded_rate(self) -> None:
+        for name in ("sports_v3", "weather"):
+            assert clob(name)["base_fee"] / 10_000 == 0.10
+            assert gamma(name)["feeSchedule"]["rate"] != 0.10
+
+    def test_gammas_own_taker_base_fee_is_the_same_flag(self) -> None:
+        # the Gamma object carries the number too, equal to CLOB's reply on every recorded market
+        assert gamma("sports_v3")["takerBaseFee"] == clob("sports_v3")["base_fee"]
+        assert gamma("weather")["makerBaseFee"] == clob("weather")["base_fee"]
+        assert gamma("closed_crypto")["takerBaseFee"] == 1000
+        assert "takerBaseFee" not in gamma("geopolitics_fee_free")  # and it is absent when free
+        assert clob("geopolitics_fee_free")["base_fee"] == 0
 
 
 class TestWhenTheSourcesDisagreeGammaWins:
@@ -230,6 +260,42 @@ class TestFallbackToTheCategoryDefault:
         assert snap.fallback and snap.base_fee == 1000
         assert snap.schedule.rate == 0.05  # the category's, not 1000 / 10_000
 
+    def test_a_fallback_that_charges_where_clob_says_free_warns_and_stays(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # feesEnabled true, no schedule, CLOB base_fee 0: the sources disagree and the second half of
+        # that disagreement (CLOB's 0) used to go unmentioned
+        market = without(gamma("sports_v3"), "feeSchedule")
+        with caplog.at_level("WARNING", logger="pmlab"):
+            snap = resolve_fee_snapshot(market, base_fee=0, category="sports", seen_at=SEEN)
+        assert snap.fallback and snap.schedule == category_fee_schedule("sports")
+        assert snap.base_fee == 0
+        no_schedule, contradiction = warnings_of(caplog)
+        assert "no feeSchedule" in no_schedule
+        assert "cs2-aim1-kamui-2026-11-26-map-handicap-home-1pt5" in contradiction
+        assert "sports" in contradiction and "base_fee 0" in contradiction
+        assert "fee is charged" in contradiction
+
+    def test_a_fee_free_default_that_clob_says_charges_warns_and_stays(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        market = without(gamma("geopolitics_fee_free"), "feesEnabled")
+        with caplog.at_level("WARNING", logger="pmlab"):
+            snap = resolve_fee_snapshot(market, base_fee=1000, category="geopolitics", seen_at=SEEN)
+        assert snap.fallback and snap.schedule.enabled is False and snap.base_fee == 1000
+        (warning,) = warnings_of(caplog)
+        assert "putin-out-before-2027-346" in warning and "no fee is charged" in warning
+        assert "base_fee 1000" in warning
+
+    def test_a_fallback_that_agrees_with_clob_is_silent(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        market = without(gamma("sports_v3"), "feesEnabled", "feeSchedule", "feeType")
+        with caplog.at_level("WARNING", logger="pmlab"):
+            resolve_fee_snapshot(market, base_fee=1000, category="sports", seen_at=SEEN)
+            resolve_fee_snapshot(market, base_fee=None, category="sports", seen_at=SEEN)
+        assert warnings_of(caplog) == []
+
     def test_a_fallback_needs_a_category_and_the_error_names_the_market(self) -> None:
         market = without(gamma("sports_v3"), "feesEnabled", "feeSchedule", "feeType")
         with pytest.raises(ValueError, match="cs2-aim1-kamui-2026-11-26-map-handicap-home-1pt5"):
@@ -286,11 +352,75 @@ class TestAMarketWithMissingFields:
             resolve_fee_snapshot("sports", seen_at=SEEN)  # type: ignore[arg-type]
 
 
+class TestAScheduleThatIsNotTheDefault:
+    """``exponent``, ``takerOnly`` and ``rebateRate`` of Gamma's ``feeSchedule`` reach the snapshot.
+
+    No live market carries these values today: every one sampled on 2026-11-26 had ``exponent`` 1 and
+    ``takerOnly`` true, which are also ``FeeSchedule``'s defaults, so a reader that ignored the keys
+    would still pass every recorded reply. The docs and Wayback copies cited in
+    ``pmlab.core.fee_schedule`` had a crypto market at rate 0.25 with exponent 2, whose fee at 0.50 is
+    a quarter of what exponent 1 gives: the failure would be silent and would cost money."""
+
+    SCHEDULE = {"rate": 0.25, "exponent": 2, "takerOnly": False, "rebateRate": 0.2}
+    WHOLE = FeeSchedule(rate=0.25, exponent=2, taker_only=False, rebate_rate=0.2)
+
+    def test_the_schedule_is_read_whole(self) -> None:
+        market = {**gamma("sports_v3"), "feeSchedule": self.SCHEDULE}
+        snap = resolve_fee_snapshot(market, seen_at=SEEN)
+        assert snap.schedule == self.WHOLE and snap.source == "gamma" and not snap.fallback
+        assert (snap.schedule.exponent, snap.schedule.taker_only) == (2.0, False)
+        assert snap.schedule.rebate_rate == 0.2
+        assert snap.schedule != FeeSchedule(rate=0.25, rebate_rate=0.2)  # not the defaults
+
+    @pytest.mark.parametrize(
+        ("key", "value", "field"),
+        [
+            ("exponent", 2, "exponent"),
+            ("takerOnly", False, "taker_only"),
+            ("rebateRate", 0.4, "rebate_rate"),
+        ],
+    )
+    def test_each_field_on_its_own_moves_the_snapshot(
+        self, key: str, value: object, field: str
+    ) -> None:
+        base = {**gamma("sports_v3")["feeSchedule"]}
+        market = {**gamma("sports_v3"), "feeSchedule": {**base, key: value}}
+        snap = resolve_fee_snapshot(market, seen_at=SEEN)
+        assert getattr(snap.schedule, field) == value
+        assert getattr(snap.schedule, field) != getattr(
+            resolve_fee_snapshot(gamma("sports_v3"), seen_at=SEEN).schedule, field
+        )
+
+    def test_it_survives_the_store(self, tmp_path: Path) -> None:
+        market = {**gamma("sports_v3"), "feeSchedule": self.SCHEDULE}
+        snap = resolve_fee_snapshot(market, seen_at=SEEN)
+        store = FeeScheduleStore(tmp_path / "fees")
+        store.record([snap])
+        (back,) = store.as_of(SEEN + timedelta(seconds=1)).values()
+        assert back == snap and back.schedule == self.WHOLE
+        assert back.schedule.exponent == 2.0 and back.schedule.taker_only is False
+
+
+@pytest.fixture
+def tokyo(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The machine's clock in UTC+9 (a POSIX zone string, so no tz database is needed)."""
+    monkeypatch.setenv("TZ", "JST-9")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
 class TestSeenAt:
-    def test_it_defaults_to_now_in_utc(self) -> None:
+    @pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs time.tzset (POSIX)")
+    @pytest.mark.usefixtures("tokyo")
+    def test_it_defaults_to_now_in_utc_whatever_the_machines_zone(self) -> None:
+        # on a UTC machine a local clock stamped as UTC is still right, so the default is checked
+        # on a machine that is nine hours ahead
         before = datetime.now(UTC)
         snap = resolve_fee_snapshot(gamma("weather"))
         assert before <= snap.seen_at <= datetime.now(UTC)
+        assert snap.seen_at.utcoffset() == timedelta(0)
 
     def test_a_clock_without_a_zone_is_refused(self) -> None:
         with pytest.raises(ValueError, match="timezone"):
