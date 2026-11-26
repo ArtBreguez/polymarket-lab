@@ -77,6 +77,7 @@ class TestParseFeeRate:
             {"base_fee": True},
             {"base_fee": float("nan")},
             {"base_fee": float("inf")},
+            {"base_fee": [1000]},
         ],
     )
     def test_anything_else_is_unknown_not_zero(self, reply: object) -> None:

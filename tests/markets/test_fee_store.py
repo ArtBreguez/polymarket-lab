@@ -143,3 +143,18 @@ def test_it_keeps_its_rows_in_the_feature_snapshot_store_family(tmp_path: Path) 
 def test_what_is_not_a_snapshot_is_refused(store: FeeScheduleStore) -> None:
     with pytest.raises(TypeError, match="FeeSnapshot"):
         store.record([{"market_id": "m1"}])  # type: ignore[list-item]
+
+
+@pytest.mark.parametrize("bad", ["last tuesday", "2026-13-45", ""])
+def test_a_cutoff_that_is_not_a_date_is_refused(store: FeeScheduleStore, bad: str) -> None:
+    with pytest.raises(ValueError, match="ISO"):
+        store.as_of(bad)
+
+
+def test_a_cutoff_of_another_type_is_refused(store: FeeScheduleStore) -> None:
+    with pytest.raises(TypeError, match="cutoff"):
+        store.as_of(5)  # type: ignore[arg-type]
+
+
+def test_the_root_is_where_it_was_asked_to_live(tmp_path: Path) -> None:
+    assert FeeScheduleStore(tmp_path / "fees").root == tmp_path / "fees"
