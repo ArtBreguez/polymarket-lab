@@ -1309,3 +1309,19 @@ def test_the_fee_model_holds_in_the_installed_wheel(installed: Installed) -> Non
     out = _ok(installed.py(FEE_AUDIT, FEE_DOCS_PAGE))
     assert "FAIL" not in out, out
     assert f"audit fee model: OK (16 checks, pmlab {_pyproject_version()})" in out
+
+
+FEE_LIVE_AUDIT = REPO / "tests" / "e2e" / "audit_fee_schedule_live.py"
+
+
+def test_fee_schedules_are_read_from_the_live_endpoints_in_the_wheel(installed: Installed) -> None:
+    """1.4.0 (#71), needs the network: with the clients of the fresh venv, a live fee-charging
+    market (found on Gamma's newest active page) has its ``feeSchedule`` from Gamma, and CLOB's
+    ``/fee-rate`` ``base_fee`` is a positive flag that agrees with it (no warning), never the rate;
+    a live fee-free geopolitics market has ``feesEnabled: false`` and a ``base_fee`` of 0; the async
+    clients read the same schedule; inside the cache's TTL the snapshot is the first sighting and
+    ``FeeScheduleStore`` keeps it once and shows it only strictly after it was seen; an unknown slug
+    is a ``LookupError``."""
+    out = _ok(installed.py(FEE_LIVE_AUDIT))
+    assert "FAIL" not in out, out
+    assert f"audit fee schedule live: OK (5 checks, pmlab {_pyproject_version()})" in out
