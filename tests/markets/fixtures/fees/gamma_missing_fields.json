@@ -1,0 +1,21 @@
+{
+  "active": true,
+  "closed": false,
+  "conditionId": "",
+  "endDate": "2026-05-20T12:00:00Z",
+  "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.01,
+    "rebateRate": 0.25,
+    "takerOnly": true
+  },
+  "feeType": "weather_fees",
+  "feesEnabled": true,
+  "groupItemTitle": "15\u00b0C or below",
+  "id": "2290078",
+  "makerBaseFee": 1000,
+  "outcomes": "[\"Yes\", \"No\"]",
+  "question": "Will the highest temperature in Jinan be 15\u00b0C or below on May 20?",
+  "slug": "highest-temperature-in-jinan-on-may-20-2026-15corbelow",
+  "takerBaseFee": 1000
+}

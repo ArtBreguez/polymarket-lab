@@ -237,6 +237,19 @@ def test_the_guide_pages_run_as_written_from_the_installed_wheel(installed: Inst
     assert "14.29 shares" in sizing and "0.1154 of the bankroll" in sizing and "25.0 USDC" in sizing
 
 
+def test_the_market_data_page_runs_as_written_from_the_installed_wheel(
+    installed: Installed,
+) -> None:
+    """``docs/reference/markets.md``: the fee-schedule example, from the built wheel, prints what the
+    page shows (a snapshot from a Gamma market object, kept in a ``FeeScheduleStore``)."""
+    page = REPO / "docs" / "reference" / "markets.md"
+    out = _ok(
+        installed.py(WALKTHROUGH, page, "--cwd", installed.workdir / "markets-page", "--session")
+    )
+    assert "FAIL" not in out and "1/1 blocks ran" in out
+    assert "0.01 gamma False" in out and "['2247194'] {}" in out
+
+
 def test_the_package_description_is_the_readme_and_renders_on_pypi(installed: Installed) -> None:
     """PyPI shows the wheel's long description. It must be the README, and `twine check --strict`
     (which renders it with the library PyPI uses) must pass."""
@@ -1309,3 +1322,20 @@ def test_the_fee_model_holds_in_the_installed_wheel(installed: Installed) -> Non
     out = _ok(installed.py(FEE_AUDIT, FEE_DOCS_PAGE))
     assert "FAIL" not in out, out
     assert f"audit fee model: OK (16 checks, pmlab {_pyproject_version()})" in out
+
+
+FEE_LIVE_AUDIT = REPO / "tests" / "e2e" / "audit_fee_schedule_live.py"
+
+
+def test_fee_schedules_are_read_from_the_live_endpoints_in_the_wheel(installed: Installed) -> None:
+    """1.4.0 (#71), needs the network: with the clients of the fresh venv, a live fee-charging
+    market (found on Gamma's newest active page) has its ``feeSchedule`` from Gamma, and CLOB's
+    ``/fee-rate`` ``base_fee`` is a positive flag that agrees with it (no warning), never the rate;
+    a live fee-free geopolitics market has ``feesEnabled: false`` and a ``base_fee`` of 0; the async
+    clients read the same schedule; a *closed* market is read by both (``/markets?slug=`` lists open
+    markets only and answers ``[]`` for a closed one); inside the cache's TTL the snapshot is the
+    first sighting and ``FeeScheduleStore`` keeps it once and shows it only strictly after it was
+    seen; an unknown slug is a ``LookupError``."""
+    out = _ok(installed.py(FEE_LIVE_AUDIT))
+    assert "FAIL" not in out, out
+    assert f"audit fee schedule live: OK (6 checks, pmlab {_pyproject_version()})" in out

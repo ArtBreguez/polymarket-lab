@@ -1,0 +1,23 @@
+{
+  "active": true,
+  "clobTokenIds": "[\"74834527102591196189340650356496923001724736929276803968833814693765147718311\", \"110254623094660658797174705981735987172974356019526582762005211921372593904788\"]",
+  "closed": true,
+  "conditionId": "0x6feb22a15d02f06b9a97b56977f91d9b986bacc9cb637bdaa52e02082af0703f",
+  "endDate": "2026-11-26T22:00:00Z",
+  "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.01,
+    "takerOnly": true,
+    "rebateRate": 0.2
+  },
+  "feeType": "crypto_fees_v2",
+  "feesEnabled": true,
+  "groupItemTitle": "1,620",
+  "id": "7379374",
+  "makerBaseFee": 1000,
+  "outcomePrices": "[\"1\", \"0\"]",
+  "outcomes": "[\"Yes\", \"No\"]",
+  "question": "Ethereum above 1,620 on November 26, 5PM ET?",
+  "slug": "ethereum-above-1620-on-november-26-2026-5pm-et",
+  "takerBaseFee": 1000
+}

@@ -1,0 +1,23 @@
+{
+  "active": true,
+  "clobTokenIds": "[\"58599970932094151599339207589989101918543651374739602378397189306354567693820\", \"5425466191448064074442582680100739723006325162979841808115224423303735518105\"]",
+  "closed": false,
+  "conditionId": "0x749a47dd34b6fb563513732bc825d361ffb1b5020fd6c50e534093ea848559c2",
+  "endDate": "2026-11-28T12:00:00Z",
+  "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.01,
+    "rebateRate": 0.25,
+    "takerOnly": true
+  },
+  "feeType": "weather_fees",
+  "feesEnabled": true,
+  "groupItemTitle": "35\u00b0C or higher",
+  "id": "7366812",
+  "makerBaseFee": 1000,
+  "outcomePrices": "[\"0.1\", \"0.9\"]",
+  "outcomes": "[\"Yes\", \"No\"]",
+  "question": "Will the highest temperature in Panama City be 35\u00b0C or higher on November 28?",
+  "slug": "highest-temperature-in-panama-city-on-november-28-2026-35corhigher",
+  "takerBaseFee": 1000
+}

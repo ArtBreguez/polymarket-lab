@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 from pmlab import datasets
 from pmlab._deprecation import PmlabDeprecationWarning
@@ -58,6 +58,7 @@ from pmlab.markets.async_clob_client import AsyncClobClient
 from pmlab.markets.async_gamma_client import AsyncGammaClient
 from pmlab.markets.cache import DiskCache
 from pmlab.markets.clob_client import ClobClient
+from pmlab.markets.fees import FeeScheduleStore, FeeSnapshot, resolve_fee_snapshot
 from pmlab.markets.gamma_client import GammaClient
 from pmlab.markets.typed_cache import TypedCache
 from pmlab.modeling.base import MarketForecaster
@@ -191,6 +192,9 @@ __all__ = [
     "AsyncClobClient",
     "DiskCache",
     "TypedCache",
+    "FeeSnapshot",
+    "FeeScheduleStore",
+    "resolve_fee_snapshot",
     # Modeling
     "MarketForecaster",
     "ChampionManifest",

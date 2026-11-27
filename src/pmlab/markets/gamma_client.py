@@ -10,15 +10,18 @@ import time
 from collections.abc import Generator
 from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 import httpx
 
+from pmlab.markets.fees import FeeSnapshot, fee_fields, first_token_id, resolve_fee_snapshot
 from pmlab.markets.tmax_bins import DAILY_TEMPERATURE_TAG_ID, PerBinGroup, PerBinGrouper
 
 if TYPE_CHECKING:
     from pmlab.markets.cache import DiskCache
+    from pmlab.markets.clob_client import ClobClient
 
 # ---------------------------------------------------------------------------
 # Tmax market filtering constants
@@ -93,6 +96,7 @@ _MAX_DISCOVERY_PAGES = 1000
 # that does not know the keyset endpoint (and live Gamma refuses it from offset 2100).
 _KEYSET_PATH = "/markets/keyset"
 _OFFSET_PATH = "/markets"
+_SLUG_PATH = "/markets/slug/"
 # One page is asked for up to this many times (the first try included) before its failure is
 # raised: a 429 or a 5xx on page 40 should not cost the 39 pages before it.
 _RETRY_ATTEMPTS = 5
@@ -328,6 +332,54 @@ def _check_tag_id(tag_id: Any) -> None:
         raise ValueError(f"tag_id must be a positive int (or None for no scope), got {tag_id!r}")
 
 
+def _check_slug(slug: Any) -> None:
+    """A slug is a non-empty string that is one URL path segment.
+
+    ``"/"`` would add segments, and ``"."`` and ``".."`` survive percent-encoding and are removed
+    as dot segments by the HTTP client, so ``".."`` asked for ``GET /markets`` and ``"."`` for
+    ``GET /markets/slug``: a request for another route. No market has such a slug, so all of
+    them are refused before a URL is built.
+    """
+    if not isinstance(slug, str) or not slug.strip():
+        raise ValueError(f"slug must be a non-empty string, got {slug!r}")
+    if "/" in slug or slug in {".", ".."}:
+        raise ValueError(
+            f"slug must be one URL path segment (not '.', '..' or text with '/'), got {slug!r}"
+        )
+
+
+def _slug_path(slug: str) -> str:
+    """The path that serves one market by slug, the slug percent-encoded as a single segment."""
+    return f"{_SLUG_PATH}{quote(slug, safe='')}"
+
+
+def _market_of_slug(resp: httpx.Response, slug: str) -> dict[str, Any]:
+    """The market in a ``GET /markets/slug/{slug}`` reply.
+
+    This route serves a market whatever its state. ``GET /markets?slug=`` does not: it lists open
+    markets only and answers ``[]`` (HTTP 200) for a closed one, which is how a market that exists
+    looked like one that does not (checked on live Gamma, 2026-11-26).
+
+    Raises:
+        LookupError: If Gamma answers 404 (``slug not found``), or with a market of another slug.
+        httpx.HTTPStatusError: For any other error status (422 ``slug is invalid``, for one).
+        ValueError: If the reply is not a JSON object.
+    """
+    if resp.status_code == 404:
+        raise LookupError(f"Gamma has no market with slug {slug!r}")
+    resp.raise_for_status()
+    payload = resp.json()
+    if not isinstance(payload, dict):
+        raise ValueError(
+            f"Gamma {_SLUG_PATH}{{slug}} returned a {type(payload).__name__}, not a market object"
+        )
+    if payload.get("slug") != slug:
+        raise LookupError(
+            f"Gamma has no market with slug {slug!r} (it answered {payload.get('slug')!r})"
+        )
+    return payload
+
+
 def _warn_tag_matched_nothing(where: str, params: dict[str, Any]) -> None:
     """Say that a walk scoped by ``tag_id`` read no market at all: the tag may no longer exist.
 
@@ -515,7 +567,16 @@ def fetch_gamma_markets(
 
 
 class GammaClient:
-    """Stateful Gamma API client with optional TTL disk cache."""
+    """Stateful Gamma API client with optional TTL disk cache.
+
+    Args:
+        base_url: The Gamma API root.
+        timeout: Per-request timeout, in seconds.
+        cache: Optional `DiskCache` for ``fetch_markets`` and ``fetch_fee_snapshot``; an entry
+            lives for the cache's own TTL (`DiskCache` defaults to one hour; ``PMLAB_CACHE_TTL``
+            is not read here). Keys carry the query or the slug, not ``base_url``: give a staging
+            and a production client each its own cache directory.
+    """
 
     def __init__(
         self,
@@ -637,6 +698,68 @@ class GammaClient:
             all_markets = [m for m in all_markets if kw_lower in m.get("question", "").lower()]
 
         return all_markets[:max_results]
+
+    def fetch_fee_snapshot(
+        self,
+        slug: str,
+        *,
+        category: str | None = None,
+        clob: ClobClient | None = None,
+    ) -> FeeSnapshot:
+        """The fee schedule of the market with this slug, as it is on Gamma now.
+
+        Reads the market (``GET /markets/slug/{slug}``, which serves open and closed markets alike)
+        and its ``feesEnabled``, ``feeSchedule`` and ``feeType`` (see `resolve_fee_snapshot` for
+        what they mean and when the category default stands in). For a closed market that is the
+        schedule Gamma still carries today, seen now: it says nothing about what the market charged
+        when it traded, so a backtest needs a snapshot taken then (`FeeScheduleStore`). With a
+        *clob* client it also asks CLOB's ``/fee-rate`` for the market's first token and checks that
+        the two agree on whether a fee is charged: when they do not, Gamma's schedule wins and a
+        warning names the market. With a ``cache``, the market is read once per TTL and the snapshot
+        keeps the moment it was first read (so asking again inside the TTL is the same snapshot, and
+        `FeeScheduleStore.record` ignores the repeat).
+
+        Args:
+            slug: The market's slug.
+            category: The category whose default is the fallback if Gamma gives no schedule
+                (``"weather"``, ``"sports"``); see `resolve_fee_snapshot`.
+            clob: A `ClobClient` to read ``base_fee`` with, or ``None`` to skip that check.
+
+        Returns:
+            The snapshot, seen now.
+
+        Raises:
+            LookupError: If Gamma has no market with that slug (it answers 404).
+            ValueError: If ``slug`` is empty or not one URL path segment (``.``, ``..`` or text
+                with ``/``), Gamma's reply is not a market object, or a fallback is needed and
+                ``category`` is missing or unknown.
+            httpx.HTTPStatusError: If Gamma answers with another error status (after the retries
+                `fetch_markets_all` makes; 422 for a slug that cannot be one).
+        """
+        _check_slug(slug)
+        entry = self._fee_entry(slug)
+        market = entry["market"]
+        token = first_token_id(market)
+        base_fee = clob.fetch_fee_rate(token) if clob is not None and token else None
+        return resolve_fee_snapshot(
+            market, base_fee=base_fee, category=category, seen_at=entry["seen_at"]
+        )
+
+    def _fee_entry(self, slug: str) -> dict[str, Any]:
+        """``{"seen_at": ISO, "market": the fee keys of the market}``, from the cache or Gamma."""
+        key = f"gamma:fee-market:{slug}"
+        if self._cache is not None:
+            cached = self._cache.get(key)
+            if isinstance(cached, dict) and "seen_at" in cached and "market" in cached:
+                return cached
+        resp = self._send(_slug_path(slug), {}, slug)
+        entry = {
+            "seen_at": datetime.now(UTC).isoformat(),
+            "market": fee_fields(_market_of_slug(resp, slug)),
+        }
+        if self._cache is not None:
+            self._cache.set(key, entry)
+        return entry
 
     def _send(self, path: str, params: dict[str, Any], label: str) -> httpx.Response:
         """GET *path*; a timeout, a connection cut mid-request, a 408, 429 or 5xx is retried with

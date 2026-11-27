@@ -1,0 +1,23 @@
+{
+  "active": true,
+  "clobTokenIds": "[\"17309433383201956594812285438312796868815724999332699026282100232239626308875\", \"85146071915541668660017510209154757554081904090523461029999997263068141140002\"]",
+  "closed": false,
+  "conditionId": "0x9ee2c20355c759b2fbf85bb2eccb05d705c0dc811a92f2cd6b669858fdce3e32",
+  "endDate": "2026-11-27T00:00:00Z",
+  "feeSchedule": {
+    "exponent": 1,
+    "rate": 0.05,
+    "rebateRate": 0.15,
+    "takerOnly": true
+  },
+  "feeType": "sports_fees_v3",
+  "feesEnabled": true,
+  "groupItemTitle": "Map Handicap: KAM (-1.5) vs aimclub (+1.5)",
+  "id": "7375718",
+  "makerBaseFee": 1000,
+  "outcomePrices": "[\"0.5\", \"0.5\"]",
+  "outcomes": "[\"KAMUI\", \"aimclub\"]",
+  "question": "Map Handicap: KAM (-1.5) vs aimclub (+1.5)",
+  "slug": "cs2-aim1-kamui-2026-11-26-map-handicap-home-1pt5",
+  "takerBaseFee": 1000
+}

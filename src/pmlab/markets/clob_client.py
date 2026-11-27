@@ -3,9 +3,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+from pmlab.markets.fees import parse_fee_rate
+
+if TYPE_CHECKING:
+    from pmlab.markets.cache import DiskCache
 
 CLOB_API_BASE = "https://clob.polymarket.com"
 
@@ -27,6 +32,11 @@ def parse_midpoint(data: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return value if 0.0 <= value <= 1.0 else None
+
+
+def _check_token_id(token_id: object) -> None:
+    if not isinstance(token_id, str) or not token_id.strip():
+        raise ValueError(f"token_id must be a non-empty string, got {token_id!r}")
 
 
 def fetch_token_prices(
@@ -60,14 +70,65 @@ def fetch_token_prices(
 
 
 class ClobClient:
-    """Stateful CLOB read client with connection reuse."""
+    """Stateful CLOB read client with connection reuse.
 
-    def __init__(self, base_url: str = CLOB_API_BASE, timeout: float = 15.0) -> None:
+    Args:
+        base_url: The CLOB API root.
+        timeout: Per-request timeout, in seconds.
+        cache: Optional `DiskCache` for ``fetch_fee_rate``; an entry lives for the cache's own TTL
+            (`DiskCache` defaults to one hour; ``PMLAB_CACHE_TTL`` is not read here). Keys carry
+            the token id, not ``base_url``: give a staging and a production client each its own
+            cache directory.
+    """
+
+    def __init__(
+        self,
+        base_url: str = CLOB_API_BASE,
+        timeout: float = 15.0,
+        cache: DiskCache | None = None,
+    ) -> None:
         self.base_url = base_url
         self._client = httpx.Client(timeout=timeout)
+        self._cache = cache
 
     def fetch_prices(self, token_ids: list[str]) -> dict[str, float]:
         return fetch_token_prices(token_ids, base_url=self.base_url, client=self._client)
+
+    def fetch_fee_rate(self, token_id: str) -> int | None:
+        """CLOB's ``base_fee`` for a token (``GET /fee-rate?token_id=``), in basis points.
+
+        It is a flag (1000 on every market that charges a fee, 0 on one that does not), not the fee
+        rate: see `resolve_fee_snapshot`. A request that fails, or a reply with no usable
+        ``base_fee``, gives ``None`` (unknown, with a warning when the request failed) and is not
+        cached; a 0 is cached like any other answer.
+
+        Args:
+            token_id: A CLOB token id (an element of a Gamma market's ``clobTokenIds``).
+
+        Returns:
+            ``base_fee``, or ``None`` if it could not be read.
+
+        Raises:
+            ValueError: If ``token_id`` is not a non-empty string.
+        """
+        _check_token_id(token_id)
+        key = f"clob:fee-rate:{token_id}"
+        if self._cache is not None:
+            cached = self._cache.get(key)
+            if isinstance(cached, int) and not isinstance(cached, bool):
+                return cached
+        try:
+            resp = self._client.get(f"{self.base_url}/fee-rate", params={"token_id": token_id})
+            resp.raise_for_status()
+            base_fee = parse_fee_rate(resp.json())
+        except (httpx.HTTPError, ValueError) as exc:
+            from pmlab.logging import get_logger
+
+            get_logger(__name__).warning("CLOB /fee-rate failed for token %s: %s", token_id, exc)
+            return None
+        if base_fee is not None and self._cache is not None:
+            self._cache.set(key, base_fee)
+        return base_fee
 
     def close(self) -> None:
         self._client.close()
