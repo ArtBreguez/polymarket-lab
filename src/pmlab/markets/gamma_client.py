@@ -333,8 +333,19 @@ def _check_tag_id(tag_id: Any) -> None:
 
 
 def _check_slug(slug: Any) -> None:
+    """A slug is a non-empty string that is one URL path segment.
+
+    ``"/"`` would add segments, and ``"."`` and ``".."`` survive percent-encoding and are removed
+    as dot segments by the HTTP client, so ``".."`` asked for ``GET /markets`` and ``"."`` for
+    ``GET /markets/slug``: a request for another route. No market has such a slug, so all of
+    them are refused before a URL is built.
+    """
     if not isinstance(slug, str) or not slug.strip():
         raise ValueError(f"slug must be a non-empty string, got {slug!r}")
+    if "/" in slug or slug in {".", ".."}:
+        raise ValueError(
+            f"slug must be one URL path segment (not '.', '..' or text with '/'), got {slug!r}"
+        )
 
 
 def _slug_path(slug: str) -> str:
@@ -719,8 +730,9 @@ class GammaClient:
 
         Raises:
             LookupError: If Gamma has no market with that slug (it answers 404).
-            ValueError: If ``slug`` is not a non-empty string, Gamma's reply is not a market object,
-                or a fallback is needed and ``category`` is missing or unknown.
+            ValueError: If ``slug`` is empty or not one URL path segment (``.``, ``..`` or text
+                with ``/``), Gamma's reply is not a market object, or a fallback is needed and
+                ``category`` is missing or unknown.
             httpx.HTTPStatusError: If Gamma answers with another error status (after the retries
                 `fetch_markets_all` makes; 422 for a slug that cannot be one).
         """

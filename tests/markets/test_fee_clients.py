@@ -32,7 +32,7 @@ from pmlab.markets.async_gamma_client import AsyncGammaClient
 from pmlab.markets.cache import DiskCache
 from pmlab.markets.clob_client import ClobClient
 from pmlab.markets.fees import FeeSnapshot
-from pmlab.markets.gamma_client import GammaClient
+from pmlab.markets.gamma_client import GammaClient, _slug_path
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fees"
 GAMMA = "https://mock-gamma.test"
@@ -267,10 +267,12 @@ class TestGammaFetchFeeSnapshot:
     ) -> None:
         route = serve_gamma(market("weather"))
         with pytest.raises(LookupError):
-            await clients().snapshot("odd slug/with?chars#x")
-        assert (
-            route.calls.last.request.url.raw_path == b"/markets/slug/odd%20slug%2Fwith%3Fchars%23x"
-        )
+            await clients().snapshot("odd slug?with#chars")
+        assert route.calls.last.request.url.raw_path == b"/markets/slug/odd%20slug%3Fwith%23chars"
+
+    def test_the_path_would_encode_a_slash_too_were_one_ever_let_through(self) -> None:
+        # a slug with "/" is refused before this runs; the encoding is the second line of defence
+        assert _slug_path("a/b") == "/markets/slug/a%2Fb"
 
     @respx.mock
     async def test_an_unknown_slug_is_a_lookup_error_naming_it(
@@ -318,6 +320,21 @@ class TestGammaFetchFeeSnapshot:
         with pytest.raises(ValueError, match="slug"):
             await clients().snapshot(slug)
         assert route.call_count == 0
+
+    @respx.mock
+    @pytest.mark.parametrize("slug", [".", "..", "/", "a/b", "../markets", "a/..", "x/"])
+    async def test_a_slug_that_is_not_one_path_segment_is_refused_before_any_url_is_built(
+        self, slug: str, clients: Callable[..., Clients]
+    ) -> None:
+        # `quote(..., safe="")` leaves "." and ".." alone and httpx removes dot segments, so ".."
+        # asked for `GET /markets` (the list) and "." for `GET /markets/slug`: a request for
+        # another route that was then refused as "not a market object". Nothing may be sent, to any
+        # route, and the error must say what is wrong with the slug.
+        anywhere = respx.route().mock(return_value=httpx.Response(200, json=[]))
+        with pytest.raises(ValueError) as refused:
+            await clients().snapshot(slug)
+        assert [str(call.request.url) for call in anywhere.calls] == []
+        assert "path segment" in str(refused.value) and repr(slug) in str(refused.value)
 
     @respx.mock
     async def test_a_market_with_no_fee_fields_falls_back_to_the_category_and_says_so(

@@ -44,8 +44,9 @@ and `AsyncGammaClient` gain a trailing `cache=None`).
   (`GET /markets/slug/{slug}`, which serves closed markets too: `GET /markets?slug=` lists open
   markets only and answers `[]` for a closed one, so the market that exists looked unknown; a 404 is
   the `LookupError`) and, given a CLOB client, checks `base_fee` of its first token against the
-  schedule. For a closed market it is the schedule Gamma still carries, seen now. A request that
-  fails, or a reply with no usable `base_fee`, is unknown (`None`, never 0: the official clients read
+  schedule. For a closed market it is the schedule Gamma still carries, seen now. A slug that is
+  empty, `.`, `..` or has a `/` is a `ValueError` before any request (the last three would ask for
+  another route). A request that fails, or a reply with no usable `base_fee`, is unknown (`None`, never 0: the official clients read
   a missing `base_fee` as 0, which would make a reply that says nothing look fee-free).
 - **`cache=` on `ClobClient`, `AsyncClobClient` and `AsyncGammaClient`** (`GammaClient` had it): a
   `DiskCache` holds the market's fee fields and each token's `base_fee` for the cache's TTL. The

@@ -134,8 +134,9 @@ class AsyncGammaClient:
 
         Raises:
             LookupError: If Gamma has no market with that slug (it answers 404).
-            ValueError: If ``slug`` is not a non-empty string, Gamma's reply is not a market object,
-                or a fallback is needed and ``category`` is missing or unknown.
+            ValueError: If ``slug`` is empty or not one URL path segment (``.``, ``..`` or text
+                with ``/``), Gamma's reply is not a market object, or a fallback is needed and
+                ``category`` is missing or unknown.
             httpx.HTTPStatusError: If Gamma answers with another error status (422 for a slug that
                 cannot be one).
         """
