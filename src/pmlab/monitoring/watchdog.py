@@ -454,7 +454,7 @@ class ChampionRef:
     published_at: str
     allowed_segments: tuple[str, ...]
     has_expectation: bool
-    costs: dict[str, float] | None
+    costs: dict[str, Any] | None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -475,7 +475,10 @@ class ChampionRef:
             published_at=str(data["published_at"]),
             allowed_segments=tuple(str(s) for s in data["allowed_segments"]),
             has_expectation=bool(data["has_expectation"]),
-            costs=None if costs is None else {str(k): float(v) for k, v in costs.items()},
+            # `CostModel.to_dict` as written: the five numbers (a report from before 1.5.0 has
+            # only those), and from 1.5.0 the fee model, schedule and source, which are not
+            # numbers. Kept as written: forcing every value through float() would refuse them.
+            costs=None if costs is None else {str(k): v for k, v in costs.items()},
         )
 
 
@@ -1752,14 +1755,43 @@ def _pnl_is_on_the_recorded_fill(trade: Mapping[str, Any]) -> bool:
     return abs(float(fill) - quote) <= 1e-8
 
 
+def _expected_fee(trade: Mapping[str, Any], costs: CostModel, stake: float) -> float | None:
+    """The fee the champion's cost model charges this trade, or None if it cannot be told.
+
+    The flat-bps fee depends on the stake alone. The Polymarket fee depends on the price too, the
+    price the trade was **filled** at; a trade with no recorded fill is priced at its quote (exact
+    when the model has no slippage), and one with neither cannot be checked.
+    """
+    if costs.fee_model == "flat-bps":
+        return costs.fee(stake)
+    fill = trade.get("fill_price")
+    gamma = trade.get("gamma_price")
+    if _is_number(fill):
+        price = float(fill)
+    elif _is_number(gamma):
+        price = float(gamma) if trade.get("direction", "yes") == "yes" else 1.0 - float(gamma)
+    else:
+        return None
+    if not 0.0 <= price <= 1.0:
+        return None
+    return costs.fee(stake, price)
+
+
 def _cost_basis(trade: Mapping[str, Any], costs: CostModel, stake: float) -> str:
     """ "match", "mismatch" or "unverified" for one trade against the champion's costs."""
     verdicts: list[bool] = []
     fee = trade.get("fee_paid")
-    if _is_number(fee):
-        verdicts.append(abs(float(fee) - costs.fee(stake)) <= _FEE_TOLERANCE)
     fill = trade.get("fill_price")
     gamma = trade.get("gamma_price")
+    if _is_number(fee):
+        expected = _expected_fee(trade, costs, stake)
+        if expected is not None:
+            tolerance = _FEE_TOLERANCE
+            if costs.fee_schedule is not None:
+                # the trade rounded its fee to the schedule's unit at the unrounded fill; here it is
+                # rebuilt from the fill as recorded (8 decimals), which can land a unit away
+                tolerance += costs.fee_schedule.rounding_unit
+            verdicts.append(abs(float(fee) - expected) <= tolerance)
     if _is_number(fill) and _is_number(gamma):
         quote = float(gamma) if trade.get("direction", "yes") == "yes" else 1.0 - float(gamma)
         verdicts.append(abs(float(fill) - costs.fill_price(quote, stake=stake)) <= _FILL_TOLERANCE)

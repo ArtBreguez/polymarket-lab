@@ -17,6 +17,7 @@ import pytest
 
 from pmlab.backtest.expectation import BacktestExpectation
 from pmlab.backtest.rolling_origin import rolling_origin_eval
+from pmlab.core.costs import CostModel
 
 
 def _trades(pnl: list[float], prob: list[float] | None = None, occurred: list[bool] | None = None):
@@ -188,7 +189,14 @@ def test_label_occurred_is_the_label_and_not_whether_the_trade_made_money() -> N
                     "segment": "A",
                 }
             )
-    result = rolling_origin_eval(pd.DataFrame(rows), _Always(0.9), min_train_rows=4, stride=2)
+    # the flat 0.3% fee is what makes the trade lose: the curve fee is 0.005% at 0.999
+    result = rolling_origin_eval(
+        pd.DataFrame(rows),
+        _Always(0.9),
+        min_train_rows=4,
+        stride=2,
+        costs=CostModel(fee_model="flat-bps"),
+    )
 
     trades = result.trades
     assert len(trades) > 0

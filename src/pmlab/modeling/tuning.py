@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import pandas as pd
 
+from pmlab._deprecation import warn_deprecated
 from pmlab.backtest.rolling_origin import _validate_embargo_days, rolling_origin_eval
 from pmlab.core.costs import CostModel
 from pmlab.core.policy import TradePolicy
@@ -69,7 +70,9 @@ class TunedForecaster(MarketForecaster):
         stride: Forwarded to ``rolling_origin_eval``.
         min_train_rows: Forwarded to ``rolling_origin_eval``.
         flat_stake: Forwarded to ``rolling_origin_eval``.
-        taker_bps: Legacy fee-only knob (default 30). Mutually exclusive with ``costs``.
+        taker_bps: Deprecated since 1.5.0: the flat-bps fee as a bare number. It builds
+            ``CostModel(fee_model="flat-bps", taker_bps=...)`` and warns; pass that as ``costs``.
+            Mutually exclusive with ``costs``.
         policy: The decision rule every trial is scored under, a
             `TradePolicy`. Omit it for the historical objective
             (YES on the top-probability bin, every market: the search that shipped before
@@ -78,8 +81,10 @@ class TunedForecaster(MarketForecaster):
             taken if it clears ``min_edge``. Use the ``min_edge`` you will trade with.
         costs: The `CostModel` a trial's fills are priced with
             (fee, slippage, depth). Under the live policy it decides which trades clear the
-            threshold, so tune with the costs you will trade with. Omit it for the 30 bps
-            fee, fill at the quote.
+            threshold, so tune with the costs you will trade with. Omit it for the default
+            model: the Polymarket taker fee (``rate x (1 - price)`` of the stake), fill at the
+            quote. Until 1.5.0 that default was a flat 30 bps fee,
+            ``CostModel(fee_model="flat-bps")``, which a tuner saved then loads as.
         embargo_days: Keyword-only. Forwarded to ``rolling_origin_eval``: every trial's folds
             train only on rows decided at least this many days before the fold, on top of the
             rule that a label must be known. ``None`` (default) is the rule of 1.0.3. Use the
@@ -137,11 +142,21 @@ class TunedForecaster(MarketForecaster):
         self.min_train_rows = min_train_rows
         self.flat_stake = flat_stake
         self.policy = policy
-        self.costs: CostModel = (
-            costs
-            if costs is not None
-            else (CostModel() if taker_bps is None else CostModel(taker_bps=taker_bps))
-        )
+        if costs is None:
+            if taker_bps is None:
+                costs = CostModel()
+            else:
+                warn_deprecated(
+                    "the `taker_bps` argument of TunedForecaster",
+                    since="1.5.0",
+                    removed_in="2.0.0",
+                    alternative='`costs=CostModel(fee_model="flat-bps", taker_bps=...)`',
+                    reason="the fee on Polymarket depends on the price, and a bare number cannot "
+                    "say so",
+                    stacklevel=3,
+                )
+                costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
+        self.costs: CostModel = costs
         self.taker_bps: float = self.costs.taker_bps
 
         self.best_params_: dict[str, Any] | None = None
@@ -293,7 +308,14 @@ class TunedForecaster(MarketForecaster):
         policy = tuning.get("policy")
         stored = TradePolicy.from_dict(policy) if policy is not None else None
         instance.policy = None if stored == TradePolicy.top_bin_yes() else stored
-        instance.costs = CostModel(**tuning["costs"]) if "costs" in tuning else CostModel()
+        # A tuner saved before 1.5.0 has the five cost numbers and no `fee_model` (or, before
+        # costs existed, no costs at all): it was tuned under the flat-bps fee, and that is the
+        # objective it is loaded with, not the polymarket default it was never scored under.
+        instance.costs = (
+            CostModel.from_dict(tuning["costs"])
+            if "costs" in tuning
+            else CostModel(fee_model="flat-bps")
+        )
         instance.taker_bps = instance.costs.taker_bps
         instance.best_params_ = data["best_params"]
         instance.best_score_ = data["best_score"]

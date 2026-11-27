@@ -9,6 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pmlab._atomic import atomic_write_text
+from pmlab._deprecation import warn_deprecated
 from pmlab.core.costs import CostModel
 from pmlab.core.segments import check_segment_collection, segment_allowed
 from pmlab.execution.edge_signal import EdgeSignal
@@ -44,12 +45,16 @@ class PaperBroker:
                 makes no per-segment claim (see `pmlab.core.segments`); beside other
                 names it is a segment called "all". An empty set records nothing.
             flat_stake: Notional USDC per trade.
-            taker_bps: Legacy fee-only knob. Mutually exclusive with ``costs``.
+            taker_bps: Deprecated since 1.5.0: the flat-bps fee as a bare number. It builds
+                ``CostModel(fee_model="flat-bps", taker_bps=...)`` and warns; pass that as
+                ``costs``. Mutually exclusive with ``costs``.
             costs: Full `CostModel`. Use the SAME model the
                 backtest was run with, otherwise live and backtest PnL are not
                 comparable and a drift alarm cannot tell the market from our own
-                arithmetic. Omit both for the historical default (30bps, fill at
-                the quote).
+                arithmetic. Omit both for the default model: the Polymarket taker fee
+                (``rate x (1 - price)`` of the stake) charged at the fill price, fill at the quote.
+                Each trade records ``fee_paid``, ``fee_rate``, ``liquidity`` (``"taker"``) and
+                ``fee_source``, so a settled trade can be traced to the schedule that priced it.
 
         Raises:
             ValueError: If both ``taker_bps`` and ``costs`` are supplied.
@@ -63,11 +68,21 @@ class PaperBroker:
         self.trades_path = trades_path
         self.allowed_segments = allowed_segments
         self.flat_stake = flat_stake
-        self.costs = (
-            costs
-            if costs is not None
-            else CostModel(taker_bps=30.0 if taker_bps is None else taker_bps)
-        )
+        if costs is None:
+            if taker_bps is None:
+                costs = CostModel()
+            else:
+                warn_deprecated(
+                    "the `taker_bps` argument of PaperBroker",
+                    since="1.5.0",
+                    removed_in="2.0.0",
+                    alternative='`costs=CostModel(fee_model="flat-bps", taker_bps=...)`',
+                    reason="the fee on Polymarket depends on the price, and a bare number "
+                    "cannot say so",
+                    stacklevel=3,
+                )
+                costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
+        self.costs = costs
         # Kept so existing callers reading broker.taker_bps keep working.
         self.taker_bps = self.costs.taker_bps
 
@@ -164,7 +179,8 @@ class PaperBroker:
         quote = signal.gamma_price if signal.direction == "yes" else (1.0 - signal.gamma_price)
         fill = self.costs.fill_price(quote, stake=self.flat_stake)
         size = self.flat_stake / max(fill, 1e-9)
-        fee = self.costs.fee(self.flat_stake)
+        # The fee is charged at the price the fill happens at, and the trade keeps what charged it.
+        fee = self.costs.fee_fields(self.flat_stake, fill)
         return {
             "recorded_at": now_utc.isoformat(),
             "city_or_segment": signal.city_or_segment,
@@ -180,7 +196,10 @@ class PaperBroker:
             "horizon": signal.horizon,
             "flat_stake": self.flat_stake,
             "size": round(size, 6),
-            "fee_paid": round(fee, 6),
+            "fee_paid": round(fee["fee_paid"], 6),
+            "fee_rate": fee["fee_rate"],
+            "liquidity": fee["liquidity"],
+            "fee_source": fee["fee_source"],
             "outcome": None,
             "realized_pnl": None,
         }

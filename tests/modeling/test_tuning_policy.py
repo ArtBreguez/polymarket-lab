@@ -318,5 +318,6 @@ class TestTheObjectiveIsRecorded:
             pickle.dump(data, f)
         loaded = TunedForecaster.load(tmp_path / "old.pkl")
         assert loaded.policy is None  # the historical objective, which is what produced it
-        assert loaded.costs == CostModel()
+        # and the flat 30 bps fee it was tuned under, not the Polymarket default it never saw
+        assert loaded.costs == CostModel(fee_model="flat-bps")
         assert loaded.best_params_ == tuner.best_params_

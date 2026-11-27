@@ -66,7 +66,9 @@ def _side_edge(prob: float, quote: float, costs: CostModel, stake: float) -> tup
     # neither is a trade, and a free token must not read as an infinite edge.
     if not 0.0 < fill < 1.0:
         return fill, -math.inf
-    return fill, compute_edge(prob, fill, fee_estimate=costs.fee(stake) / stake)
+    # The fee the trade pays, taken at the price it is filled at: for a Polymarket taker that is
+    # `rate x (1 - fill)` of the stake, so the cheaper the token the dearer its fee.
+    return fill, compute_edge(prob, fill, fee_estimate=costs.fee(stake, fill) / stake)
 
 
 def quote_edges(
@@ -82,11 +84,13 @@ def quote_edges(
     `EdgeSignal` (`EdgeSignal.from_quote`) both call it, so a champion is promoted on
     the same decision rule that trades.
 
-        yes_edge = p       - fill(yes_price)     - fee_rate
-        no_edge  = (1 - p) - fill(1 - yes_price) - fee_rate
+        yes_edge = p       - fill(yes_price)     - fee_rate(fill(yes_price))
+        no_edge  = (1 - p) - fill(1 - yes_price) - fee_rate(fill(1 - yes_price))
 
     `fill` is the cost model's executable price (slippage and depth included) and
-    `fee_rate` is the taker fee per unit of stake.
+    `fee_rate` is the taker fee per unit of stake **at that fill price**: the flat-bps model
+    charges the same at every price, the Polymarket model ``rate x (1 - fill)`` (3.5% of the
+    stake at a fill of 0.30, 2.5% at 0.50 for a 0.05-rate market).
 
     Args:
         model_prob: The model's probability that the *label occurs*, whichever side is

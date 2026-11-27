@@ -118,11 +118,14 @@ def test_cost_model_is_serialisable_for_the_tracker() -> None:
     costs = CostModel(taker_bps=30.0, slippage_bps=25.0, depth_bps_per_unit=15.0)
     payload = costs.to_dict()
     assert set(payload) == {
+        "fee_model",
         "taker_bps",
         "slippage_bps",
         "slippage_fixed",
         "depth_bps_per_unit",
         "depth_reference_stake",
+        "fee_schedule",
+        "fee_source",
     }
     assert CostModel(**payload) == costs
 

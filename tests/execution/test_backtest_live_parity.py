@@ -207,7 +207,7 @@ class TestLiveReplayMatchesTheBacktest:
             assert booked["direction"] == trade.direction
             assert booked["outcome_label"] == trade.outcome_label
             assert booked["fill_price"] == pytest.approx(trade.fill_price, abs=1e-8)
-            assert booked["fee_paid"] == pytest.approx(costs.fee(stake), abs=1e-6)
+            assert booked["fee_paid"] == pytest.approx(costs.fee(stake, trade.fill_price), abs=1e-6)
             assert booked["edge_after_fee"] == pytest.approx(trade.best_edge, abs=1e-6)
             assert booked["model_prob"] == trade.predicted_prob
             assert booked["gamma_price"] == trade.market_price
@@ -254,4 +254,6 @@ class TestTheNoSideSettlesLikeTheBacktest:
         assert lost
         for trade in lost:
             assert trade["direction"] == "no"
-            assert trade["realized_pnl"] == pytest.approx(-1.0 - costs.fee(1.0), abs=1e-6)
+            assert trade["realized_pnl"] == pytest.approx(
+                -1.0 - costs.fee(1.0, trade["fill_price"]), abs=1e-6
+            )
