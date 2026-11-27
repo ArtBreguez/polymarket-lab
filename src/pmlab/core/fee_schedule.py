@@ -8,10 +8,13 @@ rounded to 5 decimals, with a smallest fee of 0.00001 (anything smaller is not c
 nothing. The curve peaks at a price of 0.50 and is symmetric around it, so a taker pays the same
 dollar fee at 30 cents as at 70. As a fraction of the stake the fee is ``rate x (1 - price)`` for
 exponent 1: 3.5% at 0.30 and 2.5% at 0.50 for a 0.05-rate market, against the flat 0.30% that
-``CostModel`` and ``estimate_fee`` still assume.
+every release before 1.5.0 charged (``CostModel(fee_model="flat-bps")`` and ``estimate_fee``).
 
-This module is the core only: pure functions and one frozen value, no I/O and no network. It changes
-no existing number: ``CostModel``, the backtest and the brokers still use ``taker_bps``.
+This module is the core only: pure functions and one frozen value, no I/O and no network.
+``CostModel`` charges these functions' fee, per fill at the fill price, since 1.5.0 (#72): the
+backtest, the tuner, the edge, Kelly sizing, the paper broker and the watchdog all go through it.
+The flat 30 bps is ``CostModel(fee_model="flat-bps")``, kept so a record written before 1.5.0
+replays with the fee it ran with.
 
 **What a schedule can say.** ``FeeSchedule`` also carries a ``maker_rate``, one rounding rule
 (``rounding``, ``rounding_unit``) and whether it is applied to each fill or to the sum of an order

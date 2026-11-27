@@ -10,7 +10,7 @@ from typing import Any, Protocol
 import numpy as np
 import pandas as pd
 
-from pmlab.core.costs import CostModel
+from pmlab.core.costs import CostModel, warn_taker_bps_argument
 from pmlab.core.edge import edge_clears, quote_edges
 from pmlab.core.pnl import Position, settle_position
 from pmlab.core.policy import TradePolicy
@@ -97,9 +97,14 @@ def rolling_origin_eval(
         min_train_rows: Skip an eval date until this many training rows exist.
         stride: Evaluate every Nth distinct decision_date.
         flat_stake: Notional USDC risked per trade.
-        taker_bps: Legacy fee-only knob. Mutually exclusive with ``costs``.
-        costs: Full `CostModel` (fee + slippage + depth).
-            Omit both arguments for the historical default (30bps, fill at quote).
+        taker_bps: Deprecated since 1.5.0 and will be removed in 2.0.0: use
+            ``costs=CostModel(fee_model="flat-bps", taker_bps=...)`` instead. It still works: the
+            flat-bps fee as a bare number, with a warning. Mutually exclusive with ``costs``.
+        costs: Full `CostModel` (fee + slippage + depth). Omit both arguments for the default
+            model: the Polymarket taker fee, ``rate x (1 - price)`` of the stake (the ``"other"``
+            category's 0.05 unless the model carries a schedule), fill at the quote. Until 1.5.0
+            the default was a flat 30bps fee: ``CostModel(fee_model="flat-bps")`` is that model,
+            and what a record written then is replayed with.
         policy: The decision rule. Omit it for the historical backtest: YES on the bin
             with the highest predicted probability, every market, no threshold (the
             numbers published before policies existed reproduce). Pass
@@ -114,6 +119,20 @@ def rolling_origin_eval(
             ``ValueError``; a value that is not an int (a float, a string, a bool) raises
             ``TypeError``.
 
+    Every trade records the fee it paid, charged by ``costs`` at the price it was filled at:
+    ``fee_paid`` (USDC), ``fee_rate`` (the model's rate: the schedule's for polymarket,
+    ``taker_bps / 10_000`` for flat-bps), ``liquidity`` (``"taker"``), ``fee_source`` (where
+    the schedule came from: ``"category_default"``, ``"gamma"``, ``"user"``, ``"flat_bps"``) and
+    ``fee_model`` (which formula ``fee_rate`` is the rate of).
+
+    **A fee is priced only from when it was known.** A ``costs`` made with
+    `CostModel.with_fee_snapshot` carries the moment its schedule was seen (``fee_seen_at``), and a
+    fold that decided at or before it is refused, as a label unknown at the decision cannot train
+    the fold: Polymarket changes its rates without notice, and a schedule read in November must not
+    price a January trade under a ``fee_source="gamma"`` label. A ``costs`` whose schedule was
+    given without a moment makes no such claim and is not checked: it prices the whole history
+    with one fee, which is an approximation the caller chose and the trades name (``"user"``).
+
     Returns:
         RollingOriginResult with all trade records and step metadata.
 
@@ -122,6 +141,8 @@ def rolling_origin_eval(
             give the fee two conflicting sources of truth. Also if a ``decision_date`` is not a
             real ``YYYY-MM-DD`` date (e.g. ``2026-01-32``), since which labels were known
             when a fold decided cannot be told without it. Also if ``embargo_days`` is negative.
+            Also if ``costs.fee_seen_at`` is at or after the decision time of a fold that would
+            be priced with it (raised before that fold is fitted).
         TypeError: If ``embargo_days`` is neither ``None`` nor an int (``True`` is not one).
     """
     embargo = _validate_embargo_days(embargo_days)
@@ -130,7 +151,11 @@ def rolling_origin_eval(
             "pass either taker_bps or costs, not both — costs.taker_bps already carries the fee"
         )
     if costs is None:
-        costs = CostModel() if taker_bps is None else CostModel(taker_bps=taker_bps)
+        if taker_bps is None:
+            costs = CostModel()
+        else:
+            warn_taker_bps_argument("rolling_origin_eval")
+            costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
     min_train_rows, stride, flat_stake = _validate_arguments(
         panel, model, min_train_rows, stride, flat_stake, policy, costs
     )
@@ -175,6 +200,8 @@ def rolling_origin_eval(
         if eval_df.empty:
             continue
 
+        _require_fee_known(costs, eval_date, decision_cutoffs[eval_date])
+
         X_train = train_df[feature_cols]
         y_train = (train_df["outcome_label"] == train_df["winning_label"]).astype(int)
 
@@ -209,7 +236,10 @@ def rolling_origin_eval(
             # quote overstates every trade by whatever the spread and depth cost.
             fill = costs.fill_price(token_price, stake=flat_stake)
             edge = token_prob - fill
-            fee_paid = costs.fee(flat_stake)
+            # The fee is charged at the price the fill happens at, and recorded with where the
+            # schedule that charged it came from.
+            fee = costs.fee_fields(flat_stake, fill)
+            fee_paid = fee["fee_paid"]
 
             pos = Position(
                 outcome_label=str(row["outcome_label"]),
@@ -230,6 +260,7 @@ def rolling_origin_eval(
                     "market_price": price,
                     "fill_price": fill,
                     "realized_pnl": pnl,
+                    **fee,
                     "edge": edge,
                     # The after-fee edges of each side and of the one traded: the fields
                     # of the `EdgeSignal` a live scan would have produced for this row.
@@ -269,6 +300,7 @@ def rolling_origin_eval(
                 "market_price",
                 "fill_price",
                 "realized_pnl",
+                *_FEE_COLUMNS,
                 "edge",
                 "yes_edge",
                 "no_edge",
@@ -280,6 +312,29 @@ def rolling_origin_eval(
         )
 
     return RollingOriginResult(trades=trades_df, steps=steps)
+
+
+#: The columns a trade carries about its fee, as `CostModel.fee_fields` names them.
+_FEE_COLUMNS = ("fee_paid", "fee_rate", "liquidity", "fee_source", "fee_model")
+
+
+def _require_fee_known(costs: CostModel, eval_date: str, decision_time: pd.Timestamp) -> None:
+    """Refuse a fold that decides at or before the moment its fee schedule was seen.
+
+    The rule of `FeeScheduleStore.as_of`: what a decision may use was seen strictly before it. A
+    model with no ``fee_seen_at`` claims no moment and is never refused.
+    """
+    seen_at = costs.fee_seen_at
+    if seen_at is None or decision_time > seen_at:
+        return
+    raise ValueError(
+        f"the fee schedule was seen at {seen_at.isoformat()}, which is not before the fold of "
+        f"{eval_date} that decides at {decision_time.isoformat()}: it cannot have priced that "
+        "trade, the fee was not known yet. Price each date with the schedule known before it "
+        "(FeeScheduleStore.as_of(date), then CostModel.with_fee_snapshot), or give the schedule "
+        "without a moment (fee_schedule=snapshot.schedule, fee_source='user') to accept today's "
+        "fee for the whole history as an approximation"
+    )
 
 
 #: Decision days a label is assumed to lag its decision when the panel does not say: the next

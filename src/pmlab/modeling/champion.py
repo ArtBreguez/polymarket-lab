@@ -157,7 +157,9 @@ class ChampionManifest:
         # .get() rather than [], so a manifest written before costs were recorded
         # still loads instead of raising KeyError.
         raw_costs = data.get("costs")
-        costs = CostModel(**raw_costs) if raw_costs else None
+        # A champion written before 1.5.0 has the five cost numbers and no `fee_model`: it was
+        # gated under the flat-bps fee, so that is the model it loads with (not the new default).
+        costs = CostModel.from_dict(raw_costs) if raw_costs else None
         # Absent key (an older champion) means "unknown". A *present but broken*
         # record raises: it must not quietly read as "unknown" and weaken the
         # watchdog without anyone noticing.

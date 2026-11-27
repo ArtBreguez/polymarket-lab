@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import html
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from pmlab.core.fee_summary import summarize_fees
 
 __all__ = ["generate_report"]
 
@@ -42,7 +45,11 @@ def generate_report(
 
     Args:
         trades: Trade records (dicts). A trade with a ``realized_pnl`` is settled; one without is
-            open. The summary uses ``realized_pnl``, ``flat_stake`` and ``edge_after_fee``.
+            open. The summary uses ``realized_pnl``, ``flat_stake``, ``edge_after_fee`` and
+            ``fee_paid``: it shows the total fees of the settled trades and their share of those
+            trades' stake (like the PnL and ROI beside them), counting only trades that recorded a
+            ``fee_paid`` and showing ``n/a`` when none did (a log from before 1.5.0 may have none).
+            The trade log has a Fee column.
         output_path: Where to write the file.
         title: The report's heading.
         brier_score: A Brier score to show alongside the summary, if you have one.
@@ -63,6 +70,7 @@ def generate_report(
     total_staked = sum(t.get("flat_stake", 0) for t in settled)
     roi = (total_pnl / total_staked * 100) if total_staked > 0 else 0.0
     avg_edge = sum(t.get("edge_after_fee", 0) for t in settled) / len(settled) if settled else 0.0
+    fees = summarize_fees(settled)
 
     generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -79,6 +87,8 @@ def generate_report(
         _card("ROI", f"{roi:+.1f}%", "pos" if roi >= 0 else "neg"),
         _card("Hit Rate", f"{hit_rate * 100:.1f}%"),
         _card("Avg Edge", f"{avg_edge * 100:.2f}%"),
+        _card("Total Fees", f"${fees.total:.2f}" if fees else "n/a"),
+        _card("Fees % of Stake", f"{fees.pct_of_stake:.2f}%" if fees else "n/a"),
         _card("Settled", str(len(settled))),
     ]
     if brier_score is not None:
@@ -187,15 +197,18 @@ def _trade_table(trades: list[dict[str, Any]]) -> str:
         pnl_class = "" if pnl is None else ("pos" if pnl >= 0 else "neg")
         price = t.get("gamma_price", "")
         price_str = f"{price:.3f}" if isinstance(price, float) else _esc(price)
+        fee = t.get("fee_paid")
+        fee_ok = isinstance(fee, int | float) and not isinstance(fee, bool) and math.isfinite(fee)
+        fee_str = f"${fee:.2f}" if fee_ok else "&mdash;"
         rows.append(
             f"<tr><td>{_esc(t.get('target_date', ''))}</td><td>{_esc(t.get('city_or_segment', ''))}</td>"
             f"<td>{_esc(t.get('direction', ''))}</td><td>{_esc(t.get('outcome_label', ''))}</td>"
             f"<td>{price_str}</td><td>{t.get('edge_after_fee', 0) * 100:.2f}%</td>"
-            f"<td class='{pnl_class}'>{pnl_str}</td></tr>"
+            f"<td>{fee_str}</td><td class='{pnl_class}'>{pnl_str}</td></tr>"
         )
     return (
         "<table><thead><tr><th>Date</th><th>Segment</th><th>Dir</th><th>Outcome</th>"
-        "<th>Price</th><th>Edge</th><th>PnL</th></tr></thead><tbody>"
+        "<th>Price</th><th>Edge</th><th>Fee</th><th>PnL</th></tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"
     )

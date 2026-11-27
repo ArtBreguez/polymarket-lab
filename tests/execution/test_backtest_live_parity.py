@@ -25,6 +25,7 @@ import pytest
 from pmlab.backtest.rolling_origin import rolling_origin_eval
 from pmlab.core.costs import CostModel
 from pmlab.core.edge import edge_clears
+from pmlab.core.fee_schedule import FeeSchedule
 from pmlab.core.market_spec import MarketSpec, OutcomeBin
 from pmlab.core.policy import TradePolicy
 from pmlab.execution.edge_signal import EdgeSignal
@@ -173,6 +174,22 @@ def _replay(
             3.0,
             id="depth-at-3x-reference",
         ),
+        # The three above fix `taker_bps`, which selects the flat model, whose fee ignores the
+        # price: with them, a fee taken at the quote and one taken at the fill are the same number.
+        # The Polymarket fee depends on the price, so these are the cases where it matters.
+        pytest.param(
+            CostModel(fee_model="polymarket", slippage_bps=75.0), 1.0, id="polymarket-slippage"
+        ),
+        pytest.param(
+            CostModel(fee_model="polymarket", slippage_bps=50.0, depth_bps_per_unit=100.0),
+            3.0,
+            id="polymarket-depth-at-3x-reference",
+        ),
+        pytest.param(
+            CostModel(fee_schedule=FeeSchedule(rate=0.01), fee_source="user", slippage_fixed=0.02),
+            1.0,
+            id="polymarket-weather-rate-fixed-slippage",
+        ),
     ],
 )
 class TestLiveReplayMatchesTheBacktest:
@@ -207,7 +224,10 @@ class TestLiveReplayMatchesTheBacktest:
             assert booked["direction"] == trade.direction
             assert booked["outcome_label"] == trade.outcome_label
             assert booked["fill_price"] == pytest.approx(trade.fill_price, abs=1e-8)
-            assert booked["fee_paid"] == pytest.approx(costs.fee(stake), abs=1e-6)
+            # the backtest's own column is the fee of the fill, and the broker books the same
+            assert trade.fee_paid == pytest.approx(costs.fee(stake, trade.fill_price), abs=1e-12)
+            assert booked["fee_paid"] == pytest.approx(trade.fee_paid, abs=1e-6)
+            assert booked["fee_paid"] == pytest.approx(costs.fee(stake, trade.fill_price), abs=1e-6)
             assert booked["edge_after_fee"] == pytest.approx(trade.best_edge, abs=1e-6)
             assert booked["model_prob"] == trade.predicted_prob
             assert booked["gamma_price"] == trade.market_price
@@ -254,4 +274,6 @@ class TestTheNoSideSettlesLikeTheBacktest:
         assert lost
         for trade in lost:
             assert trade["direction"] == "no"
-            assert trade["realized_pnl"] == pytest.approx(-1.0 - costs.fee(1.0), abs=1e-6)
+            assert trade["realized_pnl"] == pytest.approx(
+                -1.0 - costs.fee(1.0, trade["fill_price"]), abs=1e-6
+            )

@@ -255,7 +255,9 @@ class TestTheWatchdogCountsThemAfterwards:
     """The point of it all: monitor leaves unfixed NO trades out, and counts them once fixed."""
 
     def _champion_and_log(self, tmp_path: Path) -> tuple[Path, Path]:
-        _backtest(tmp_path, "--min-edge", "0.1")
+        # the trades below paid the flat 0.003 fee of the release that booked them, so the
+        # champion is the one gated under it: a different fee model would (rightly) leave them out
+        _backtest(tmp_path, "--min-edge", "0.1", "--fee-model", "flat-bps")
         artifacts = tmp_path / "art"
         _publish(tmp_path, artifacts, tmp_path / "metrics.json")
         trades = []

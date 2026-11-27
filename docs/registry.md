@@ -55,7 +55,7 @@ for d in range(80):
                 }
             )
 pd.DataFrame(rows).to_parquet("panel.parquet")
-open("costs.json", "w").write('{"taker_bps": 45.0, "slippage_bps": 20.0}')
+open("costs.json", "w").write('{"fee_model": "flat-bps", "taker_bps": 45.0, "slippage_bps": 20.0}')
 print(len(rows), "rows written")
 ```
 

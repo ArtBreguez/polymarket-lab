@@ -84,7 +84,7 @@ class BacktestConfig:
     stride: int
     min_train_rows: int
     flat_stake: float
-    costs: dict[str, float]
+    costs: dict[str, Any]
     policy: dict[str, Any]
     tuning: dict[str, Any] | None = None
     embargo_days: int | None = None
@@ -116,6 +116,12 @@ class BacktestConfig:
         label must be known. ``None`` (default) is the rule of 1.0.3 and, like ``tuning``, is left
         out of the config entirely, so a record that does not use it is as 1.0.3 wrote it. A
         negative value raises ``ValueError``, a non-int ``TypeError``.
+
+        ``costs`` is recorded as `CostModel.to_dict` writes it, so the record names the fee model
+        (``fee_model``), the schedule and where it came from (``fee_source``): a run can be told
+        from one priced under another model, and replays under the one it used. Omitted, it is the
+        default `CostModel` (the Polymarket fee since 1.5.0). A record written before 1.5.0 has no
+        ``fee_model`` in its costs and is replayed with the flat-bps fee it ran under.
         """
         if model not in _MODELS:
             raise ValueError(f"unknown model {model!r}: only {list(_MODELS)} is supported")
@@ -258,7 +264,9 @@ def run_backtest(
             min_train_rows=config.min_train_rows,
             stride=config.stride,
             flat_stake=config.flat_stake,
-            costs=CostModel(**config.costs),
+            # A record from before 1.5.0 has no `fee_model` in its costs: it is replayed with the
+            # flat-bps fee it ran under.
+            costs=CostModel.from_dict(config.costs),
             policy=TradePolicy.from_dict(config.policy),
             embargo_days=config.embargo_days,
         )

@@ -17,6 +17,7 @@ from pmlab import _deprecation
 from pmlab._deprecation import (
     Deprecation,
     PmlabDeprecationWarning,
+    declare_deprecated,
     deprecated,
     registered,
     warn_deprecated,
@@ -301,6 +302,76 @@ class TestWarnDeprecated:
             warn_deprecated("the `x` flag", since="1.1.0", removed_in="2.0.0")
         # Emitting twice (it is called on every use) must not grow the registry.
         assert [d.name for d in registered()] == ["the `x` flag"]
+
+
+class TestDeclare:
+    """`declare_deprecated`: the entry is in the registry from import, before anything warns."""
+
+    def test_it_registers_without_warning(self) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            declare_deprecated("the `x` flag", **_kwargs())
+        (entry,) = registered()
+        assert entry.name == "the `x` flag"
+        assert (entry.since, entry.removed_in, entry.alternative) == ("1.2.0", "2.0.0", "new_thing")
+
+    def test_the_warning_that_follows_finds_it_and_adds_nothing(self) -> None:
+        declare_deprecated("the `x` flag", **_kwargs(), reason="because")
+        with pytest.warns(PmlabDeprecationWarning):
+            warn_deprecated("the `x` flag", **_kwargs(), reason="because")
+        assert len(registered()) == 1
+
+    def test_declaring_twice_is_harmless(self) -> None:
+        declare_deprecated("the `x` flag", **_kwargs())
+        declare_deprecated("the `x` flag", **_kwargs())
+        assert len(registered()) == 1
+
+    @pytest.mark.parametrize("removed_in", ["1.9.0", "2.1.0", "1.0.0"])
+    def test_it_refuses_a_timeline_that_breaks_the_rule(self, removed_in: str) -> None:
+        with pytest.raises(ValueError, match="timeline"):
+            declare_deprecated("x", **_kwargs(removed_in=removed_in))
+        assert registered() == ()
+
+    def test_it_refuses_a_version_that_is_not_a_release_number(self) -> None:
+        with pytest.raises(ValueError, match="X.Y.Z"):
+            declare_deprecated("x", **_kwargs(since="1.2"))
+
+    def test_the_deprecations_of_1_5_0_are_registered_at_import_not_when_triggered(self) -> None:
+        # a fresh interpreter, so nothing has warned yet: the docs table check must not depend on
+        # which tests ran before it
+        import subprocess
+        import sys
+
+        code = (
+            "import pmlab.cli.main\n"
+            "from pmlab._deprecation import registered\n"
+            "print('\\n'.join(d.name for d in registered()))\n"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        ).stdout.splitlines()
+        assert "CostModel(taker_bps=...) without a fee_model" in out
+        for owner in ("rolling_origin_eval", "TunedForecaster", "PaperBroker"):
+            assert f"the taker_bps argument of {owner}" in out
+        assert "a --costs file with a taker_bps and no fee_model" in out
+
+
+class TestTheNoticeOfAnArgument:
+    """An argument has no object of its own: its notice is in the docstring of what takes it."""
+
+    @pytest.mark.parametrize(
+        "owner",
+        [
+            pmlab.rolling_origin_eval,
+            pmlab.TunedForecaster,
+            pmlab.PaperBroker.__init__,
+            pmlab.CostModel,
+        ],
+        ids=lambda o: getattr(o, "__qualname__", str(o)),
+    )
+    def test_the_docstring_says_since_when_and_until_when(self, owner: object) -> None:
+        doc = owner.__doc__ or ""
+        assert "Deprecated since 1.5.0 and will be removed in 2.0.0" in doc
 
 
 class TestRegistry:

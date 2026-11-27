@@ -112,7 +112,8 @@ class TestTheBacktestBuysNo:
         assert trade["edge"] == pytest.approx(0.50)  # token probability minus fill
 
     def test_the_fee_is_charged_and_leaves_the_edge_after_fee(self) -> None:
-        trade = _run(self.ROWS, TradePolicy.live(min_edge=0.0), costs=CostModel()).iloc[0]
+        costs = CostModel(fee_model="flat-bps")
+        trade = _run(self.ROWS, TradePolicy.live(min_edge=0.0), costs=costs).iloc[0]
         assert trade["best_edge"] == pytest.approx(0.50 - 0.003)
         assert trade["edge"] == pytest.approx(0.50)  # `edge` has never included the fee
         assert trade["realized_pnl"] == pytest.approx(1.5 - 0.003)
@@ -260,7 +261,13 @@ class TestTheDefaultStaysTheHistoricalBacktest:
         # Re-derive them independently of rolling_origin_eval: for each (market, date)
         # take the row with the highest forecast and settle a buy of its YES token.
         panel = self._random_panel()
-        trades = rolling_origin_eval(panel, _FeatureProb(), min_train_rows=3, stride=1).trades
+        trades = rolling_origin_eval(
+            panel,
+            _FeatureProb(),
+            min_train_rows=3,
+            stride=1,
+            costs=CostModel(fee_model="flat-bps"),  # the model the old code charged
+        ).trades
         assert len(trades) > 0
         for trade in trades.itertuples():
             block = panel[

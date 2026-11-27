@@ -9,7 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pmlab._atomic import atomic_write_text
-from pmlab.core.costs import CostModel
+from pmlab.core.costs import CostModel, warn_taker_bps_argument
 from pmlab.core.segments import check_segment_collection, segment_allowed
 from pmlab.execution.edge_signal import EdgeSignal
 
@@ -24,7 +24,15 @@ HORIZON_CUTOFFS = {
 
 
 class PaperBroker:
-    """Records paper trades from EdgeSignals with dedup, staleness, and segment filtering."""
+    """Records paper trades from EdgeSignals with dedup, staleness, and segment filtering.
+
+    Attributes:
+        costs: The `CostModel` every trade is filled and charged under.
+        taker_bps: The flat-bps fee rate of ``costs``, kept for callers of 1.4.0 and before. It
+            means something only when ``costs.fee_model == "flat-bps"``: for the polymarket model
+            (the default) it is the unused default 30.0 and says nothing of the fee charged,
+            which depends on the price (``costs.fee_schedule``, ``costs.fee(stake, price)``).
+    """
 
     def __init__(
         self,
@@ -44,12 +52,18 @@ class PaperBroker:
                 makes no per-segment claim (see `pmlab.core.segments`); beside other
                 names it is a segment called "all". An empty set records nothing.
             flat_stake: Notional USDC per trade.
-            taker_bps: Legacy fee-only knob. Mutually exclusive with ``costs``.
+            taker_bps: Deprecated since 1.5.0 and will be removed in 2.0.0: use
+                ``costs=CostModel(fee_model="flat-bps", taker_bps=...)`` instead. It still works:
+                the flat-bps fee as a bare number, with a warning. Mutually exclusive with
+                ``costs``.
             costs: Full `CostModel`. Use the SAME model the
                 backtest was run with, otherwise live and backtest PnL are not
                 comparable and a drift alarm cannot tell the market from our own
-                arithmetic. Omit both for the historical default (30bps, fill at
-                the quote).
+                arithmetic. Omit both for the default model: the Polymarket taker fee
+                (``rate x (1 - price)`` of the stake) charged at the fill price, fill at the quote.
+                Each trade records ``fee_paid``, ``fee_rate``, ``liquidity`` (``"taker"``),
+                ``fee_source`` and ``fee_model``, so a settled trade can be traced to the schedule
+                that priced it and to the formula its ``fee_rate`` belongs to.
 
         Raises:
             ValueError: If both ``taker_bps`` and ``costs`` are supplied.
@@ -63,12 +77,16 @@ class PaperBroker:
         self.trades_path = trades_path
         self.allowed_segments = allowed_segments
         self.flat_stake = flat_stake
-        self.costs = (
-            costs
-            if costs is not None
-            else CostModel(taker_bps=30.0 if taker_bps is None else taker_bps)
-        )
-        # Kept so existing callers reading broker.taker_bps keep working.
+        if costs is None:
+            if taker_bps is None:
+                costs = CostModel()
+            else:
+                warn_taker_bps_argument("PaperBroker")
+                costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
+        self.costs = costs
+        # Kept so existing callers reading broker.taker_bps keep working. It is the flat-bps model's
+        # rate and nothing else: under the polymarket model it is the unused default (30.0), and the
+        # fee is that of `self.costs.fee_schedule`. Read `self.costs` to tell.
         self.taker_bps = self.costs.taker_bps
 
     def record(
@@ -164,7 +182,8 @@ class PaperBroker:
         quote = signal.gamma_price if signal.direction == "yes" else (1.0 - signal.gamma_price)
         fill = self.costs.fill_price(quote, stake=self.flat_stake)
         size = self.flat_stake / max(fill, 1e-9)
-        fee = self.costs.fee(self.flat_stake)
+        # The fee is charged at the price the fill happens at, and the trade keeps what charged it.
+        fee = self.costs.fee_fields(self.flat_stake, fill)
         return {
             "recorded_at": now_utc.isoformat(),
             "city_or_segment": signal.city_or_segment,
@@ -180,7 +199,11 @@ class PaperBroker:
             "horizon": signal.horizon,
             "flat_stake": self.flat_stake,
             "size": round(size, 6),
-            "fee_paid": round(fee, 6),
+            "fee_paid": round(fee["fee_paid"], 6),
+            "fee_rate": fee["fee_rate"],
+            "liquidity": fee["liquidity"],
+            "fee_source": fee["fee_source"],
+            "fee_model": fee["fee_model"],
             "outcome": None,
             "realized_pnl": None,
         }

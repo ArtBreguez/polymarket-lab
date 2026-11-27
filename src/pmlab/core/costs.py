@@ -2,20 +2,30 @@
 
 `rolling_origin_eval` historically filled at `market_price` and charged a flat
 taker fee. That is the best case: it assumes the quote you saw is the price you
-got, at any size. Real fills pay the spread and walk the book, and on
-mutually-exclusive Polymarket fields the gap is structural rather than
-incidental — reading a mid price makes coherent markets look arbitrageable.
+got, at any size, and that the fee is the same at every price. Real fills pay
+the spread and walk the book, a Polymarket taker pays a fee that depends on the
+price, and on mutually-exclusive Polymarket fields the gap is structural rather
+than incidental — reading a mid price makes coherent markets look arbitrageable.
 
-`CostModel` makes the friction explicit and **opt-in**. The default instance
-reproduces the previous behaviour exactly (30bps taker fee, fill at the quote),
-so results published before this module stay reproducible; friction only appears
-when a caller asks for it.
+`CostModel` makes the friction explicit. It has two fee models:
 
-Cost arithmetic, in order of application:
+* ``fee_model="polymarket"`` (the default since 1.5.0) charges what a Polymarket taker pays: per
+  fill ``shares x rate x price x (1 - price)``, rounded to 5 decimals, that is ``rate x (1 -
+  price)`` of the stake: 3.5% of the stake at 0.30 and 2.5% at 0.50 for a 0.05-rate market. The
+  rate comes from a `FeeSchedule` (``fee_schedule=``); without one it is the ``"other"``
+  category's 0.05, the highest published rate, so the default errs on the side of costing more
+  and the trades say so (``fee_source="category_default"``).
+* ``fee_model="flat-bps"`` is the model of every release before 1.5.0: ``stake x taker_bps /
+  10_000``, the same 0.30% at any price. It stays so a backtest, a champion or a tuner written
+  before 1.5.0 reproduces with the model it ran with: a cost dict with no ``fee_model`` *is* this
+  model (`CostModel.from_dict`).
+
+Slippage and depth are the same under both. Cost arithmetic, in order of application:
 
     slip_bps_total = slippage_bps + depth_penalty_bps(stake)
     fill = price * (1 + slip_bps_total / 10_000) + slippage_fixed
     fill = min(fill, 1.0)            # a probability price cannot exceed certainty
+    fee  = fee(stake, fill)          # the fee is charged at the price the fill happens at
 
     depth_penalty_bps(stake) = depth_bps_per_unit * max(0, stake - ref) / ref
 
@@ -30,13 +40,118 @@ friction improves a trade.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import numbers
-from dataclasses import asdict, dataclass
+import warnings
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
+from pmlab._deprecation import declare_deprecated, warn_deprecated
+from pmlab.core.fee_schedule import (
+    POLYMARKET_CATEGORY_FEE_RATES,
+    FeeSchedule,
+    category_fee_schedule,
+    taker_fee_on_stake,
+)
 from pmlab.core.fees import DEFAULT_TAKER_BPS
 
+if TYPE_CHECKING:
+    from pmlab.markets.fees import FeeSnapshot
+
+__all__ = ["CostModel"]
+
 _BPS = 10_000.0
+
+
+class _DeprecationArgs(TypedDict):
+    """The arguments `declare_deprecated` and `warn_deprecated` are both given."""
+
+    what: str
+    since: str
+    removed_in: str
+    alternative: str
+    reason: str
+
+
+# The deprecations of the bare ``taker_bps`` (#72), declared here so they are registered at import
+# (the docs table is checked against the registry) and warned with the very same arguments.
+_ALTERNATIVE_TO_TAKER_BPS = '`costs=CostModel(fee_model="flat-bps", taker_bps=...)`'
+_BARE_TAKER_BPS: _DeprecationArgs = {
+    "what": "CostModel(taker_bps=...) without a fee_model",
+    "since": "1.5.0",
+    "removed_in": "2.0.0",
+    "alternative": '`CostModel(fee_model="flat-bps", taker_bps=...)`, or the default polymarket '
+    "fee model",
+    "reason": "the fee depends on the price on Polymarket, and a bare taker_bps silently picks "
+    "the model of 1.4.0 and before",
+}
+_TAKER_BPS_ARGUMENT_OWNERS = ("rolling_origin_eval", "TunedForecaster", "PaperBroker")
+
+# A costs file with a `taker_bps` and no `fee_model` (what every release before 1.5.0 wrote). The
+# warning is the CLI's (a line on stderr); the declaration lives here, where `import pmlab` reaches it.
+LEGACY_COSTS_FILE_DEPRECATION: _DeprecationArgs = {
+    "what": "a --costs file with a taker_bps and no fee_model",
+    "since": "1.5.0",
+    "removed_in": "2.0.0",
+    "alternative": '"fee_model": "flat-bps" next to it, or the default polymarket model',
+    "reason": "it names no fee model, so it is read as the flat-bps model of 1.4.0",
+}
+
+
+def _taker_bps_argument(owner: str) -> _DeprecationArgs:
+    return {
+        "what": f"the taker_bps argument of {owner}",
+        "since": "1.5.0",
+        "removed_in": "2.0.0",
+        "alternative": _ALTERNATIVE_TO_TAKER_BPS,
+        "reason": "the fee on Polymarket depends on the price, and a bare number cannot say so",
+    }
+
+
+declare_deprecated(**_BARE_TAKER_BPS)
+declare_deprecated(**LEGACY_COSTS_FILE_DEPRECATION)
+for _owner in _TAKER_BPS_ARGUMENT_OWNERS:
+    declare_deprecated(**_taker_bps_argument(_owner))
+
+
+def warn_taker_bps_argument(owner: str) -> None:
+    """Warn that ``owner`` (``rolling_origin_eval``, ``TunedForecaster``, ``PaperBroker``) was given
+    a ``taker_bps``, naming the caller of ``owner``. Internal: the one place the text lives."""
+    warn_deprecated(**_taker_bps_argument(owner), stacklevel=4)
+
+
+FeeModelName = Literal["polymarket", "flat-bps"]
+_FEE_MODELS: tuple[str, ...] = ("polymarket", "flat-bps")
+
+# The category whose published rate a CostModel charges when it is given no schedule: the highest
+# rate of the table (0.05), so an unknown market is costed too high rather than too low.
+_DEFAULT_FEE_CATEGORY = "other"
+
+_SOURCE_DEFAULT = "category_default"
+_SOURCE_GIVEN = "user"
+_SOURCE_FLAT = "flat_bps"
+
+
+class _DefaultTakerBps(float):
+    """The 30.0 that ``taker_bps`` defaults to, told apart from a 30.0 somebody passed.
+
+    Until 1.5.0 ``CostModel(taker_bps=x)`` was how a fee was set, and a ``taker_bps`` that is given
+    still means the flat-bps model. That needs the constructor to know whether ``taker_bps`` was
+    passed, and the signature is frozen (``taker_bps: float = 30.0``), so the default is this float:
+    equal to 30.0, printed as 30.0, but recognisable. It never survives construction: the field is
+    stored as a plain ``float``.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return repr(float(self))
+
+
+_TAKER_BPS_NOT_GIVEN = _DefaultTakerBps(DEFAULT_TAKER_BPS)
 
 
 def _is_finite_number(value: object) -> bool:
@@ -44,13 +159,53 @@ def _is_finite_number(value: object) -> bool:
     return isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def _utc_moment(value: object) -> datetime:
+    """An aware UTC datetime from an aware datetime, a date (its midnight, UTC) or an ISO string.
+
+    The same rule as ``FeeSnapshot.seen_at``: a datetime or timestamp string without a timezone is
+    refused, because read as local time it would shift the moment by the machine's offset.
+    """
+    parsed: object = value
+    if isinstance(value, str):
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            try:
+                parsed = datetime.fromisoformat(value)
+            except ValueError:
+                raise ValueError(
+                    f"fee_seen_at is not an ISO date or timestamp: {value!r}"
+                ) from None
+    if isinstance(parsed, datetime):
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError(f"fee_seen_at needs a timezone (UTC is fine), got {value!r}")
+        return parsed.astimezone(UTC)
+    if isinstance(parsed, date):
+        return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+    raise TypeError(f"fee_seen_at must be a datetime, a date or an ISO string, got {value!r}")
+
+
+def _is_a_category_schedule(schedule: FeeSchedule) -> bool:
+    """Whether ``schedule`` is the published default of some category (what a fallback charges)."""
+    return any(schedule == category_fee_schedule(key) for key in POLYMARKET_CATEGORY_FEE_RATES)
+
+
 @dataclass(frozen=True)
 class CostModel:
     """Execution costs applied to a backtest fill.
 
+    ``CostModel()`` is the Polymarket fee model with the default schedule and no slippage. Name the
+    model you mean with ``fee_model``.
+
+    Deprecated since 1.5.0 and will be removed in 2.0.0: giving ``taker_bps`` without a ``fee_model``.
+    It still selects ``"flat-bps"``, with a warning; write ``CostModel(fee_model="flat-bps",
+    taker_bps=...)`` instead.
+
     Attributes:
-        taker_bps: Taker fee in basis points of notional stake. Defaults to
-            Polymarket's 30bps so the default model matches historical results.
+        taker_bps: Taker fee in basis points of notional stake, **read only by the flat-bps model**
+            (``fee_model="flat-bps"``), whose default is Polymarket's 30bps, the model before 1.5.0.
+            Giving it without a ``fee_model`` selects that model (and warns). The polymarket model
+            ignores it; the attribute then holds the unused default, 30.0.
         slippage_bps: Price-proportional slippage in basis points. Models the
             half-spread you cross on entry.
         slippage_fixed: Absolute slippage added to the fill price, in probability
@@ -59,15 +214,56 @@ class CostModel:
             `depth_reference_stake` above that reference. 0 disables the term.
         depth_reference_stake: Stake size assumed to fill without walking the
             book. Must be positive.
+        fee_model: ``"polymarket"`` or ``"flat-bps"`` (see the module docs). ``None``, the default,
+            is resolved on construction: ``"flat-bps"`` when ``taker_bps`` is given, else
+            ``"polymarket"``. The attribute is never ``None`` afterwards.
+        fee_schedule: The `FeeSchedule` the polymarket model charges, or the mapping of its fields
+            that ``to_dict`` writes. ``None`` is the ``"other"`` category default (rate 0.05).
+            The flat-bps model has none, and refuses one.
+        fee_source: Where the schedule came from, as `FeeSnapshot.source` says it
+            (``"gamma"``, ``"clob"``, ``"category_default"``), ``"user"`` for a schedule that was
+            given without a source, ``"flat_bps"`` for the flat model. Each trade carries it, so a
+            number in a report can be traced to what priced it. ``None`` is resolved on
+            construction. A polymarket model refuses ``"flat_bps"`` (that is the flat model's
+            label), and ``"category_default"`` for a schedule that is no category's default: a
+            label must describe the fee it sits on, also after `dataclasses.replace` changed the
+            schedule and not the label.
+        fee_seen_at: When the schedule was seen, as a timezone-aware datetime, a date (its
+            midnight, UTC) or an ISO string; stored in UTC. ``None``, the default, claims no
+            moment: the schedule is whatever the caller says it is, for the whole history.
+            `with_fee_snapshot` sets it with the schedule, and `rolling_origin_eval` then refuses
+            a fold that decided at or before it, because a fee that was not known yet cannot have
+            priced the trade (``FeeScheduleStore.as_of`` is the schedule that was). ``to_dict``
+            writes it only when it is set. A flat-bps model has no schedule to date and refuses it.
+
+    Raises:
+        ValueError: If a numeric field is not a finite number >= 0 (``depth_reference_stake`` > 0),
+            ``fee_model`` is not one of the two, a ``fee_schedule`` is not a `FeeSchedule` (or a
+            mapping of its fields), a flat-bps model is given a schedule, a source of its own or a
+            ``fee_seen_at``, a polymarket model is given the flat model's source or a
+            ``"category_default"`` label for a schedule that is no category's, ``fee_seen_at`` is
+            not a moment with a timezone, or a schedule is given together with a ``taker_bps`` and
+            no ``fee_model``.
+        TypeError: If ``fee_seen_at`` is not a datetime, a date or a string.
+
+    Warns:
+        UserWarning: If a polymarket model carries a ``taker_bps`` other than the default: it is
+            read only by the flat model, so it prices nothing (``dataclasses.replace(costs,
+            taker_bps=50)`` of a default model is that mistake, and used to do nothing in silence).
     """
 
-    taker_bps: float = DEFAULT_TAKER_BPS
+    taker_bps: float = _TAKER_BPS_NOT_GIVEN
     slippage_bps: float = 0.0
     slippage_fixed: float = 0.0
     depth_bps_per_unit: float = 0.0
     depth_reference_stake: float = 1.0
+    fee_model: Literal["polymarket", "flat-bps"] | None = None
+    fee_schedule: FeeSchedule | None = None
+    fee_source: str | None = None
+    fee_seen_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        taker_given = not isinstance(self.taker_bps, _DefaultTakerBps)
         for name in ("taker_bps", "slippage_bps", "slippage_fixed", "depth_bps_per_unit"):
             value = getattr(self, name)
             if not _is_finite_number(value) or value < 0:
@@ -76,15 +272,252 @@ class CostModel:
         if not _is_finite_number(stake) or stake <= 0:
             raise ValueError(f"depth_reference_stake must be a finite number > 0, got {stake!r}")
 
+        model = self._resolve_model(taker_given)
+        schedule, source = self._resolve_schedule(model)
+        seen_at = self._resolve_seen_at(model)
+        if model == "polymarket" and float(self.taker_bps) != DEFAULT_TAKER_BPS:
+            # warnings.warn, here, __post_init__, __init__: the caller of CostModel(...)
+            warnings.warn(
+                f"taker_bps={self.taker_bps!r} is read only by the flat-bps model and this one is "
+                'polymarket, so it prices nothing; use fee_model="flat-bps" for a flat fee, or '
+                "drop taker_bps (the polymarket fee comes from fee_schedule)",
+                UserWarning,
+                stacklevel=3,
+            )
+        object.__setattr__(self, "taker_bps", float(self.taker_bps))
+        object.__setattr__(self, "fee_model", model)
+        object.__setattr__(self, "fee_schedule", schedule)
+        object.__setattr__(self, "fee_source", source)
+        object.__setattr__(self, "fee_seen_at", seen_at)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Load a pickle of any version: one from 1.4.0 and before is the flat-bps model it was.
+
+        1.4.0 pickled the five numbers and nothing else, so a ``CostModel`` unpickled without this
+        had no ``fee_model``, no schedule and no source: half a model whose ``fee(stake)`` raised.
+        The same rule as `from_dict`: a state with no ``fee_model`` is the flat-bps model of its
+        ``taker_bps``. pmlab itself never pickles a ``CostModel``; a notebook or a cache might.
+        """
+        state = dict(state)
+        if "fee_model" not in state:
+            state.update(fee_model="flat-bps", fee_schedule=None, fee_source=_SOURCE_FLAT)
+        state.setdefault("fee_seen_at", None)
+        self.__dict__.update(state)
+
+    def _resolve_model(self, taker_given: bool) -> FeeModelName:
+        model = self.fee_model
+        if model is None:
+            if self.fee_schedule is not None:
+                if taker_given:
+                    raise ValueError(
+                        "a fee_schedule is the polymarket model and a taker_bps the flat-bps one: "
+                        "give one of them, or name the model with fee_model"
+                    )
+                return "polymarket"
+            if taker_given:
+                # warn_deprecated, here, __post_init__, __init__: the caller of CostModel(...)
+                warn_deprecated(**_BARE_TAKER_BPS, stacklevel=5)
+                return "flat-bps"
+            return "polymarket"
+        if not isinstance(model, str) or model not in _FEE_MODELS:
+            raise ValueError(f"fee_model must be one of {list(_FEE_MODELS)}, got {model!r}")
+        return model
+
+    def _resolve_schedule(self, model: FeeModelName) -> tuple[FeeSchedule | None, str]:
+        schedule = self.fee_schedule
+        source = self.fee_source
+        if source is not None and (not isinstance(source, str) or not source.strip()):
+            raise ValueError(f"fee_source must be a non-empty string, got {source!r}")
+        if model == "flat-bps":
+            if schedule is not None:
+                raise ValueError(
+                    'fee_model="flat-bps" charges taker_bps of the stake and takes no '
+                    'fee_schedule; use fee_model="polymarket" for a schedule'
+                )
+            if source not in (None, _SOURCE_FLAT):
+                raise ValueError(
+                    f'a flat-bps model has no schedule to source; fee_source must be None or "{_SOURCE_FLAT}", '
+                    f"got {source!r}"
+                )
+            return None, _SOURCE_FLAT
+        if source == _SOURCE_FLAT:
+            raise ValueError(
+                f'fee_source "{_SOURCE_FLAT}" is the label of the flat-bps model; a polymarket fee '
+                "needs a source that describes its schedule (a replace() from a flat model keeps "
+                "the old one: pass fee_source= with it)"
+            )
+        if schedule is None:
+            return category_fee_schedule(_DEFAULT_FEE_CATEGORY), source or _SOURCE_DEFAULT
+        if isinstance(schedule, Mapping):
+            schedule = FeeSchedule(**schedule)
+        elif not isinstance(schedule, FeeSchedule):
+            raise ValueError(
+                f"fee_schedule must be a FeeSchedule or a mapping of its fields, got {schedule!r}"
+            )
+        if source == _SOURCE_DEFAULT and not _is_a_category_schedule(schedule):
+            raise ValueError(
+                f'fee_source "{_SOURCE_DEFAULT}" says the schedule is a category default, and '
+                f"{schedule!r} is no category's: name where it came from with fee_source= "
+                '("gamma", "clob" or "user"). A dataclasses.replace() that swaps the schedule '
+                "keeps the old label unless it is given the new one"
+            )
+        return schedule, source or _SOURCE_GIVEN
+
+    def _resolve_seen_at(self, model: FeeModelName) -> datetime | None:
+        if self.fee_seen_at is None:
+            return None
+        if model == "flat-bps":
+            raise ValueError(
+                'a flat-bps model has no schedule to date; fee_seen_at belongs to fee_model="polymarket"'
+            )
+        return _utc_moment(self.fee_seen_at)
+
+    def with_fee_snapshot(self, snapshot: FeeSnapshot) -> CostModel:
+        """This model with the schedule of ``snapshot``, the source and the moment it was seen.
+
+        The three are set together, so the model cannot carry a schedule under the label of
+        another or without the moment it was known from: ``fee_source`` is ``snapshot.source`` and
+        ``fee_seen_at`` is ``snapshot.seen_at``. Slippage and depth are kept. Use it with
+        ``FeeScheduleStore.as_of(date)`` to price a trade with the schedule that was known before
+        its date, one model per market and date range; `rolling_origin_eval` refuses to price a
+        fold with a model whose schedule was seen after it decided.
+
+        Args:
+            snapshot: A `FeeSnapshot` (``resolve_fee_snapshot``, ``fetch_fee_snapshot`` or
+                ``FeeScheduleStore.as_of`` make them).
+
+        Returns:
+            A new polymarket model.
+
+        Raises:
+            TypeError: If ``snapshot`` is not a `FeeSnapshot`.
+            ValueError: If this is a flat-bps model, which has no schedule: build a polymarket one
+                (``CostModel(fee_model="polymarket", ...)``) first.
+        """
+        from pmlab.markets.fees import FeeSnapshot
+
+        if not isinstance(snapshot, FeeSnapshot):
+            raise TypeError(f"with_fee_snapshot takes a FeeSnapshot, got {snapshot!r}")
+        if self.fee_model == "flat-bps":
+            raise ValueError(
+                "a flat-bps model charges taker_bps of the stake and has no schedule to replace; "
+                'build a CostModel(fee_model="polymarket", ...) to carry a snapshot'
+            )
+        return dataclasses.replace(
+            self,
+            fee_schedule=snapshot.schedule,
+            fee_source=snapshot.source,
+            fee_seen_at=snapshot.seen_at,
+        )
+
     @classmethod
     def frictionless(cls) -> CostModel:
         """A model with no costs at all — useful as a backtest upper bound."""
-        return cls(taker_bps=0.0)
+        return cls(fee_model="flat-bps", taker_bps=0.0)
 
-    def fee(self, stake: float) -> float:
-        """Taker fee charged on *stake* notional."""
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> CostModel:
+        """The model ``to_dict`` wrote, and the one 1.4.0 and before wrote.
+
+        A dict with a ``taker_bps`` and no ``fee_model`` (and no ``fee_schedule``) is what every
+        release before 1.5.0 wrote, and it is the flat-bps model, without the deprecation warning
+        the constructor gives a bare ``taker_bps``: it is a file, not a call somebody can change.
+        So a champion, a reproducibility record or a tuner saved then is read with the model it ran
+        under. A dict that gives a ``fee_schedule`` is the polymarket model, whatever else it
+        carries (its ``taker_bps`` is then the unused one). A dict with neither a ``taker_bps`` nor
+        a ``fee_model`` is a partial one (only slippage, say) and gets the default model, as
+        ``CostModel(**data)`` would.
+
+        Args:
+            data: The mapping of fields.
+
+        Returns:
+            The model.
+
+        Raises:
+            TypeError: If ``data`` is not a mapping, or has a key that is not a field.
+            ValueError: If a value is out of range (see the class).
+        """
+        if not isinstance(data, Mapping):
+            raise TypeError(f"CostModel.from_dict takes a mapping, got {type(data).__name__}")
+        values = dict(data)
+        if "fee_model" not in values:
+            if values.get("fee_schedule") is not None:
+                values["fee_model"] = "polymarket"  # a schedule is the polymarket model's
+            elif "taker_bps" in values:
+                values["fee_model"] = "flat-bps"  # what 1.4.0 and before wrote
+        return cls(**values)
+
+    def fee(self, stake: float, price: float | None = None) -> float:
+        """Taker fee, in USDC, for buying *stake* notional at *price*.
+
+        The flat-bps model charges ``stake x taker_bps / 10_000`` and ignores the price. The
+        polymarket model charges the fee of the fill: *stake* USDC at *price* buys ``stake / price``
+        shares and pays ``shares x rate x price x (1 - price)``, rounded as the schedule says (5
+        decimals for Polymarket). Pass the price the fill happens at, `fill_price` (a fill at 0 buys
+        no shares and pays nothing).
+
+        Args:
+            stake: Notional USDC bought, > 0.
+            price: The fill price of one share, in [0, 1]. Required by the polymarket model.
+
+        Returns:
+            The fee in USDC.
+
+        Raises:
+            ValueError: If *stake* is not > 0, or *price* is missing (polymarket model) or not a
+                price in [0, 1].
+        """
         _require_positive_stake(stake)
-        return stake * self.taker_bps / _BPS
+        if self.fee_model == "flat-bps":
+            return stake * self.taker_bps / _BPS
+        if price is None:
+            raise ValueError(
+                "the polymarket fee depends on the price paid: call fee(stake, price) with the "
+                "fill price, or use fee_model='flat-bps', whose fee does not"
+            )
+        if not _is_finite_number(price) or not 0.0 <= price <= 1.0:
+            raise ValueError(f"price must be within [0, 1], got {price!r}")
+        if price == 0.0:
+            return 0.0  # a token at 0 is stake / 0 shares: nothing is bought, nothing is charged
+        assert self.fee_schedule is not None  # resolved on construction for this model
+        return taker_fee_on_stake(stake, price, self.fee_schedule)
+
+    def fee_fields(self, stake: float, price: float | None = None) -> dict[str, Any]:
+        """What a trade records about its fee: ``fee_paid``, ``fee_rate``, ``liquidity``,
+        ``fee_source`` and ``fee_model``.
+
+        The one place those five keys are made, so a backtest trade and a paper trade carry them
+        under the same names. ``fee_paid`` is `fee`. ``fee_rate`` is the rate of the model that
+        charged it: the schedule's ``rate`` (0.0 for a fee-free market) for polymarket, whose fee is
+        ``shares x rate x p x (1 - p)``, and ``taker_bps / 10_000`` for flat-bps, whose fee is
+        ``stake x rate``; the two are not the same kind of number, so ``fee_model`` (``"polymarket"``
+        or ``"flat-bps"``) says which formula a trade's ``fee_rate`` belongs to. ``liquidity`` is
+        ``"taker"``: this model fills at the book (maker fills are not modelled yet).
+        ``fee_source`` is the schedule's source (see the class).
+
+        Args:
+            stake: Notional USDC bought, > 0.
+            price: The fill price (see `fee`).
+
+        Returns:
+            The five fields as a dict.
+
+        Raises:
+            ValueError: As for `fee`.
+        """
+        if self.fee_model == "flat-bps":
+            rate = self.taker_bps / _BPS
+        else:
+            assert self.fee_schedule is not None
+            rate = self.fee_schedule.rate if self.fee_schedule.enabled else 0.0
+        return {
+            "fee_paid": self.fee(stake, price),
+            "fee_rate": rate,
+            "liquidity": "taker",
+            "fee_source": self.fee_source,
+            "fee_model": self.fee_model,
+        }
 
     def depth_penalty_bps(self, stake: float) -> float:
         """Extra slippage in bps from walking the book at this size."""
@@ -108,9 +541,26 @@ class CostModel:
         fill = price * (1.0 + total_bps / _BPS) + self.slippage_fixed
         return min(fill, 1.0)
 
-    def to_dict(self) -> dict[str, float]:
-        """Flat mapping for the experiment tracker; round-trips via ``CostModel(**d)``."""
-        return asdict(self)
+    def to_dict(self) -> dict[str, Any]:
+        """Mapping for the experiment tracker and the JSON files; round-trips via `from_dict`.
+
+        Names its ``fee_model``, and for the polymarket model carries the ``fee_schedule`` as the
+        mapping of its fields (``None`` for flat-bps) and its ``fee_source``, and ``fee_seen_at`` (an
+        ISO timestamp in UTC) when the schedule has a moment it was seen. A dict from before 1.5.0
+        had only the five numbers; `from_dict` reads it as the flat-bps model.
+        """
+        seen = {} if self.fee_seen_at is None else {"fee_seen_at": self.fee_seen_at.isoformat()}
+        return {
+            "fee_model": self.fee_model,
+            "taker_bps": self.taker_bps,
+            "slippage_bps": self.slippage_bps,
+            "slippage_fixed": self.slippage_fixed,
+            "depth_bps_per_unit": self.depth_bps_per_unit,
+            "depth_reference_stake": self.depth_reference_stake,
+            "fee_schedule": None if self.fee_schedule is None else self.fee_schedule.to_dict(),
+            "fee_source": self.fee_source,
+            **seen,
+        }
 
 
 def _require_positive_stake(stake: float) -> None:

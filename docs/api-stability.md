@@ -17,6 +17,15 @@ what that covers, what it does not, and how the promise is enforced rather than 
 A bug fix that changes a result is still a fix: if a function returned a wrong number, it returns
 the right one in the next patch. The changelog says so.
 
+A default that modelled the market wrongly is corrected on the same ground, and flagged in the
+changelog as a change of default: 1.5.0 changed the default fee of `CostModel` from a flat 30 bps of
+the stake to the fee Polymarket charges, which depends on the price (2.5% of the stake at a price of
+0.50 in a 0.05-rate market, against the 0.30%). That is a minor release and not a major one only because of what stays put: the
+names, signatures and file keys do not change, everything written before 1.5.0 (a champion, a
+reproducibility record, a tuner, a `--costs` file) replays with the fee it ran under, and the old
+model is one argument away (`fee_model="flat-bps"`). A change of default that does not leave that
+door open is a major.
+
 ## What is public
 
 ### Python names
@@ -69,7 +78,7 @@ additions. The full list as of 1.0.0:
 | `status` | `--artifacts-dir`, `-a`; `--workspace`, `-w` |
 | `version` | (none) |
 
-Added since 1.0.0: `backtest --embargo-days` (1.1.0). `tests/api/public_api.json` always holds the
+Added since 1.0.0: `backtest --embargo-days` (1.1.0); `--fee-model` on `backtest`, `promote-champion` and `record-trades` (1.5.0). `tests/api/public_api.json` always holds the
 current list.
 
 The text a command prints (tables, log lines, help strings) is for people and may change in any

@@ -90,9 +90,9 @@ panel.to_parquet("panel.parquet")  # the next blocks read it back
 ```
 
 ```text
-historical (top-prob)    A: +32.5   B: -63.5
-live, min_edge=0.20      A: no trades   B: +24.9
-live, min_edge=0.05      A: +25.2   B: -11.7
+historical (top-prob)    A: +28.5   B: -69.3
+live, min_edge=0.20      A: no trades   B: +23.0
+live, min_edge=0.05      A: +23.0   B: -17.5
 ```
 
 Tuned by the historical rule, the winner is A. Held to the live rule at the default threshold,
@@ -154,8 +154,8 @@ The arguments that define the objective:
 | Argument | Meaning | Default |
 |---|---|---|
 | `policy` | the decision rule each trial is scored under: `TradePolicy.live(min_edge=...)`, `TradePolicy.top_bin_yes()` or `None` | `None`: the historical rule, exactly the search of 0.11 and before |
-| `costs` | a `CostModel` (fee, slippage, depth) pricing each fill. Under the live rule it decides which trades clear `min_edge` | the 30 bps fee, fill at the quote |
-| `taker_bps` | the fee alone, as before. Not allowed together with `costs` | `None` (30 bps) |
+| `costs` | a `CostModel` (fee, slippage, depth) pricing each fill. Under the live rule it decides which trades clear `min_edge` | the Polymarket taker fee (`CostModel()`), fill at the quote; a tuner saved before 1.5.0 loads with the flat 30 bps it was tuned under |
+| `taker_bps` | **deprecated since 1.5.0**: the flat fee alone. Pass `costs=CostModel(fee_model="flat-bps", taker_bps=...)`. Not allowed together with `costs` | `None` |
 | `metric` | `"total_pnl"`, `"mean_pnl"` or `"hit_rate"` of the trades the policy takes | `"total_pnl"` |
 
 Use the `min_edge` you pass to `record-trades --min-edge` (the default is 0.20) and the `CostModel`
@@ -209,7 +209,7 @@ from pmlab import (
 
 panel = pd.read_parquet("panel.parquet")
 policy = TradePolicy.live(min_edge=0.05)
-costs = CostModel(taker_bps=30.0, slippage_bps=50.0)
+costs = CostModel(slippage_bps=50.0)
 
 
 def build(params):
@@ -260,7 +260,7 @@ REPRODUCED: 5 metrics match (rtol=1e-09, atol=1e-12; counts exact).
 ```
 
 To repeat the *search*, rebuild the tuner from the record (`TradePolicy.from_dict(block["policy"])`,
-`CostModel(**block["costs"])`, `random_state=record.seeds["optuna"]`) and call `tune` on the same
+`CostModel.from_dict(block["costs"])`, `random_state=record.seeds["optuna"]`) and call `tune` on the same
 data (the record's data fingerprint tells you whether it is): the same objective, sampler seed and
 panel give the same `best_params_`.
 

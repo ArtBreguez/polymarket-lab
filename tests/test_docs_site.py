@@ -360,6 +360,11 @@ class TestDeprecationsShowInTheReference:
             "pmlab", search_paths=[REPO / "src"], extensions=extensions, allow_inspection=False
         )
         for entry in registered:
+            if not entry.module:
+                # an argument, a value or a key (`declare_deprecated`): no object of its own to read a
+                # docstring from. Its notice is in the docstring of what takes it, which
+                # tests/test_deprecation.py::TestTheNoticeOfAnArgument holds to the same text.
+                continue
             obj = package[f"{entry.module.removeprefix('pmlab.')}.{entry.name}"]
             assert obj.docstring is not None
             assert f"Deprecated since {entry.since}" in obj.docstring.value, entry.name

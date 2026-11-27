@@ -15,10 +15,11 @@ from pmlab.core.costs import CostModel
 
 
 class TestDefaultIsTodaysBehaviour:
-    """The default must be a no-op beyond the existing 30bps fee.
+    """The flat-bps model must be a no-op beyond the existing 30bps fee.
 
-    This is the compatibility contract: adding `costs=` to the backtest must not
-    silently move any previously published PnL.
+    This is the compatibility contract: the model every release before 1.5.0 used is still
+    reachable (`fee_model="flat-bps"`), and slippage is the same under either fee model. The
+    default *fee* moved to the Polymarket model in 1.5.0 (tests/core/test_costs_polymarket.py).
     """
 
     def test_default_adds_no_slippage(self) -> None:
@@ -26,8 +27,10 @@ class TestDefaultIsTodaysBehaviour:
 
     def test_default_fee_matches_the_existing_constant(self) -> None:
         # core.fees.DEFAULT_TAKER_BPS is 30.0 and rolling_origin charged
-        # flat_stake * taker_bps / 10_000 — the default must agree exactly.
-        assert CostModel().fee(stake=1.0) == pytest.approx(1.0 * 30.0 / 10_000.0)
+        # flat_stake * taker_bps / 10_000 — the flat-bps model must agree exactly.
+        assert CostModel(fee_model="flat-bps").fee(stake=1.0) == pytest.approx(
+            1.0 * 30.0 / 10_000.0
+        )
 
     def test_frictionless_classmethod_is_truly_free(self) -> None:
         free = CostModel.frictionless()

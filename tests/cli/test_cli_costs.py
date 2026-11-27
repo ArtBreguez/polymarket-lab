@@ -265,7 +265,9 @@ def _published_champion(artifacts: Path, *, costs: CostModel | None) -> Path:
 
 class TestBacktestCosts:
     def test_the_costs_change_the_backtest(self, tmp_path: Path) -> None:
-        default_run, default = _backtest(tmp_path, name="default.json")
+        # The baseline is the flat 30 bps fee with no slippage: the costs below add slippage to it.
+        # (The default fee model is the Polymarket curve, dearer than that at this price.)
+        default_run, default = _backtest(tmp_path, "--fee-model", "flat-bps", name="default.json")
         costly_run, costly = _backtest(
             tmp_path, "--costs", str(_costs_file(tmp_path)), name="costly.json"
         )
@@ -283,7 +285,7 @@ class TestBacktestCosts:
         assert metrics["costs"] == CostModel().to_dict()
 
     def test_the_expectation_is_computed_net_of_the_costs(self, tmp_path: Path) -> None:
-        _, default = _backtest(tmp_path, name="default.json")
+        _, default = _backtest(tmp_path, "--fee-model", "flat-bps", name="default.json")
         _, costly = _backtest(tmp_path, "--costs", str(_costs_file(tmp_path)), name="costly.json")
         assert (
             costly["expectation"]["mean_pnl_per_stake"]

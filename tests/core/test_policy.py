@@ -31,23 +31,23 @@ from pmlab.execution.edge_signal import EdgeSignal
 class TestQuoteEdges:
     def test_yes_edge_is_probability_minus_price_minus_fee(self) -> None:
         # The worked number in tests/core/test_edge.py: 0.6 - 0.3 - 0.003.
-        q = quote_edges(0.6, 0.3, CostModel(), stake=1.0)
+        q = quote_edges(0.6, 0.3, CostModel(fee_model="flat-bps"), stake=1.0)
         assert q.yes_edge == pytest.approx(0.297, abs=1e-12)
 
     def test_no_edge_prices_the_complementary_token(self) -> None:
         # NO token costs 1 - 0.3 = 0.7 and is worth 1 - 0.6 = 0.4.
-        q = quote_edges(0.6, 0.3, CostModel(), stake=1.0)
+        q = quote_edges(0.6, 0.3, CostModel(fee_model="flat-bps"), stake=1.0)
         assert q.no_edge == pytest.approx(0.4 - 0.7 - 0.003, abs=1e-12)
 
     def test_the_model_is_bearish_so_no_is_the_better_side(self) -> None:
-        q = quote_edges(0.1, 0.6, CostModel(), stake=1.0)
+        q = quote_edges(0.1, 0.6, CostModel(fee_model="flat-bps"), stake=1.0)
         assert q.no_edge == pytest.approx(0.9 - 0.4 - 0.003, abs=1e-12)
         assert q.direction == "no"
         assert q.best_edge == q.no_edge
         assert q.best_edge > q.yes_edge
 
     def test_a_bullish_model_takes_yes(self) -> None:
-        q = quote_edges(0.9, 0.4, CostModel(), stake=1.0)
+        q = quote_edges(0.9, 0.4, CostModel(fee_model="flat-bps"), stake=1.0)
         assert q.direction == "yes"
         assert q.best_edge == q.yes_edge
 
@@ -224,7 +224,7 @@ class TestNumpyScalarsAreNumbers:
 
     @pytest.mark.parametrize("make", [np.float32, np.float64, np.longdouble])
     def test_a_numpy_float_probability_and_price(self, make: type) -> None:
-        q = quote_edges(make(0.6), make(0.3), CostModel(), stake=1.0)  # type: ignore[arg-type]
+        q = quote_edges(make(0.6), make(0.3), CostModel(fee_model="flat-bps"), stake=1.0)  # type: ignore[arg-type]
         assert q.yes_edge == pytest.approx(0.297, abs=1e-6)
 
     def test_a_numpy_integer_endpoint(self) -> None:

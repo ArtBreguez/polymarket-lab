@@ -4,6 +4,159 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-11-27
+
+The real fee model everywhere (#72, part of epic #69): the backtest, the tuner, the edge, Kelly sizing,
+the paper broker, the watchdog, the report and the CLI now charge a Polymarket taker the fee Polymarket
+charges, which depends on the price, instead of a flat 30 bps of the stake. **The default fee changes, so
+the numbers of every default backtest, tuning run and paper trade move.** A run, a champion or a tuner
+written before this release still replays with the fee it ran under (below), and the old model is one
+argument away, so nothing that was recorded is reinterpreted.
+
+A minor release, as the epic (#69) set out: a backtest that clears the gate under the old fee can be a
+NO_GO under the real one, and that is the point. What is public changes by addition and by two widened
+annotations (listed under *Changed*); nothing is removed, and the old spellings are deprecated, not gone.
+It is a **change of default**, corrected like a bug fix (the flat fee charged 0.30% of the stake where
+Polymarket charges 2.5% at a price of 0.50 in a 0.05-rate market): [the stability
+page](https://pmlab.hiddenterps.si/api-stability/) now says that a default that modelled the market
+wrongly is corrected on that ground, and why this is a minor: names, signatures and file keys do not
+change, everything written before replays with the fee it ran under, and the old model is one argument
+away (`fee_model="flat-bps"`).
+
+### Changed
+
+- **The default fee is the Polymarket taker fee.** `CostModel()` charges `shares x rate x price x
+  (1 - price)` per fill, rounded to 5 decimals: for a 0.05-rate market 3.5% of the stake at 0.30, 2.5%
+  at 0.50 and 0.5% at 0.90, against the 0.30% every release charged until now (a mid-priced taker trade
+  was undercharged roughly tenfold). It is taken at the price the fill happens at, slippage included.
+  The model without a schedule uses the `"other"` category's 0.05, the highest published rate, so the
+  default costs too much rather than too little, and each trade records `fee_source="category_default"`.
+  A market's own schedule (`fee_schedule=FeeSchedule(...)`, from `fetch_fee_snapshot` or
+  `resolve_fee_snapshot`) replaces it; weather markets publish 0.01 (2026-11-25), so a weather backtest
+  with the default is charged five times the fee. This reaches `CostModel`, `rolling_origin_eval`,
+  `TunedForecaster`, `PaperBroker`, `SettlementEngine` (through the fee the broker recorded), `pmlab
+  backtest`, `record-trades` and `promote-champion`.
+- **The edge subtracts the fee of the fill.** `quote_edges` (and so the live policy, `EdgeSignal.from_quote`
+  and the backtest) computes `p - fill - fee_per_stake(fill)` with `rate x (1 - fill)` of the stake as the
+  fee, not a constant. A longshot pays most of its stake in fee, so strategies that lean on cheap tokens
+  lose the most edge. As `compute_edge` always did, the fee is per unit of stake and the gap per share, so
+  for a cheap token the edge is conservative (at a fill of 0.30 it deducts 3.5 points where the trade pays
+  1.05 cents a share); `kelly_fraction(costs=)` uses the exact break-even `p > fill x (1 + rate x (1 - fill))`.
+- **`kelly_fraction` and `kelly_stake_size` take `costs=`** (keyword-only, default `None`: the gross payoff
+  as before) and size on the post-fee payoff. `kelly_stake_size` returns the stake whose stake plus fee is
+  the capped fraction of the bankroll.
+- **Every trade records what charged its fee**: `fee_paid`, `fee_rate`, `liquidity` (`"taker"`),
+  `fee_source` and `fee_model` (`"polymarket"` or `"flat-bps"`: `fee_rate` is the schedule's rate for one
+  and `taker_bps / 10_000` for the other, and the trade says which), on the backtest's trade log (five new
+  columns, also on an empty one) and on the paper broker's trades (five new keys; the paper-trade log is
+  not a frozen format). `SettlementEngine` books the recorded `fee_paid` as it always did, so a settled
+  trade nets the fee of its fill and keeps the five fields; a trade with no `fee_paid` on record is still
+  booked with the legacy flat 0.003.
+- **`CostModel.fee(stake)` needs the price under the polymarket model**: `fee(stake, price)`, with the fill
+  price, and `ValueError` without one rather than a guess. The flat model ignores the price, as before.
+- **`pmlab monitor` checks `fee_paid` against the champion's fee model at the price the trade was filled
+  at**; trades that paid another fee are left out of the PnL comparison and counted, as for another fill.
+- **`CostModel.to_dict()`, `BacktestConfig.costs` and the costs in a watchdog report are `dict[str, Any]`**,
+  not `dict[str, float]`: the dict now names the `fee_model`, carries the `fee_schedule` as a mapping and
+  the `fee_source`. These are the only two public annotations that widen (`tests/api/public_api.json`); the
+  keys the five old numbers were under are unchanged, and every consumer in pmlab reads them.
+- **`generate_report` and the CLI show what the fees cost.** The HTML report has **Total Fees** and **Fees %
+  of Stake** cards (over the settled trades that recorded a `fee_paid`, `n/a` when none did) and a Fee
+  column; `pmlab backtest`, `pmlab report` and `pmlab status` print the total and its share of the stake,
+  and `backtest --output` writes `total_fees` and `fees_pct_of_stake`.
+- **The bundled sample's gate**, recomputed with the tutorial's own pipeline: the decision does not change
+  (NO_GO for the five cities because Lisbon is `negative_pnl`; GO on Athens, Istanbul, Madrid and Rome),
+  but under the default fee the four cities earn 60.3 on the backtest window where the flat fee showed
+  151.5 (Madrid's gate PnL falls from +51.3 to +11.8, and in the live window Rome's paper trades end at
+  -0.35). Under the weather rate of 0.01 it is 141.4. The three runs are in
+  [Backtest costs](https://pmlab.hiddenterps.si/costs/#the-bundled-sample), and
+  `tests/notebooks/test_tutorial_fee_gate.py` recomputes them. The tutorial itself still charges the flat
+  fee (`fee_model="flat-bps"`), so its page and the home page stay as written until #74 re-runs them.
+
+### Not changed: an old record replays with the model it ran under
+
+- **A cost dict with no `fee_model` is the flat-bps model.** That is every `champion.json`, reproducibility
+  record, tuner pickle and `--costs` file written by 1.4.0 and before: `CostModel.from_dict` reads them as
+  `fee_model="flat-bps"`, with no warning, and a tuner saved before costs existed (no cost dict at all) loads
+  as flat-bps too. So `pmlab reproduce` of a 1.4.0 record gives the numbers it gave, `record-trades` trades
+  a champion promoted under the flat fee under the flat fee, and the watchdog compares like with like.
+  A test replays a record both ways: the same record under the other fee model does not reproduce.
+- **The `CostModel` signature**: `taker_bps: float = 30.0, slippage_bps, slippage_fixed, depth_bps_per_unit,
+  depth_reference_stake` keep their order and defaults, and `fee_model`, `fee_schedule` and `fee_source`
+  are appended (and `fee_seen_at`, below). `taker_bps` still reads 30.0 on a default model, where it is unused. A `taker_bps` that is
+  passed, even a 30.0, selects the flat model: the default is a float that is told apart from a passed one,
+  and it prints as 30.0 in the signature.
+- `CostModel.frictionless()`, `estimate_fee`, `fill_price`, slippage and depth; `HoldoutGateResult`; the
+  reproducibility record's `schema_version` (1: the new cost keys are additive).
+- A champion with no recorded costs is still `costs: null`, and `promote-champion` with no costs anywhere
+  still records none. What does change for it: `record-trades` fills its paper trades under the default
+  polymarket model (it prints a note saying so; `--fee-model flat-bps` fills them under the flat fee).
+
+### Added
+
+- **`CostModel(fee_model=, fee_schedule=, fee_source=, fee_seen_at=)`**: `"polymarket"` (the default) or `"flat-bps"`, the
+  schedule the polymarket model charges (a `FeeSchedule`, or the mapping `to_dict` writes), and where it
+  came from (`"gamma"`, `"clob"`, `"category_default"`, `"user"`, `"flat_bps"`).
+- **`CostModel.from_dict(data)`**, the inverse of `to_dict`, which also reads the dicts of 1.4.0 and before
+  as flat-bps; **`CostModel.fee_fields(stake, price)`**, the five fields a trade records.
+- **`CostModel.with_fee_snapshot(snapshot)` and `fee_seen_at`: a fee is priced only from when it was known.**
+  `FeeScheduleStore` (#89) keeps every schedule with the moment it was seen, because Polymarket changes
+  its rates without notice; #72 first wired a bare `FeeSchedule` into `CostModel`, which carries no moment,
+  so a schedule read in November could price a January trade and the log called each one
+  `fee_source="gamma"`. `with_fee_snapshot` sets the schedule, the source and the moment together, and
+  `rolling_origin_eval` now raises `ValueError` (before any model is fitted) for a fold that decides at or
+  before `fee_seen_at`, with the store's rule (the schedule seen strictly before the decision). A schedule
+  given without a moment claims none and is not checked: the explicit one-fee-for-the-whole-history
+  approximation, named `"user"`. The docs no longer recommend `dataclasses.replace(costs,
+  fee_schedule=snapshot.schedule)` for a backtest. `to_dict` writes `fee_seen_at` only when it is set.
+- **A `CostModel` whose label or fee lies is refused.** A polymarket model refuses `fee_source="flat_bps"`
+  and `"category_default"` on a schedule that is no category's default (what `dataclasses.replace` left
+  behind when it swapped the schedule and kept the label), and warns (`UserWarning`) for a
+  `taker_bps` other than 30.0, which only the flat model reads (`replace(CostModel(), taker_bps=50)` priced
+  nothing, silently).
+- **A `CostModel` pickled by 1.4.0 loads as the flat-bps model it was** (it used to load without a fee
+  model, schedule or source, and `fee(stake)` raised); pmlab itself never pickles one.
+- **A `--costs` file that names no model, schedule or `taker_bps` says so.** 1.4.0 read it as flat 30 bps
+  plus its slippage and 1.5.0 reads it as polymarket, so the command prints a `warning:` line saying which
+  it did and how to ask for the other, instead of changing in silence (`--fee-model` or `"fee_model"` in
+  the file silences it).
+- **`--fee-model` naming the champion's own model is accepted.** `record-trades` and `promote-champion
+  --expectation` compared the flag's `CostModel(fee_model=...)` (default schedule, default slippage) whole
+  against the costs on record, so the same model was refused as "differs". The flag names only the model:
+  the same one is the costs on record, the other exits 1 and the message names both models.
+- **`--fee-model {polymarket,flat-bps}`** on `backtest`, `promote-champion` and `record-trades` (default
+  `polymarket`): it picks the model of a `--costs` file that does not name one and contradicts a file that
+  does (exit 1). The issue asked for it next to a `--taker-bps` option; there is none (the fee reached the CLI
+  only through the `taker_bps` key of a `--costs` file), so that key is what is deprecated.
+- A notebook test that runs the tutorial offline under the flat fee, the default fee and the weather rate and
+  holds the sample's gate decision to what `docs/costs.md` says.
+
+### Deprecated
+
+All since 1.5.0, removed in 2.0.0, each with a `PmlabDeprecationWarning` (or, for a file, a `warning:` line
+on stderr) that names the replacement, and a row in the [deprecation table](https://pmlab.hiddenterps.si/deprecation/):
+
+- `CostModel(taker_bps=...)` without a `fee_model`: write `CostModel(fee_model="flat-bps", taker_bps=...)`, or
+  take the default model.
+- the `taker_bps` argument of `rolling_origin_eval`, `TunedForecaster` and `PaperBroker`: pass
+  `costs=CostModel(fee_model="flat-bps", taker_bps=...)`.
+- a `--costs` file with a `taker_bps` and no `fee_model`: add `"fee_model": "flat-bps"`.
+
+All of them still work, and give the flat model they always did. pmlab's own code, the tutorial notebook and
+the site-data script no longer use them.
+
+### Not done (the rest of the epic)
+
+- Maker fills and rebates (#73), the `FeeModel` protocol with Kalshi beside Polymarket (#75) and book-walking
+  fills from point-in-time books (#76): this release wires the Polymarket `FeeSchedule` through, and
+  `CostModel` is where those plug in. `liquidity` is always `"taker"`.
+- **A per-market fee resolver is not in 1.5.0** (the issue's "or a per-market resolver"): one `CostModel`
+  carries one schedule, and a backtest prices every trade with it. A strategy over markets with different
+  rates, or a history over which a rate changed, builds one model per market and schedule
+  (`costs.with_fee_snapshot(snapshot)`) and runs one backtest per schedule over the dates it was known for;
+  `fee_seen_at` makes a run that crosses a change an error and not a silent lookahead.
+- The migration page, the tutorial and the home page re-run under the default fee (#74).
+
 ## [1.4.0] — 2026-11-26
 
 Per-market fee schedules (#71, part of epic #69): pmlab reads the fee a market carries from
@@ -2041,7 +2194,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.0...v1.2.1
