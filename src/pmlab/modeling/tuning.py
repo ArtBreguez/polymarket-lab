@@ -30,9 +30,8 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import pandas as pd
 
-from pmlab._deprecation import warn_deprecated
 from pmlab.backtest.rolling_origin import _validate_embargo_days, rolling_origin_eval
-from pmlab.core.costs import CostModel
+from pmlab.core.costs import CostModel, warn_taker_bps_argument
 from pmlab.core.policy import TradePolicy
 from pmlab.modeling.base import MarketForecaster
 
@@ -146,15 +145,7 @@ class TunedForecaster(MarketForecaster):
             if taker_bps is None:
                 costs = CostModel()
             else:
-                warn_deprecated(
-                    "the `taker_bps` argument of TunedForecaster",
-                    since="1.5.0",
-                    removed_in="2.0.0",
-                    alternative='`costs=CostModel(fee_model="flat-bps", taker_bps=...)`',
-                    reason="the fee on Polymarket depends on the price, and a bare number cannot "
-                    "say so",
-                    stacklevel=3,
-                )
+                warn_taker_bps_argument("TunedForecaster")
                 costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
         self.costs: CostModel = costs
         self.taker_bps: float = self.costs.taker_bps

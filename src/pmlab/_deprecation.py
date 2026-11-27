@@ -3,11 +3,14 @@
 Internal module: contributors use it, users only ever meet its warning,
 `PmlabDeprecationWarning`, which is public (``pmlab.PmlabDeprecationWarning``).
 
-Two entry points:
+Three entry points:
 
 * `deprecated` — a decorator for a function, method, coroutine function or class.
 * `warn_deprecated` — for what a decorator cannot wrap: an argument, a keyword value, a
   module attribute, a key in a file.
+* `declare_deprecated` — registers what `warn_deprecated` will warn about, when the module that
+  owns it is imported, so the registry (and the docs table check that reads it) does not depend on
+  whether something happened to trigger the warning first.
 
 Both emit a `PmlabDeprecationWarning`, validate the timeline (see below), and record the
 deprecation in a registry that a test reads, so a shim cannot silently outlive its removal.
@@ -48,6 +51,7 @@ from typing import Any, TypeVar, cast
 __all__ = [
     "Deprecation",
     "PmlabDeprecationWarning",
+    "declare_deprecated",
     "deprecated",
     "parse_version",
     "registered",
@@ -224,6 +228,41 @@ def deprecated(
     return decorate
 
 
+def declare_deprecated(
+    what: str,
+    *,
+    since: str,
+    removed_in: str,
+    alternative: str | None = None,
+    reason: str | None = None,
+) -> None:
+    """Register the deprecation of an argument, value or key, at import, without warning.
+
+    `warn_deprecated` registers a deprecation the first time it is emitted. A test that reads the
+    registry (every deprecation is a row of the docs table, and the table lists nothing that is not
+    deprecated) is then order-dependent: it passes after something has triggered the warning and
+    fails when run alone. Call this at module level with the **same arguments** the warning will be
+    given and the entry is there from import; the first warning finds it registered, and registering
+    twice is harmless.
+
+    Args:
+        what: The subject of the sentence, as for `warn_deprecated`.
+        since: The release that deprecates it, as ``X.Y.Z``.
+        removed_in: The release that removes it: a later major (``X.0.0``), never before 2.0.0.
+        alternative: What to use instead, as it should read in "use ... instead".
+        reason: One short clause on why, appended to the message.
+
+    Raises:
+        ValueError: A version is not ``X.Y.Z``, or ``removed_in`` breaks the timeline.
+    """
+    _check_timeline(since, removed_in)
+    _record(
+        Deprecation(
+            name=what, since=since, removed_in=removed_in, alternative=alternative, reason=reason
+        )
+    )
+
+
 def warn_deprecated(
     what: str,
     *,
@@ -241,7 +280,8 @@ def warn_deprecated(
     about its own argument, the warning should name whoever called ``run``).
 
     The deprecation is registered the first time it is emitted, so the removal reminder test only
-    sees it once something has triggered it: prefer `deprecated` where a callable fits.
+    sees it once something has triggered it: prefer `deprecated` where a callable fits, or call
+    `declare_deprecated` with the same arguments at module level.
 
     Args:
         what: The subject of the sentence, e.g. ``"the `min_edge_pct` argument"``.

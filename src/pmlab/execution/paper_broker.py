@@ -9,8 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pmlab._atomic import atomic_write_text
-from pmlab._deprecation import warn_deprecated
-from pmlab.core.costs import CostModel
+from pmlab.core.costs import CostModel, warn_taker_bps_argument
 from pmlab.core.segments import check_segment_collection, segment_allowed
 from pmlab.execution.edge_signal import EdgeSignal
 
@@ -72,15 +71,7 @@ class PaperBroker:
             if taker_bps is None:
                 costs = CostModel()
             else:
-                warn_deprecated(
-                    "the `taker_bps` argument of PaperBroker",
-                    since="1.5.0",
-                    removed_in="2.0.0",
-                    alternative='`costs=CostModel(fee_model="flat-bps", taker_bps=...)`',
-                    reason="the fee on Polymarket depends on the price, and a bare number "
-                    "cannot say so",
-                    stacklevel=3,
-                )
+                warn_taker_bps_argument("PaperBroker")
                 costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
         self.costs = costs
         # Kept so existing callers reading broker.taker_bps keep working.

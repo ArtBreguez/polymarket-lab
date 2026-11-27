@@ -44,15 +44,73 @@ import math
 import numbers
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
-from pmlab._deprecation import warn_deprecated
+from pmlab._deprecation import declare_deprecated, warn_deprecated
 from pmlab.core.fee_schedule import FeeSchedule, category_fee_schedule, taker_fee_on_stake
 from pmlab.core.fees import DEFAULT_TAKER_BPS
 
 __all__ = ["CostModel"]
 
 _BPS = 10_000.0
+
+
+class _DeprecationArgs(TypedDict):
+    """The arguments `declare_deprecated` and `warn_deprecated` are both given."""
+
+    what: str
+    since: str
+    removed_in: str
+    alternative: str
+    reason: str
+
+
+# The deprecations of the bare ``taker_bps`` (#72), declared here so they are registered at import
+# (the docs table is checked against the registry) and warned with the very same arguments.
+_ALTERNATIVE_TO_TAKER_BPS = '`costs=CostModel(fee_model="flat-bps", taker_bps=...)`'
+_BARE_TAKER_BPS: _DeprecationArgs = {
+    "what": "CostModel(taker_bps=...) without a fee_model",
+    "since": "1.5.0",
+    "removed_in": "2.0.0",
+    "alternative": '`CostModel(fee_model="flat-bps", taker_bps=...)`, or the default polymarket '
+    "fee model",
+    "reason": "the fee depends on the price on Polymarket, and a bare taker_bps silently picks "
+    "the model of 1.4.0 and before",
+}
+_TAKER_BPS_ARGUMENT_OWNERS = ("rolling_origin_eval", "TunedForecaster", "PaperBroker")
+
+# A costs file with a `taker_bps` and no `fee_model` (what every release before 1.5.0 wrote). The
+# warning is the CLI's (a line on stderr); the declaration lives here, where `import pmlab` reaches it.
+LEGACY_COSTS_FILE_DEPRECATION: _DeprecationArgs = {
+    "what": "a --costs file with a taker_bps and no fee_model",
+    "since": "1.5.0",
+    "removed_in": "2.0.0",
+    "alternative": '"fee_model": "flat-bps" next to it, or the default polymarket model',
+    "reason": "it names no fee model, so it is read as the flat-bps model of 1.4.0",
+}
+
+
+def _taker_bps_argument(owner: str) -> _DeprecationArgs:
+    return {
+        "what": f"the taker_bps argument of {owner}",
+        "since": "1.5.0",
+        "removed_in": "2.0.0",
+        "alternative": _ALTERNATIVE_TO_TAKER_BPS,
+        "reason": "the fee on Polymarket depends on the price, and a bare number cannot say so",
+    }
+
+
+declare_deprecated(**_BARE_TAKER_BPS)
+declare_deprecated(**LEGACY_COSTS_FILE_DEPRECATION)
+for _owner in _TAKER_BPS_ARGUMENT_OWNERS:
+    declare_deprecated(**_taker_bps_argument(_owner))
+
+
+def warn_taker_bps_argument(owner: str) -> None:
+    """Warn that ``owner`` (``rolling_origin_eval``, ``TunedForecaster``, ``PaperBroker``) was given
+    a ``taker_bps``, naming the caller of ``owner``. Internal: the one place the text lives."""
+    warn_deprecated(**_taker_bps_argument(owner), stacklevel=4)
+
 
 FeeModelName = Literal["polymarket", "flat-bps"]
 _FEE_MODELS: tuple[str, ...] = ("polymarket", "flat-bps")
@@ -167,16 +225,8 @@ class CostModel:
                     )
                 return "polymarket"
             if taker_given:
-                warn_deprecated(
-                    "`CostModel(taker_bps=...)` without a `fee_model`",
-                    since="1.5.0",
-                    removed_in="2.0.0",
-                    alternative='`CostModel(fee_model="flat-bps", taker_bps=...)`, or the '
-                    "default polymarket fee model",
-                    reason="the fee depends on the price on Polymarket, and a bare taker_bps "
-                    "silently picks the model of 1.4.0 and before",
-                    stacklevel=5,  # warn_deprecated, here, __post_init__, __init__: the caller
-                )
+                # warn_deprecated, here, __post_init__, __init__: the caller of CostModel(...)
+                warn_deprecated(**_BARE_TAKER_BPS, stacklevel=5)
                 return "flat-bps"
             return "polymarket"
         if not isinstance(model, str) or model not in _FEE_MODELS:

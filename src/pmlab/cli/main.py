@@ -13,6 +13,8 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
+from pmlab._deprecation import warn_deprecated
+
 if TYPE_CHECKING:
     from pmlab.core.costs import CostModel
     from pmlab.core.policy import TradePolicy
@@ -42,30 +44,93 @@ def _check_workspace(value: str) -> str:
 
 
 _COSTS_HELP = (
-    "JSON file of CostModel fields (taker_bps, slippage_bps, slippage_fixed, "
-    "depth_bps_per_unit, depth_reference_stake), or any JSON with them under a "
-    "'costs' key such as the file `pmlab backtest --output` writes. "
+    "JSON file of CostModel fields (fee_model, fee_schedule, fee_source, slippage_bps, "
+    "slippage_fixed, depth_bps_per_unit, depth_reference_stake; taker_bps for flat-bps), or any "
+    "JSON with them under a 'costs' key such as the file `pmlab backtest --output` writes. "
+)
+
+_FEE_MODELS = ("polymarket", "flat-bps")
+_FEE_MODEL_HELP = (
+    "The fee model: 'polymarket' charges the price-dependent taker fee (rate x (1 - price) of "
+    "the stake), 'flat-bps' the flat 30 bps of the stake every release before 1.5.0 charged. "
+    "Default: polymarket. A --costs file that names its model (or, as before 1.5.0, gives only "
+    "taker_bps, which is flat-bps) must agree with it."
 )
 
 
-def _costs_from(raw: object, source: str) -> CostModel:
-    """A CostModel from parsed JSON, or a clean exit 1 naming `source`."""
-    from pmlab.core.costs import CostModel
+def _stated_fee_model(fields: dict[str, object]) -> object:
+    """The fee model a costs mapping states, or None if it states none.
+
+    ``fee_model`` is explicit; a ``fee_schedule`` is the polymarket model; a bare ``taker_bps`` is
+    what every file before 1.5.0 wrote, and the flat-bps model.
+    """
+    if "fee_model" in fields:
+        return fields["fee_model"]
+    if fields.get("fee_schedule") is not None:
+        return "polymarket"
+    if "taker_bps" in fields:
+        return "flat-bps"
+    return None
+
+
+def _costs_from(
+    raw: object,
+    source: str,
+    *,
+    fee_model: str | None = None,
+    warn_legacy: bool = False,
+) -> CostModel:
+    """A CostModel from parsed JSON, or a clean exit 1 naming `source`.
+
+    Args:
+        raw: The parsed JSON: the cost fields, or an object with them under ``costs``.
+        source: Where it was read from, for the error message.
+        fee_model: The ``--fee-model`` flag. It fills in a model the fields do not state, and
+            contradicts one they do (exit 1) if it names another.
+        warn_legacy: Print the deprecation line for a file that gives ``taker_bps`` and no
+            ``fee_model``. Off for costs recorded inside another file (an expectation), which
+            nobody wrote by hand.
+    """
+    from pmlab.core.costs import LEGACY_COSTS_FILE_DEPRECATION, CostModel
 
     fields = raw.get("costs", raw) if isinstance(raw, dict) else raw
     try:
         if not isinstance(fields, dict):
             raise TypeError("expected a JSON object of cost fields")
+        fields = dict(fields)
+        stated = _stated_fee_model(fields)
+        if fee_model is not None and stated is not None and stated != fee_model:
+            raise ValueError(
+                f"--fee-model {fee_model} contradicts the costs, which are a {stated} model "
+                "(they name fee_model, give a fee_schedule, or give only taker_bps)"
+            )
+        if warn_legacy and "fee_model" not in fields and stated == "flat-bps":
+            warn_deprecated(**LEGACY_COSTS_FILE_DEPRECATION, cli=True)
+        model = fee_model if fee_model is not None else stated
+        if model is not None:
+            fields["fee_model"] = model
         return CostModel(**fields)
     except (TypeError, ValueError) as e:
         rprint(f"[red]Not a valid cost model ({source}): {e}[/red]")
         raise typer.Exit(1) from e
 
 
-def _load_costs(path: str | None) -> CostModel | None:
-    """Read a `--costs` file; None when the option was not given."""
+def _load_costs(path: str | None, fee_model: str | None = None) -> CostModel | None:
+    """The cost model the ``--costs`` and ``--fee-model`` options name; None when neither was given.
+
+    ``--costs`` reads a file; ``--fee-model`` alone is that model with its defaults, and with a
+    file it fills in the model the file does not state. An unknown ``--fee-model`` is exit 1.
+    """
+    from pmlab.core.costs import CostModel
+
+    if fee_model is not None and fee_model not in _FEE_MODELS:
+        rprint(
+            f"[red]Unknown --fee-model {fee_model!r}: choose "
+            f"{' or '.join(repr(m) for m in _FEE_MODELS)}.[/red]"
+        )
+        raise typer.Exit(1)
     if path is None:
-        return None
+        return None if fee_model is None else CostModel(fee_model=fee_model)  # type: ignore[arg-type]
     file = Path(path)
     if not file.is_file():
         rprint(f"[red]Costs file not found: {path}[/red]")
@@ -75,7 +140,7 @@ def _load_costs(path: str | None) -> CostModel | None:
     except (OSError, ValueError) as e:
         rprint(f"[red]Not a valid cost model ({path}): costs file is unreadable: {e}[/red]")
         raise typer.Exit(1) from e
-    return _costs_from(raw, path)
+    return _costs_from(raw, path, fee_model=fee_model, warn_legacy=True)
 
 
 def _describe_segments(allowed: set[str]) -> str:
@@ -141,13 +206,18 @@ def _parse_model_params(items: list[str]) -> dict[str, object]:
 
 
 def _flat_params(config: BacktestConfig, seed: int) -> dict[str, object]:
-    """The resolved config as flat tracker params (the nested dicts get dotted names)."""
+    """The resolved config as flat tracker params (the nested dicts get dotted names, at any depth)."""
     flat: dict[str, object] = {"seed": seed}
-    for key, value in config.to_dict().items():
+
+    def add(prefix: str, value: object) -> None:
         if isinstance(value, dict):
-            flat.update({f"{key}.{k}": v for k, v in value.items()})
+            for k, v in value.items():
+                add(f"{prefix}.{k}", v)
         else:
-            flat[key] = value
+            flat[prefix] = value
+
+    for key, value in config.to_dict().items():
+        add(key, value)
     return flat
 
 
@@ -222,6 +292,11 @@ def status_cmd(
         table2.add_row("Open", str(len(open_t)))
         table2.add_row("Settled", str(len(settled_t)))
         table2.add_row("Total PnL", f"[{pnl_color}]${total_pnl:+.2f}[/{pnl_color}]")
+        from pmlab.core.fee_summary import summarize_fees
+
+        fees = summarize_fees(settled_t)
+        if fees is not None:
+            table2.add_row("Total fees", f"${fees.total:.2f} ({fees.pct_of_stake:.2f}% of stake)")
         if settled_t:
             wins = sum(1 for t in settled_t if t["realized_pnl"] > 0)
             hit = wins / len(settled_t) * 100
@@ -325,6 +400,11 @@ def record_trades_cmd(
             "the backtest. Must agree with them if both exist."
         ),
     ),
+    fee_model: str | None = typer.Option(
+        None,
+        "--fee-model",
+        help=_FEE_MODEL_HELP + " Default here: the champion's, else polymarket.",
+    ),
 ) -> None:
     """Record paper trades from latest scan-edge signals."""
     from pmlab.config import PmlabSettings
@@ -351,13 +431,13 @@ def record_trades_cmd(
     # when the champion records none, but not a different one: trades filled under
     # other costs are left out of the watchdog's PnL comparison, so recording them
     # would only waste the evidence.
-    costs = _load_costs(costs_path)
+    costs = _load_costs(costs_path, fee_model)
     if costs is None:
         costs = manifest.costs
     elif manifest.costs is not None and costs != manifest.costs:
         rprint(
-            "[red]--costs differs from the costs recorded in champion.json; paper trades "
-            "must be filled under the champion's cost model.[/red]"
+            "[red]--costs/--fee-model differs from the costs recorded in champion.json; paper "
+            "trades must be filled under the champion's cost model.[/red]"
         )
         rprint(f"  champion.json: {manifest.costs.to_dict()}")
         rprint(f"  --costs:       {costs.to_dict()}")
@@ -594,7 +674,12 @@ def backtest_cmd(
     costs_path: str | None = typer.Option(
         None,
         "--costs",
-        help=_COSTS_HELP + "Default: 30bps taker fee, fill at the quote.",
+        help=_COSTS_HELP + "Default: the polymarket fee model, fill at the quote.",
+    ),
+    fee_model: str | None = typer.Option(
+        None,
+        "--fee-model",
+        help=_FEE_MODEL_HELP,
     ),
     policy_name: str = typer.Option(
         "live",
@@ -655,7 +740,7 @@ def backtest_cmd(
     if stride < 10:
         rprint(f"[red]stride={stride} is too low — minimum 10.[/red]")
         raise typer.Exit(1)
-    costs = _load_costs(costs_path)
+    costs = _load_costs(costs_path, fee_model)
 
     from pmlab.core.edge import DEFAULT_MIN_EDGE
     from pmlab.core.policy import TradePolicy
@@ -760,6 +845,12 @@ def backtest_cmd(
     table.add_row("Total PnL", f"[{pnl_color}]${total_pnl:+.2f}[/{pnl_color}]")
     table.add_row("Hit rate", f"{hit_rate:.1%}")
     table.add_row("Avg edge", f"{avg_edge:.4f}")
+    from pmlab.core.fee_summary import summarize_fees
+
+    fees = summarize_fees(trades.to_dict("records"), default_stake=flat_stake)
+    if fees is not None:
+        table.add_row("Total fees", f"${fees.total:.2f}")
+        table.add_row("Fees % of stake", f"{fees.pct_of_stake:.2f}%")
     console.print(table)
 
     # What a re-run is checked against, and everything needed to re-run it.
@@ -785,6 +876,12 @@ def backtest_cmd(
             "total_pnl": float(total_pnl),
             "hit_rate": float(hit_rate),
             "avg_edge": float(avg_edge),
+            # What the fees took: the total, and its share of the stake the trades risked.
+            **(
+                {}
+                if fees is None
+                else {"total_fees": float(fees.total), "fees_pct_of_stake": fees.pct_of_stake}
+            ),
             # The friction these numbers are net of, so `promote-champion` can record
             # the same model rather than trust the operator to retype it.
             "costs": (costs or CostModel()).to_dict(),
@@ -834,6 +931,11 @@ def promote_champion_cmd(
             "under. Default: the costs the --expectation file was computed under, if it has "
             "them. Must agree with them if both exist."
         ),
+    ),
+    fee_model: str | None = typer.Option(
+        None,
+        "--fee-model",
+        help=_FEE_MODEL_HELP,
     ),
     reproducibility_path: str | None = typer.Option(
         None,
@@ -897,7 +999,7 @@ def promote_champion_cmd(
             err=True,
         )
 
-    costs = _load_costs(costs_path)
+    costs = _load_costs(costs_path, fee_model)
     expectation = None
     reproducibility = None
     if reproducibility_path is not None:
@@ -925,8 +1027,8 @@ def promote_champion_cmd(
                 costs = backtest_costs
             elif costs != backtest_costs:
                 rprint(
-                    "[red]--costs differs from the costs the expectation was computed under "
-                    f"({expectation_path}); the champion would be promoted on a backtest it "
+                    "[red]--costs/--fee-model differs from the costs the expectation was computed "
+                    f"under ({expectation_path}); the champion would be promoted on a backtest it "
                     "did not run.[/red]"
                 )
                 rprint(f"  expectation: {backtest_costs.to_dict()}")
@@ -1224,6 +1326,11 @@ def report_cmd(
     rprint(f"[bold]Report generated:[/bold] {result}")
     rprint(f"  Trades: {len(all_trades)} total ({len(settled)} settled, {len(open_t)} open)")
     rprint(f"  Total PnL: [{pnl_color}]${total_pnl:+.2f}[/{pnl_color}]")
+    from pmlab.core.fee_summary import summarize_fees
+
+    fees = summarize_fees(settled)
+    if fees is not None:
+        rprint(f"  Total fees: ${fees.total:.2f} ({fees.pct_of_stake:.2f}% of stake)")
 
 
 if __name__ == "__main__":

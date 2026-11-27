@@ -110,6 +110,19 @@
             "type": "str"
           },
           {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--fee-model"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "fee_model",
+            "required": false,
+            "type": "str"
+          },
+          {
             "default": "live",
             "envvar": null,
             "flag": false,
@@ -549,6 +562,19 @@
             "envvar": null,
             "flag": false,
             "flags": [
+              "--fee-model"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "fee_model",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
               "--reproducibility"
             ],
             "kind": "option",
@@ -644,6 +670,19 @@
             "kind": "option",
             "multiple": false,
             "name": "costs_path",
+            "required": false,
+            "type": "str"
+          },
+          {
+            "default": null,
+            "envvar": null,
+            "flag": false,
+            "flags": [
+              "--fee-model"
+            ],
+            "kind": "option",
+            "multiple": false,
+            "name": "fee_model",
             "required": false,
             "type": "str"
           }
@@ -1046,6 +1085,19 @@
       "costs": {
         "depth_bps_per_unit": null,
         "depth_reference_stake": null,
+        "fee_model": null,
+        "fee_schedule": {
+          "enabled": null,
+          "exponent": null,
+          "maker_rate": null,
+          "rate": null,
+          "rebate_rate": null,
+          "rounding": null,
+          "rounding_scope": null,
+          "rounding_unit": null,
+          "taker_only": null
+        },
+        "fee_source": null,
         "slippage_bps": null,
         "slippage_fixed": null,
         "taker_bps": null
@@ -1249,7 +1301,7 @@
             "signature": "(self) -> dict[str, Any]"
           }
         },
-        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, float], policy: dict[str, Any], tuning: dict[str, Any] | None = None, embargo_days: int | None = None) -> None"
+        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, Any], policy: dict[str, Any], tuning: dict[str, Any] | None = None, embargo_days: int | None = None) -> None"
       },
       "BacktestExpectation": {
         "bases": [],
@@ -1474,7 +1526,11 @@
           },
           "fee": {
             "kind": "method",
-            "signature": "(self, stake: float) -> float"
+            "signature": "(self, stake: float, price: float | None = None) -> float"
+          },
+          "fee_fields": {
+            "kind": "method",
+            "signature": "(self, stake: float, price: float | None = None) -> dict[str, Any]"
           },
           "fill_price": {
             "kind": "method",
@@ -1484,12 +1540,16 @@
             "kind": "classmethod",
             "signature": "(cls) -> CostModel"
           },
+          "from_dict": {
+            "kind": "classmethod",
+            "signature": "(cls, data: Mapping[str, Any]) -> CostModel"
+          },
           "to_dict": {
             "kind": "method",
-            "signature": "(self) -> dict[str, float]"
+            "signature": "(self) -> dict[str, Any]"
           }
         },
-        "signature": "(taker_bps: float = 30.0, slippage_bps: float = 0.0, slippage_fixed: float = 0.0, depth_bps_per_unit: float = 0.0, depth_reference_stake: float = 1.0) -> None"
+        "signature": "(taker_bps: float = 30.0, slippage_bps: float = 0.0, slippage_fixed: float = 0.0, depth_bps_per_unit: float = 0.0, depth_reference_stake: float = 1.0, fee_model: Literal['polymarket', 'flat-bps'] | None = None, fee_schedule: FeeSchedule | None = None, fee_source: str | None = None) -> None"
       },
       "DEFAULT_MIN_EDGE": {
         "kind": "constant",
@@ -2680,11 +2740,11 @@
       },
       "kelly_fraction": {
         "kind": "function",
-        "signature": "(win_prob: float, entry_price: float, fraction: float = 0.25) -> float"
+        "signature": "(win_prob: float, entry_price: float, fraction: float = 0.25, *, costs: CostModel | None = None) -> float"
       },
       "kelly_stake_size": {
         "kind": "function",
-        "signature": "(win_prob: float, entry_price: float, bankroll: float, fraction: float = 0.25, max_exposure: float = 0.05) -> float"
+        "signature": "(win_prob: float, entry_price: float, bankroll: float, fraction: float = 0.25, max_exposure: float = 0.05, *, costs: CostModel | None = None) -> float"
       },
       "load_plugins_from_entry_points": {
         "kind": "function",
@@ -3243,7 +3303,7 @@
             "signature": "(self) -> dict[str, Any]"
           }
         },
-        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, float], policy: dict[str, Any], tuning: dict[str, Any] | None = None, embargo_days: int | None = None) -> None"
+        "signature": "(plugin: str, model: str, model_params: dict[str, Any], stride: int, min_train_rows: int, flat_stake: float, costs: dict[str, Any], policy: dict[str, Any], tuning: dict[str, Any] | None = None, embargo_days: int | None = None) -> None"
       },
       "BacktestOutcome": {
         "bases": [],

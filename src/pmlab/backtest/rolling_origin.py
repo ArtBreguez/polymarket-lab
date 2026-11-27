@@ -10,8 +10,7 @@ from typing import Any, Protocol
 import numpy as np
 import pandas as pd
 
-from pmlab._deprecation import warn_deprecated
-from pmlab.core.costs import CostModel
+from pmlab.core.costs import CostModel, warn_taker_bps_argument
 from pmlab.core.edge import edge_clears, quote_edges
 from pmlab.core.pnl import Position, settle_position
 from pmlab.core.policy import TradePolicy
@@ -144,14 +143,7 @@ def rolling_origin_eval(
         if taker_bps is None:
             costs = CostModel()
         else:
-            warn_deprecated(
-                "the `taker_bps` argument of rolling_origin_eval",
-                since="1.5.0",
-                removed_in="2.0.0",
-                alternative='`costs=CostModel(fee_model="flat-bps", taker_bps=...)`',
-                reason="the fee on Polymarket depends on the price, and a bare number cannot say so",
-                stacklevel=3,
-            )
+            warn_taker_bps_argument("rolling_origin_eval")
             costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
     min_train_rows, stride, flat_stake = _validate_arguments(
         panel, model, min_train_rows, stride, flat_stake, policy, costs
