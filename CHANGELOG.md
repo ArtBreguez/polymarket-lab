@@ -4,6 +4,8 @@ All notable changes are documented here. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-11-27
+
 The real fee model everywhere (#72, part of epic #69): the backtest, the tuner, the edge, Kelly sizing,
 the paper broker, the watchdog, the report and the CLI now charge a Polymarket taker the fee Polymarket
 charges, which depends on the price, instead of a flat 30 bps of the stake. **The default fee changes, so
@@ -2156,7 +2158,8 @@ feature (AUC 1.000, no warning).
 - `CONTRIBUTING.md` — contribution guide with TDD contract
 - 237 tests, 95.7% coverage
 
-[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/ArtBreguez/polymarket-lab/compare/v1.2.0...v1.2.1
