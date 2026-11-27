@@ -168,6 +168,8 @@ class TestFetchFeeRate:
         [
             httpx.Response(404, json={"error": "not found"}),
             httpx.Response(500),
+            # an error status is a failure even when its body carries a usable base_fee
+            httpx.Response(500, json={"base_fee": 1000}),
             httpx.Response(200, text="<html>"),
             httpx.Response(200, json={}),
             httpx.Response(200, json={"base_fee": None}),
