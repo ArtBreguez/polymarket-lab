@@ -154,3 +154,62 @@ class TestTakerBpsIsDeprecated:
     def test_taker_bps_with_costs_is_still_refused(self) -> None:
         with pytest.raises(ValueError, match="taker_bps"):
             _run(taker_bps=10.0, costs=CostModel())
+
+
+class TestTheFeeIsChargedAtTheFillNotTheQuote:
+    """Slippage and depth move the fill; the fee follows it (review r1, I2).
+
+    Every other test here has fill == quote, where the fee at the quote and at the fill are the
+    same number, so none of them can tell the two apart. These do.
+    """
+
+    @pytest.mark.parametrize(
+        ("prob", "side"),
+        [(0.9, "yes"), (0.1, "no")],
+        ids=["a-yes-trade", "a-no-trade"],
+    )
+    @pytest.mark.parametrize(
+        ("costs", "stake"),
+        [
+            (CostModel(slippage_bps=100.0), 1.0),
+            (CostModel(slippage_bps=50.0, depth_bps_per_unit=100.0), 3.0),
+            (CostModel(slippage_fixed=0.01), 1.0),
+        ],
+        ids=["slippage", "slippage-and-depth", "fixed-slippage"],
+    )
+    def test_fee_paid_is_the_fee_of_the_fill_price(
+        self, prob: float, side: str, costs: CostModel, stake: float
+    ) -> None:
+        trades = rolling_origin_eval(
+            _panel(),
+            _Confident(prob),
+            min_train_rows=8,
+            stride=2,
+            flat_stake=stake,
+            costs=costs,
+            policy=TradePolicy.live(min_edge=0.05),
+        ).trades
+        assert not trades.empty
+        assert set(trades["direction"]) == {side}
+
+        at_the_fill = [costs.fee(stake, p) for p in trades["fill_price"]]
+        quote = trades["market_price"].where(
+            trades["direction"] == "yes", 1.0 - trades["market_price"]
+        )
+        at_the_quote = [costs.fee(stake, p) for p in quote]
+        assert trades["fee_paid"].tolist() == pytest.approx(at_the_fill, abs=1e-12)
+        # not vacuous: the fill is dearer than the quote, so the two fees are not the same number
+        assert (trades["fill_price"] > quote).all()
+        assert all(f != q for f, q in zip(at_the_fill, at_the_quote, strict=True))
+        assert trades["fee_paid"].tolist() != pytest.approx(at_the_quote, abs=1e-9)
+
+    def test_the_pnl_nets_the_fee_of_the_fill(self) -> None:
+        costs = CostModel(slippage_bps=100.0)
+        trades = rolling_origin_eval(
+            _panel(), _Confident(), min_train_rows=8, stride=2, costs=costs
+        ).trades
+        # a YES filled at 0.505 wins 1 / 0.505 shares x 1 and pays the fee of that fill
+        gross = 1.0 / 0.505 - 1.0
+        fee = costs.fee(1.0, 0.505)
+        assert fee == pytest.approx(0.05 * 0.495, abs=1e-5)
+        assert trades["realized_pnl"].tolist() == pytest.approx([gross - fee] * len(trades))

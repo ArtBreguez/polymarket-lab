@@ -62,6 +62,28 @@ class TestCostBasisOfAPolymarketTrade:
         }
         assert _cost_basis(trade, POLY, 1.0) == "match"
 
+    def test_a_fee_one_rounding_unit_from_the_rebuilt_one_still_matches(self) -> None:
+        # The trade rounded its fee at the unrounded fill; the check rebuilds it from the fill as
+        # recorded (8 decimals), which can land one unit of the schedule (1e-5) away. That is not a
+        # different fee model, so it must not leave the trade out of the PnL comparison.
+        fill = round(POLY.fill_price(0.40, stake=1.0), 8)
+        rebuilt = POLY.fee(1.0, fill)
+        unit = POLY.fee_schedule.rounding_unit  # type: ignore[union-attr]
+        assert unit == pytest.approx(1e-5)
+        base = {"direction": "yes", "gamma_price": 0.40, "fill_price": fill}
+        for step in (-1, 1):
+            trade = {**base, "fee_paid": round(rebuilt + step * unit, 6)}
+            assert _cost_basis(trade, POLY, 1.0) == "match"
+
+    def test_two_units_away_is_a_different_fee(self) -> None:
+        fill = round(POLY.fill_price(0.40, stake=1.0), 8)
+        rebuilt = POLY.fee(1.0, fill)
+        unit = POLY.fee_schedule.rounding_unit  # type: ignore[union-attr]
+        base = {"direction": "yes", "gamma_price": 0.40, "fill_price": fill}
+        for step in (-2, 2):
+            trade = {**base, "fee_paid": round(rebuilt + step * unit, 6)}
+            assert _cost_basis(trade, POLY, 1.0) == "mismatch"
+
     def test_a_fee_with_no_fill_is_checked_at_the_quote(self) -> None:
         costs = CostModel()
         trade = {"direction": "yes", "gamma_price": 0.40, "fee_paid": 0.03}
