@@ -44,9 +44,10 @@ class PaperBroker:
                 makes no per-segment claim (see `pmlab.core.segments`); beside other
                 names it is a segment called "all". An empty set records nothing.
             flat_stake: Notional USDC per trade.
-            taker_bps: Deprecated since 1.5.0: the flat-bps fee as a bare number. It builds
-                ``CostModel(fee_model="flat-bps", taker_bps=...)`` and warns; pass that as
-                ``costs``. Mutually exclusive with ``costs``.
+            taker_bps: Deprecated since 1.5.0 and will be removed in 2.0.0: use
+                ``costs=CostModel(fee_model="flat-bps", taker_bps=...)`` instead. It still works:
+                the flat-bps fee as a bare number, with a warning. Mutually exclusive with
+                ``costs``.
             costs: Full `CostModel`. Use the SAME model the
                 backtest was run with, otherwise live and backtest PnL are not
                 comparable and a drift alarm cannot tell the market from our own

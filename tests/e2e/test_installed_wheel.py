@@ -543,9 +543,11 @@ def test_tuning_page_runs_as_written_and_a_tuned_run_records_its_objective(
     done, total = out.strip().splitlines()[-1].split(" blocks ran")[0].split("/")
     assert done == total and int(done) == 4
     # The mismatch, from the backtest itself: the two rules rank A and B in opposite orders.
-    assert "historical (top-prob)    A: +32.5   B: -63.5" in out
-    assert "live, min_edge=0.20      A: no trades   B: +24.9" in out
-    assert "live, min_edge=0.05      A: +25.2   B: -11.7" in out
+    # (priced with the default fee model, the Polymarket taker fee: the numbers moved with it in
+    # 1.5.0 (they were +32.5/-63.5, +24.9 and +25.2/-11.7 under the flat 30 bps), the ranking did not)
+    assert "historical (top-prob)    A: +28.5   B: -69.3" in out
+    assert "live, min_edge=0.20      A: no trades   B: +23.0" in out
+    assert "live, min_edge=0.05      A: +23.0   B: -17.5" in out
     # ...and the tuner follows the rule it is given.
     assert "historical : {'col': 'feature_p_a'}" in out
     assert "live  0.20 : {'col': 'feature_p_b'}" in out

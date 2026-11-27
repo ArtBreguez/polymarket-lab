@@ -112,6 +112,11 @@ on the morning of 2025-08-14 {'settled': 54, 'pending': 62, 'total_pnl': 85.8751
 once the sample is complete: {'settled': 62, 'pending': 0, 'total_pnl': 106.569796}
 ```
 
+The tutorial prices every fill with `CostModel(fee_model="flat-bps", slippage_bps=50.0)`, the flat 0.30% fee
+of releases before 1.5.0, so the numbers above stay as written. Under the Polymarket fee (the default model
+since 1.5.0) the gate's decision is the same, a NO_GO that refuses Lisbon and a GO on the other four cities,
+but the PnL is less than half: [Backtest costs](costs.md#the-bundled-sample) has the three runs side by side.
+
 A segment's `reason` is `ok`, `negative_pnl`, `insufficient_trades`, `missing` (no trade of that segment
 in the log), `unsettled_trades` (a trade has no realized PnL, so it is still open or its cost was NaN:
 the gate refuses to count it) or `non_finite_pnl`. Pass the gate a log of *settled* trades.

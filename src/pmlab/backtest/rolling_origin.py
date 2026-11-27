@@ -97,9 +97,9 @@ def rolling_origin_eval(
         min_train_rows: Skip an eval date until this many training rows exist.
         stride: Evaluate every Nth distinct decision_date.
         flat_stake: Notional USDC risked per trade.
-        taker_bps: Deprecated since 1.5.0: the flat-bps fee as a bare number. It builds
-            ``CostModel(fee_model="flat-bps", taker_bps=...)`` and warns; pass that as ``costs``.
-            Mutually exclusive with ``costs``.
+        taker_bps: Deprecated since 1.5.0 and will be removed in 2.0.0: use
+            ``costs=CostModel(fee_model="flat-bps", taker_bps=...)`` instead. It still works: the
+            flat-bps fee as a bare number, with a warning. Mutually exclusive with ``costs``.
         costs: Full `CostModel` (fee + slippage + depth). Omit both arguments for the default
             model: the Polymarket taker fee, ``rate x (1 - price)`` of the stake (the ``"other"``
             category's 0.05 unless the model carries a schedule), fill at the quote. Until 1.5.0

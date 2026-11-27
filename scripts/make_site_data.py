@@ -145,7 +145,7 @@ def compute() -> dict[str, Any]:
         }
 
     policy = TradePolicy.live(min_edge=0.05)
-    costs = CostModel(taker_bps=30.0, slippage_bps=50.0)
+    costs = CostModel(fee_model="flat-bps", slippage_bps=50.0)  # the 1.4.0 fee: the home page numbers stay
     tuner = TunedForecaster(
         build, space, n_trials=8, metric="total_pnl", random_state=7, stride=10,
         min_train_rows=500, policy=policy, costs=costs,

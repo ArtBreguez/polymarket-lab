@@ -69,9 +69,9 @@ class TunedForecaster(MarketForecaster):
         stride: Forwarded to ``rolling_origin_eval``.
         min_train_rows: Forwarded to ``rolling_origin_eval``.
         flat_stake: Forwarded to ``rolling_origin_eval``.
-        taker_bps: Deprecated since 1.5.0: the flat-bps fee as a bare number. It builds
-            ``CostModel(fee_model="flat-bps", taker_bps=...)`` and warns; pass that as ``costs``.
-            Mutually exclusive with ``costs``.
+        taker_bps: Deprecated since 1.5.0 and will be removed in 2.0.0: use
+            ``costs=CostModel(fee_model="flat-bps", taker_bps=...)`` instead. It still works: the
+            flat-bps fee as a bare number, with a warning. Mutually exclusive with ``costs``.
         policy: The decision rule every trial is scored under, a
             `TradePolicy`. Omit it for the historical objective
             (YES on the top-probability bin, every market: the search that shipped before

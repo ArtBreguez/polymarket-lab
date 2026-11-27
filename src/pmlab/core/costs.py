@@ -153,8 +153,11 @@ class CostModel:
     """Execution costs applied to a backtest fill.
 
     ``CostModel()`` is the Polymarket fee model with the default schedule and no slippage. Name the
-    model you mean with ``fee_model``; ``taker_bps`` alone still selects ``"flat-bps"``, with a
-    deprecation warning (it will have to be named from 2.0.0).
+    model you mean with ``fee_model``.
+
+    Deprecated since 1.5.0 and will be removed in 2.0.0: giving ``taker_bps`` without a ``fee_model``.
+    It still selects ``"flat-bps"``, with a warning; write ``CostModel(fee_model="flat-bps",
+    taker_bps=...)`` instead.
 
     Attributes:
         taker_bps: Taker fee in basis points of notional stake, **read only by the flat-bps model**

@@ -962,7 +962,7 @@ Champion published!
   Model: artifacts/public_models/champion.pkl
   Manifest: artifacts/public_models/champion.json
   Allowed segments: {'B', 'C', 'A'}
-  Costs: {'taker_bps': 30.0, 'slippage_bps': 50.0, 'slippage_fixed': 0.0, 'depth_bps_per_unit': 0.0, 'depth_reference_stake': 1.0}
+  Costs: {'fee_model': 'flat-bps', 'taker_bps': 30.0, 'slippage_bps': 50.0, 'slippage_fixed': 0.0, 'depth_bps_per_unit': 0.0, 'depth_reference_stake': 1.0, 'fee_schedule': None, 'fee_source': 'flat_bps'}
   Policy: live (best edge >= 0.2, YES+NO)
 [exit code: 0]
 ```

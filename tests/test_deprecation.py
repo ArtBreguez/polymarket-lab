@@ -356,6 +356,24 @@ class TestDeclare:
         assert "a --costs file with a taker_bps and no fee_model" in out
 
 
+class TestTheNoticeOfAnArgument:
+    """An argument has no object of its own: its notice is in the docstring of what takes it."""
+
+    @pytest.mark.parametrize(
+        "owner",
+        [
+            pmlab.rolling_origin_eval,
+            pmlab.TunedForecaster,
+            pmlab.PaperBroker.__init__,
+            pmlab.CostModel,
+        ],
+        ids=lambda o: getattr(o, "__qualname__", str(o)),
+    )
+    def test_the_docstring_says_since_when_and_until_when(self, owner: object) -> None:
+        doc = owner.__doc__ or ""
+        assert "Deprecated since 1.5.0 and will be removed in 2.0.0" in doc
+
+
 class TestRegistry:
     def test_decorating_registers_the_qualified_name_and_its_timeline(self) -> None:
         class Thing:

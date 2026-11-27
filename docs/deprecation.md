@@ -131,7 +131,11 @@ def run(min_edge_pct=None, min_edge=0.05):
         min_edge = min_edge_pct / 100
 ```
 
-and pass `cli=True` for a command-line option. The checklist:
+and pass `cli=True` for a command-line option. `warn_deprecated` registers a deprecation only when it first
+fires, which would make the table check below depend on which test happened to run first; so for an
+argument, a value or a key call `declare_deprecated(...)` with the **same arguments** at module level (it
+registers at import, without a warning, and registering twice is harmless). `deprecated(...)` registers
+at import by itself. The checklist:
 
 1. Apply `deprecated(...)` / call `warn_deprecated(...)` with `since`, `removed_in` and, always,
    an `alternative`.
@@ -147,3 +151,8 @@ and pass `cli=True` for a command-line option. The checklist:
 | Name | Since | Removed in | Use instead |
 |------|-------|------------|-------------|
 | `WeatherTmaxPlugin.build_training_row` | 0.9.2 | 2.0.0 | `build_training_rows`: one row per bin; the single winning-bin row biases a backtest (issue #28) |
+| `CostModel(taker_bps=...) without a fee_model` | 1.5.0 | 2.0.0 | `CostModel(fee_model="flat-bps", taker_bps=...)`, or the default polymarket fee model: the fee depends on the price on Polymarket (#72) |
+| `the taker_bps argument of rolling_origin_eval` | 1.5.0 | 2.0.0 | `costs=CostModel(fee_model="flat-bps", taker_bps=...)` (#72) |
+| `the taker_bps argument of TunedForecaster` | 1.5.0 | 2.0.0 | `costs=CostModel(fee_model="flat-bps", taker_bps=...)` (#72) |
+| `the taker_bps argument of PaperBroker` | 1.5.0 | 2.0.0 | `costs=CostModel(fee_model="flat-bps", taker_bps=...)` (#72) |
+| `a --costs file with a taker_bps and no fee_model` | 1.5.0 | 2.0.0 | add `"fee_model": "flat-bps"` to the file, or drop `taker_bps` for the default polymarket fee model (#72) |

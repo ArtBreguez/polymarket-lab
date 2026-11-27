@@ -81,5 +81,7 @@ The script is not part of the installed package; with a pip install, pass `--wor
 ## Costs
 
 `backtest`, `promote-champion` and `record-trades` accept `--costs costs.json`: one cost model end to
-end, so the backtest, the champion and the paper fills charge the same friction. See
-[Backtest costs](costs.md).
+end, so the backtest, the champion and the paper fills charge the same friction. They also accept
+`--fee-model {polymarket,flat-bps}` (default `polymarket`, the price-dependent taker fee; `flat-bps` is the
+flat 0.30% of releases before 1.5.0, to repeat an old run). A `--costs` file that gives only `taker_bps` is
+that old flat model and is deprecated: add `"fee_model": "flat-bps"`. See [Backtest costs](costs.md).

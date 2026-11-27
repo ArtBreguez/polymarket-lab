@@ -69,7 +69,7 @@ additions. The full list as of 1.0.0:
 | `status` | `--artifacts-dir`, `-a`; `--workspace`, `-w` |
 | `version` | (none) |
 
-Added since 1.0.0: `backtest --embargo-days` (1.1.0). `tests/api/public_api.json` always holds the
+Added since 1.0.0: `backtest --embargo-days` (1.1.0); `--fee-model` on `backtest`, `promote-champion` and `record-trades` (1.5.0). `tests/api/public_api.json` always holds the
 current list.
 
 The text a command prints (tables, log lines, help strings) is for people and may change in any

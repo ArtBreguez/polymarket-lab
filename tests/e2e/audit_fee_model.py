@@ -430,12 +430,15 @@ def float32_is_read_as_its_float64_value_and_the_class_docstring_says_so() -> No
 
 
 @check
-def a_schedule_round_trips_and_nothing_in_the_backtest_moved() -> None:
+def a_schedule_round_trips_and_the_flat_model_stays_reachable() -> None:
     schedule = FeeSchedule(rate=0.07, exponent=2.0, taker_only=False, maker_rate=0.01)
     assert FeeSchedule(**schedule.to_dict()) == schedule
     assert hash(schedule) == hash(FeeSchedule(**schedule.to_dict()))
-    # the model is not wired in yet: the flat 30 bps is still the default everywhere
+    # wired in since 1.5.0 (#72): the default model charges the curve, and the flat 30 bps of
+    # 1.4.0 and before is `fee_model="flat-bps"`, which is also what `estimate_fee` still computes
+    assert CostModel().fee_model == "polymarket"
     assert CostModel().taker_bps == 30.0
+    assert CostModel(fee_model="flat-bps").fee(1.0) == 0.003
     assert estimate_fee(1.0) == 0.003
 
 

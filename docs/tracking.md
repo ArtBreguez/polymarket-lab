@@ -20,9 +20,9 @@ from pmlab import LocalJSONTracker, rolling_origin_eval, compute_metrics, Holdou
 tracker = LocalJSONTracker(root="runs")
 
 with tracker.run(experiment="weather_tmax", run_name="rf_baseline") as run:
-    run.log_params({"model": "random_forest", "stride": 5, "taker_bps": 30.0})
+    run.log_params({"model": "random_forest", "stride": 5, "fee_model": "polymarket"})
 
-    result = rolling_origin_eval(panel, model, stride=5, taker_bps=30.0)
+    result = rolling_origin_eval(panel, model, stride=5)  # priced with the default fee model
     metrics = compute_metrics(result.trades)
     gate = HoldoutGateResult.evaluate(result.trades, required_segments=["all"])
 
