@@ -168,7 +168,9 @@ class TestWhenTheSourcesDisagreeGammaWins:
         assert snap.source == "gamma" and snap.base_fee == 0
         (warning,) = warnings_of(caplog)
         assert "cs2-aim1-kamui-2026-11-26-map-handicap-home-1pt5" in warning
-        assert "base_fee 0" in warning and "Gamma" in warning
+        assert "base_fee 0" in warning and "Gamma says a fee is charged (rate 0.05)" in warning
+        # the message of a schedule Gamma gave, not the one of a category default that stays
+        assert "using Gamma's schedule" in warning and "category default" not in warning
 
     def test_clob_charges_but_gamma_says_free(self, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level("WARNING", logger="pmlab"):
@@ -177,6 +179,30 @@ class TestWhenTheSourcesDisagreeGammaWins:
         assert snap.source == "gamma" and snap.base_fee == 1000
         (warning,) = warnings_of(caplog)
         assert "putin-out-before-2027-346" in warning and "base_fee 1000" in warning
+        assert "Gamma says no fee is charged" in warning
+        assert "using Gamma's schedule" in warning and "category default" not in warning
+
+    def test_a_disabled_schedule_with_a_rate_is_free_and_agrees_with_a_zero_flag(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # feesEnabled false next to a readable feeSchedule {rate: 0.05}: Gamma says "no fee" and
+        # CLOB's 0 says the same, so there is nothing to warn about (a rate alone is not a charge)
+        market = {**gamma("sports_v3"), "feesEnabled": False}
+        assert market["feeSchedule"]["rate"] == 0.05
+        with caplog.at_level("WARNING", logger="pmlab"):
+            snap = resolve_fee_snapshot(market, base_fee=0, seen_at=SEEN)
+        assert warnings_of(caplog) == []
+        assert snap.source == "gamma" and snap.schedule.enabled is False
+        assert snap.schedule.rate == 0.05 and snap.base_fee == 0
+
+    def test_a_disabled_schedule_with_a_rate_still_disagrees_with_a_charging_flag(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        market = {**gamma("sports_v3"), "feesEnabled": False}
+        with caplog.at_level("WARNING", logger="pmlab"):
+            resolve_fee_snapshot(market, base_fee=1000, seen_at=SEEN)
+        (warning,) = warnings_of(caplog)
+        assert "Gamma says no fee is charged" in warning and "base_fee 1000" in warning
 
     def test_a_base_fee_nobody_fetched_is_not_a_disagreement(
         self, caplog: pytest.LogCaptureFixture
