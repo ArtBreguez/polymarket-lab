@@ -68,6 +68,22 @@ class TestCostBasisOfAPolymarketTrade:
         assert _cost_basis(trade, costs, 1.0) == "match"
         assert _cost_basis({**trade, "fee_paid": 0.003}, costs, 1.0) == "mismatch"
 
+    @pytest.mark.parametrize(
+        "costs",
+        [
+            CostModel(slippage_bps=50.0),
+            CostModel(slippage_fixed=0.01),
+            CostModel(depth_bps_per_unit=20.0),
+        ],
+    )
+    def test_a_fee_with_no_fill_is_not_checked_at_a_quote_the_model_says_is_not_the_fill(
+        self, costs: CostModel
+    ) -> None:
+        # with slippage or depth the quote is not the price the fee was charged at, so the fee
+        # rebuilt from it would call a correctly priced trade a mismatch
+        trade = {"direction": "yes", "gamma_price": 0.40, "fee_paid": 0.0298}
+        assert _cost_basis(trade, costs, 1.0) == "unverified"
+
     def test_a_fee_with_no_price_at_all_cannot_be_checked(self) -> None:
         assert _cost_basis({"fee_paid": 0.03}, CostModel(), 1.0) == "unverified"
 

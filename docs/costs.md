@@ -200,6 +200,12 @@ Costs are not cosmetic — they flow into the promotion decision, and into the l
    held against: `p - fill - fee_per_stake(fill)`, where the fee per unit of stake is the one the
    trade will pay (`rate x (1 - fill)` for polymarket). `pmlab.core.edge.quote_edges` is the one
    place that is computed; a live `EdgeSignal.from_quote` and the backtest both call it.
+   The fee is per unit of *stake* and the gap `p - fill` per *share*, as `compute_edge` has always
+   subtracted them (a flat 30 bps hid the difference); per share the fee is `fill x rate x
+   (1 - fill)`, so at a fill of 0.30 the edge deducts 3.5 points where the trade pays 1.05 cents a
+   share. For a cheap token the edge is therefore **conservative**: it clears `--min-edge` later than
+   the exact break-even `p > fill x (1 + rate x (1 - fill))`, the one Kelly sizing uses. The
+   default `--min-edge` of 0.20 is large next to that gap (2.5 points at a fill of 0.30).
 3. `kelly_fraction` and `kelly_stake_size` take `costs=` and size on the post-fee payoff (see
    [below](#sizing-on-the-post-fee-payoff)).
 4. `compute_metrics` averages `edge` into `avg_edge`.
@@ -320,7 +326,8 @@ The model is written once and then carried, not retyped:
 - `record-trades` fills under `champion.json`'s costs by default. `--costs` / `--fee-model` may name
   a model when the champion records none, but not a different one: trades filled under other costs
   are left out of the watchdog's PnL comparison, so recording them would waste the evidence. A
-  champion that records no costs is traded under the default model.
+  champion that records no costs is traded under the default model (polymarket, the `"other"` rate),
+  and `record-trades` says so; pass `--fee-model flat-bps` to fill it under the flat fee of 1.4.0 and before.
 
 A champion promoted with no costs anywhere still records `costs: null`, "unknown", and
 `pmlab monitor` then reports `cost_basis: "unknown"` instead of checking it.

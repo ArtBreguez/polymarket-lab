@@ -1759,8 +1759,10 @@ def _expected_fee(trade: Mapping[str, Any], costs: CostModel, stake: float) -> f
     """The fee the champion's cost model charges this trade, or None if it cannot be told.
 
     The flat-bps fee depends on the stake alone. The Polymarket fee depends on the price too, the
-    price the trade was **filled** at; a trade with no recorded fill is priced at its quote (exact
-    when the model has no slippage), and one with neither cannot be checked.
+    price the trade was **filled** at; a trade with no recorded fill is priced at its quote, which
+    is the fill only when the model has no slippage or depth (with either, the fee rebuilt from the
+    quote would call a correctly priced trade a mismatch, so it cannot be checked), and one with
+    neither a fill nor a quote cannot be checked either.
     """
     if costs.fee_model == "flat-bps":
         return costs.fee(stake)
@@ -1768,7 +1770,9 @@ def _expected_fee(trade: Mapping[str, Any], costs: CostModel, stake: float) -> f
     gamma = trade.get("gamma_price")
     if _is_number(fill):
         price = float(fill)
-    elif _is_number(gamma):
+    elif _is_number(gamma) and not (
+        costs.slippage_bps or costs.slippage_fixed or costs.depth_bps_per_unit
+    ):
         price = float(gamma) if trade.get("direction", "yes") == "yes" else 1.0 - float(gamma)
     else:
         return None

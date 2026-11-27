@@ -169,6 +169,20 @@ class TestPromoteAndRecordFollowTheFeeModel:
         assert {t["fee_paid"] for t in trades} == {0.03}
         assert {t["fee_source"] for t in trades} == {"category_default"}
 
+    def test_a_champion_with_no_costs_says_which_fee_model_it_is_traded_under(
+        self, tmp_path: Path
+    ) -> None:
+        artifacts = _published_champion(tmp_path / "art", costs=None)
+        _signals(artifacts, "ws")
+        out = _unwrapped(_record(artifacts, "ws").output)
+        assert "records no costs" in out
+        assert "polymarket" in out and "--fee-model flat-bps" in out
+
+    def test_a_champion_that_records_its_costs_needs_no_such_note(self, tmp_path: Path) -> None:
+        artifacts = _published_champion(tmp_path / "art", costs=FLAT)
+        _signals(artifacts, "ws")
+        assert "records no costs" not in _record(artifacts, "ws").output
+
     def test_record_trades_with_flat_bps_charges_the_old_fee(self, tmp_path: Path) -> None:
         artifacts = _published_champion(tmp_path / "art", costs=None)
         _signals(artifacts, "ws")

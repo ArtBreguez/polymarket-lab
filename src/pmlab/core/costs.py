@@ -276,8 +276,10 @@ class CostModel:
         release before 1.5.0 wrote, and it is the flat-bps model, without the deprecation warning
         the constructor gives a bare ``taker_bps``: it is a file, not a call somebody can change.
         So a champion, a reproducibility record or a tuner saved then is read with the model it ran
-        under. A dict with neither a ``taker_bps`` nor a ``fee_model`` is a partial one (only
-        slippage, say) and gets the default model, as ``CostModel(**data)`` would.
+        under. A dict that gives a ``fee_schedule`` is the polymarket model, whatever else it
+        carries (its ``taker_bps`` is then the unused one). A dict with neither a ``taker_bps`` nor
+        a ``fee_model`` is a partial one (only slippage, say) and gets the default model, as
+        ``CostModel(**data)`` would.
 
         Args:
             data: The mapping of fields.
@@ -292,12 +294,11 @@ class CostModel:
         if not isinstance(data, Mapping):
             raise TypeError(f"CostModel.from_dict takes a mapping, got {type(data).__name__}")
         values = dict(data)
-        if (
-            "fee_model" not in values
-            and "taker_bps" in values
-            and values.get("fee_schedule") is None
-        ):
-            values["fee_model"] = "flat-bps"
+        if "fee_model" not in values:
+            if values.get("fee_schedule") is not None:
+                values["fee_model"] = "polymarket"  # a schedule is the polymarket model's
+            elif "taker_bps" in values:
+                values["fee_model"] = "flat-bps"  # what 1.4.0 and before wrote
         return cls(**values)
 
     def fee(self, stake: float, price: float | None = None) -> float:

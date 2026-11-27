@@ -31,7 +31,9 @@ annotations (listed under *Changed*); nothing is removed, and the old spellings 
 - **The edge subtracts the fee of the fill.** `quote_edges` (and so the live policy, `EdgeSignal.from_quote`
   and the backtest) computes `p - fill - fee_per_stake(fill)` with `rate x (1 - fill)` of the stake as the
   fee, not a constant. A longshot pays most of its stake in fee, so strategies that lean on cheap tokens
-  lose the most edge.
+  lose the most edge. As `compute_edge` always did, the fee is per unit of stake and the gap per share, so
+  for a cheap token the edge is conservative (at a fill of 0.30 it deducts 3.5 points where the trade pays
+  1.05 cents a share); `kelly_fraction(costs=)` uses the exact break-even `p > fill x (1 + rate x (1 - fill))`.
 - **`kelly_fraction` and `kelly_stake_size` take `costs=`** (keyword-only, default `None`: the gross payoff
   as before) and size on the post-fee payoff. `kelly_stake_size` returns the stake whose stake plus fee is
   the capped fraction of the bankroll.
@@ -77,7 +79,8 @@ annotations (listed under *Changed*); nothing is removed, and the old spellings 
 - `CostModel.frictionless()`, `estimate_fee`, `fill_price`, slippage and depth; `HoldoutGateResult`; the
   reproducibility record's `schema_version` (1: the new cost keys are additive).
 - A champion with no recorded costs is still `costs: null`, and `promote-champion` with no costs anywhere
-  still records none.
+  still records none. What does change for it: `record-trades` fills its paper trades under the default
+  polymarket model (it prints a note saying so; `--fee-model flat-bps` fills them under the flat fee).
 
 ### Added
 

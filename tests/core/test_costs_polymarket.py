@@ -187,6 +187,18 @@ class TestWhatAnOldFileMeans:
         assert costs.fee_model == "flat-bps"
         assert costs.fee(1.0, 0.30) == pytest.approx(0.003)
 
+    def test_from_dict_reads_a_schedule_with_a_taker_bps_as_polymarket(self) -> None:
+        # a dict that gives a fee_schedule is the polymarket model whatever else it carries, as the
+        # CLI reads a costs file: the taker_bps is the unused 30.0 `to_dict` always writes
+        costs = CostModel.from_dict({"taker_bps": 30.0, "fee_schedule": {"rate": 0.02}})
+        assert costs.fee_model == "polymarket"
+        assert costs.fee_schedule == FeeSchedule(rate=0.02)
+
+    def test_from_dict_of_only_slippage_is_the_default_model(self) -> None:
+        costs = CostModel.from_dict({"slippage_bps": 25.0})
+        assert costs == CostModel(slippage_bps=25.0)
+        assert costs.fee_model == "polymarket"
+
     def test_from_dict_still_refuses_a_key_it_does_not_know(self) -> None:
         with pytest.raises(TypeError, match="surprise"):
             CostModel.from_dict({**OLD_DICT, "surprise": 1})

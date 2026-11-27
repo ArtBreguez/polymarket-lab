@@ -434,6 +434,12 @@ def record_trades_cmd(
     costs = _load_costs(costs_path, fee_model)
     if costs is None:
         costs = manifest.costs
+        if costs is None:
+            rprint(
+                "[yellow]Champion records no costs: paper trades are filled under the default "
+                "polymarket fee model (fee_source category_default). Pass --fee-model flat-bps "
+                "for the flat 30 bps fee of 1.4.0 and before.[/yellow]"
+            )
     elif manifest.costs is not None and costs != manifest.costs:
         rprint(
             "[red]--costs/--fee-model differs from the costs recorded in champion.json; paper "

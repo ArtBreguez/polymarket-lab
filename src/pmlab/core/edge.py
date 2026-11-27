@@ -92,6 +92,13 @@ def quote_edges(
     charges the same at every price, the Polymarket model ``rate x (1 - fill)`` (3.5% of the
     stake at a fill of 0.30, 2.5% at 0.50 for a 0.05-rate market).
 
+    The fee is taken per unit of **stake** and subtracted from a per-**share** probability gap,
+    as `compute_edge` has always done (a flat 30 bps made the two units indistinguishable). Per
+    share the fee is ``fill x fee_rate``, so at a fill of 0.30 the edge deducts 3.5 points where the
+    trade pays 1.05 cents a share: for a cheap token the edge is conservative, and clears
+    `min_edge` later than the exact break-even ``p > fill x (1 + fee_rate)`` that
+    ``kelly_fraction(costs=...)`` sizes on.
+
     Args:
         model_prob: The model's probability that the *label occurs*, whichever side is
             bought (the NO token is worth ``1 - model_prob``).
