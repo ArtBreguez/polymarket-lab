@@ -44,7 +44,7 @@ def _check_workspace(value: str) -> str:
 
 
 _COSTS_HELP = (
-    "JSON file of CostModel fields (fee_model, fee_schedule, fee_source, slippage_bps, "
+    "JSON file of CostModel fields (fee_model, fee_schedule, fee_source, fee_seen_at, slippage_bps, "
     "slippage_fixed, depth_bps_per_unit, depth_reference_stake; taker_bps for flat-bps), or any "
     "JSON with them under a 'costs' key such as the file `pmlab backtest --output` writes. "
 )
@@ -106,6 +106,15 @@ def _costs_from(
             )
         if warn_legacy and "fee_model" not in fields and stated == "flat-bps":
             warn_deprecated(**LEGACY_COSTS_FILE_DEPRECATION, cli=True)
+        elif warn_legacy and fee_model is None and stated is None:
+            # 1.4.0 read this file as flat 30 bps; the default is polymarket now: say which it did
+            typer.echo(
+                f"warning: {source} gives no fee model, fee schedule or taker_bps, so it is read "
+                "as the polymarket model (1.4.0 read it as flat-bps). Add "
+                '"fee_model": "flat-bps" (or pass --fee-model flat-bps) for the old fee, or '
+                '"fee_model": "polymarket" to say this is what you mean.',
+                err=True,
+            )
         model = fee_model if fee_model is not None else stated
         if model is not None:
             fields["fee_model"] = model
@@ -141,6 +150,24 @@ def _load_costs(path: str | None, fee_model: str | None = None) -> CostModel | N
         rprint(f"[red]Not a valid cost model ({path}): costs file is unreadable: {e}[/red]")
         raise typer.Exit(1) from e
     return _costs_from(raw, path, fee_model=fee_model, warn_legacy=True)
+
+
+def _require_the_recorded_model(costs: CostModel, recorded: CostModel, where: str) -> None:
+    """Exit 1 if ``--fee-model`` (as ``costs``, with the model's defaults) names another model than
+    the ``recorded`` costs of ``where``.
+
+    A flag that names only the model cannot differ from the recorded costs in anything else, so it
+    is compared on the model: the same one is the recorded costs, whole.
+    """
+    if costs.fee_model == recorded.fee_model:
+        return
+    rprint(
+        f"[red]--fee-model {costs.fee_model} contradicts {where}, which is a "
+        f"{recorded.fee_model} model; the costs on record are what the trades must be filled (or "
+        "the champion promoted) under.[/red]"
+    )
+    rprint(f"  on record: {recorded.to_dict()}")
+    raise typer.Exit(1)
 
 
 def _describe_segments(allowed: set[str]) -> str:
@@ -440,6 +467,11 @@ def record_trades_cmd(
                 "polymarket fee model (fee_source category_default). Pass --fee-model flat-bps "
                 "for the flat 30 bps fee of 1.4.0 and before.[/yellow]"
             )
+    elif manifest.costs is not None and costs_path is None:
+        # Only --fee-model: it names a model, not the numbers of one. The champion's own model is
+        # the champion's costs (its schedule and slippage included); another model contradicts it.
+        _require_the_recorded_model(costs, manifest.costs, "the champion (champion.json)")
+        costs = manifest.costs
     elif manifest.costs is not None and costs != manifest.costs:
         rprint(
             "[red]--costs/--fee-model differs from the costs recorded in champion.json; paper "
@@ -1030,6 +1062,14 @@ def promote_champion_cmd(
         if isinstance(raw, dict) and raw.get("costs") is not None:
             backtest_costs = _costs_from(raw["costs"], expectation_path)
             if costs is None:
+                costs = backtest_costs
+            elif costs_path is None:
+                # Only --fee-model: it names a model, not the numbers of one (see record-trades).
+                _require_the_recorded_model(
+                    costs,
+                    backtest_costs,
+                    f"the costs the expectation was computed under ({expectation_path})",
+                )
                 costs = backtest_costs
             elif costs != backtest_costs:
                 rprint(
