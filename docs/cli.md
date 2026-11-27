@@ -84,4 +84,7 @@ The script is not part of the installed package; with a pip install, pass `--wor
 end, so the backtest, the champion and the paper fills charge the same friction. They also accept
 `--fee-model {polymarket,flat-bps}` (default `polymarket`, the price-dependent taker fee; `flat-bps` is the
 flat 0.30% of releases before 1.5.0, to repeat an old run). A `--costs` file that gives only `taker_bps` is
-that old flat model and is deprecated: add `"fee_model": "flat-bps"`. See [Backtest costs](costs.md).
+that old flat model and is deprecated: add `"fee_model": "flat-bps"`. A file that names no model, schedule or
+`taker_bps` is read as polymarket (1.4.0 read it as flat-bps) and the command says so. `--fee-model` alone
+against a champion's (or an expectation's) recorded costs names only the model: the same one is those costs,
+another exits 1. See [Backtest costs](costs.md).

@@ -95,6 +95,11 @@ class TunedForecaster(MarketForecaster):
     and ``study_``. `tuning_config` returns the objective it maximised, resolved,
     for the reproducibility record (``BacktestConfig.resolve(tuning=...)``).
 
+    ``taker_bps`` is also an attribute, kept for callers of 1.4.0 and before: it is the flat-bps
+    rate of ``costs`` and means something only for ``fee_model="flat-bps"``. Under the polymarket
+    model (the default) it is the unused default 30.0 and says nothing of the fee charged, which
+    depends on the price: read ``costs``.
+
     A trial that makes no trade scores ``-inf``; if *every* trial does (a threshold nothing
     clears), ``tune`` warns, because the search learned nothing and ``best_params_`` is
     just the first trial.
@@ -148,6 +153,8 @@ class TunedForecaster(MarketForecaster):
                 warn_taker_bps_argument("TunedForecaster")
                 costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
         self.costs: CostModel = costs
+        # The flat-bps model's rate, kept for callers of 1.4.0 and before; under the polymarket
+        # model (the default) it is the unused default 30.0 and the fee is `self.costs`'s.
         self.taker_bps: float = self.costs.taker_bps
 
         self.best_params_: dict[str, Any] | None = None
