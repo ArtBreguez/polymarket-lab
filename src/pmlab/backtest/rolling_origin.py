@@ -121,8 +121,17 @@ def rolling_origin_eval(
 
     Every trade records the fee it paid, charged by ``costs`` at the price it was filled at:
     ``fee_paid`` (USDC), ``fee_rate`` (the model's rate: the schedule's for polymarket,
-    ``taker_bps / 10_000`` for flat-bps), ``liquidity`` (``"taker"``) and ``fee_source`` (where
-    the schedule came from: ``"category_default"``, ``"gamma"``, ``"user"``, ``"flat_bps"``).
+    ``taker_bps / 10_000`` for flat-bps), ``liquidity`` (``"taker"``), ``fee_source`` (where
+    the schedule came from: ``"category_default"``, ``"gamma"``, ``"user"``, ``"flat_bps"``) and
+    ``fee_model`` (which formula ``fee_rate`` is the rate of).
+
+    **A fee is priced only from when it was known.** A ``costs`` made with
+    `CostModel.with_fee_snapshot` carries the moment its schedule was seen (``fee_seen_at``), and a
+    fold that decided at or before it is refused, as a label unknown at the decision cannot train
+    the fold: Polymarket changes its rates without notice, and a schedule read in November must not
+    price a January trade under a ``fee_source="gamma"`` label. A ``costs`` whose schedule was
+    given without a moment makes no such claim and is not checked: it prices the whole history
+    with one fee, which is an approximation the caller chose and the trades name (``"user"``).
 
     Returns:
         RollingOriginResult with all trade records and step metadata.
@@ -132,6 +141,8 @@ def rolling_origin_eval(
             give the fee two conflicting sources of truth. Also if a ``decision_date`` is not a
             real ``YYYY-MM-DD`` date (e.g. ``2026-01-32``), since which labels were known
             when a fold decided cannot be told without it. Also if ``embargo_days`` is negative.
+            Also if ``costs.fee_seen_at`` is at or after the decision time of a fold that would
+            be priced with it (raised before that fold is fitted).
         TypeError: If ``embargo_days`` is neither ``None`` nor an int (``True`` is not one).
     """
     embargo = _validate_embargo_days(embargo_days)
@@ -188,6 +199,8 @@ def rolling_origin_eval(
         eval_df = panel[panel["decision_date"] == eval_date]
         if eval_df.empty:
             continue
+
+        _require_fee_known(costs, eval_date, decision_cutoffs[eval_date])
 
         X_train = train_df[feature_cols]
         y_train = (train_df["outcome_label"] == train_df["winning_label"]).astype(int)
@@ -302,7 +315,27 @@ def rolling_origin_eval(
 
 
 #: The columns a trade carries about its fee, as `CostModel.fee_fields` names them.
-_FEE_COLUMNS = ("fee_paid", "fee_rate", "liquidity", "fee_source")
+_FEE_COLUMNS = ("fee_paid", "fee_rate", "liquidity", "fee_source", "fee_model")
+
+
+def _require_fee_known(costs: CostModel, eval_date: str, decision_time: pd.Timestamp) -> None:
+    """Refuse a fold that decides at or before the moment its fee schedule was seen.
+
+    The rule of `FeeScheduleStore.as_of`: what a decision may use was seen strictly before it. A
+    model with no ``fee_seen_at`` claims no moment and is never refused.
+    """
+    seen_at = costs.fee_seen_at
+    if seen_at is None or decision_time > seen_at:
+        return
+    raise ValueError(
+        f"the fee schedule was seen at {seen_at.isoformat()}, which is not before the fold of "
+        f"{eval_date} that decides at {decision_time.isoformat()}: it cannot have priced that "
+        "trade, the fee was not known yet. Price each date with the schedule known before it "
+        "(FeeScheduleStore.as_of(date), then CostModel.with_fee_snapshot), or give the schedule "
+        "without a moment (fee_schedule=snapshot.schedule, fee_source='user') to accept today's "
+        "fee for the whole history as an approximation"
+    )
+
 
 #: Decision days a label is assumed to lag its decision when the panel does not say: the next
 #: day's value, as for every shipped plugin. A row decided on D then trains from D + 2 days.

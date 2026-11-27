@@ -238,7 +238,11 @@ class TestToDict:
 
 
 class TestFeeFields:
-    """What a trade carries about its fee: fee_paid, fee_rate, liquidity and the schedule source."""
+    """What a trade carries about its fee: fee_paid, fee_rate, liquidity, the source and the model.
+
+    ``fee_rate`` is the schedule's rate for polymarket and ``taker_bps / 10_000`` for flat-bps, so
+    the trade names its ``fee_model`` beside it: a rate alone does not say which formula it is for.
+    """
 
     def test_polymarket_fields(self) -> None:
         fields = CostModel().fee_fields(1.0, 0.30)
@@ -246,13 +250,15 @@ class TestFeeFields:
         assert fields["fee_rate"] == 0.05
         assert fields["liquidity"] == "taker"
         assert fields["fee_source"] == "category_default"
-        assert set(fields) == {"fee_paid", "fee_rate", "liquidity", "fee_source"}
+        assert fields["fee_model"] == "polymarket"
+        assert set(fields) == {"fee_paid", "fee_rate", "liquidity", "fee_source", "fee_model"}
 
     def test_flat_bps_fields(self) -> None:
         fields = CostModel(fee_model="flat-bps", taker_bps=50.0).fee_fields(2.0, 0.30)
         assert fields["fee_paid"] == pytest.approx(0.01)
         assert fields["fee_rate"] == pytest.approx(0.005)
         assert fields["fee_source"] == "flat_bps"
+        assert fields["fee_model"] == "flat-bps"
         assert fields["liquidity"] == "taker"
 
     def test_a_disabled_schedule_reports_the_rate_it_charged_which_is_zero(self) -> None:
@@ -285,7 +291,12 @@ class TestTheSignatureIsFrozen:
 
     def test_the_new_fields_are_appended_with_defaults(self) -> None:
         params = list(inspect.signature(CostModel).parameters.values())
-        assert [p.name for p in params[5:]] == ["fee_model", "fee_schedule", "fee_source"]
+        assert [p.name for p in params[5:]] == [
+            "fee_model",
+            "fee_schedule",
+            "fee_source",
+            "fee_seen_at",
+        ]
         assert all(p.default is not inspect.Parameter.empty for p in params[5:])
 
     def test_the_taker_bps_attribute_is_a_plain_float(self) -> None:

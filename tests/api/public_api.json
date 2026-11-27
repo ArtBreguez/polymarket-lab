@@ -1547,9 +1547,13 @@
           "to_dict": {
             "kind": "method",
             "signature": "(self) -> dict[str, Any]"
+          },
+          "with_fee_snapshot": {
+            "kind": "method",
+            "signature": "(self, snapshot: FeeSnapshot) -> CostModel"
           }
         },
-        "signature": "(taker_bps: float = 30.0, slippage_bps: float = 0.0, slippage_fixed: float = 0.0, depth_bps_per_unit: float = 0.0, depth_reference_stake: float = 1.0, fee_model: Literal['polymarket', 'flat-bps'] | None = None, fee_schedule: FeeSchedule | None = None, fee_source: str | None = None) -> None"
+        "signature": "(taker_bps: float = 30.0, slippage_bps: float = 0.0, slippage_fixed: float = 0.0, depth_bps_per_unit: float = 0.0, depth_reference_stake: float = 1.0, fee_model: Literal['polymarket', 'flat-bps'] | None = None, fee_schedule: FeeSchedule | None = None, fee_source: str | None = None, fee_seen_at: datetime | None = None) -> None"
       },
       "DEFAULT_MIN_EDGE": {
         "kind": "constant",

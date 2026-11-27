@@ -28,7 +28,7 @@ from pmlab.plugins.base import MarketPlugin
 
 NOW = datetime(2026, 6, 15, 5, 0, tzinfo=UTC)
 FLAT = CostModel(fee_model="flat-bps")
-FEE_KEYS = {"fee_paid", "fee_rate", "liquidity", "fee_source"}
+FEE_KEYS = {"fee_paid", "fee_rate", "liquidity", "fee_source", "fee_model"}
 
 
 class _Truth(MarketPlugin):
@@ -101,6 +101,7 @@ class TestThePaperBrokerChargesAndRecordsTheFee:
         assert trade["fee_rate"] == 0.05
         assert trade["liquidity"] == "taker"
         assert trade["fee_source"] == "category_default"
+        assert trade["fee_model"] == "polymarket"
 
     def test_a_no_trade_pays_on_the_no_token_it_buys(self, tmp_path: Path) -> None:
         trade = _record(tmp_path / "t.json", _signal(0.40, direction="no"))
@@ -129,6 +130,7 @@ class TestThePaperBrokerChargesAndRecordsTheFee:
         assert trade["fee_paid"] == pytest.approx(0.003)
         assert trade["fee_rate"] == pytest.approx(0.003)
         assert trade["fee_source"] == "flat_bps"
+        assert trade["fee_model"] == "flat-bps"  # which formula that 0.003 is the rate of
         assert trade["liquidity"] == "taker"
 
     def test_taker_bps_is_the_flat_model_and_warns(self, tmp_path: Path) -> None:

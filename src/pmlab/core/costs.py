@@ -40,15 +40,26 @@ friction improves a trade.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import numbers
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict
+from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from pmlab._deprecation import declare_deprecated, warn_deprecated
-from pmlab.core.fee_schedule import FeeSchedule, category_fee_schedule, taker_fee_on_stake
+from pmlab.core.fee_schedule import (
+    POLYMARKET_CATEGORY_FEE_RATES,
+    FeeSchedule,
+    category_fee_schedule,
+    taker_fee_on_stake,
+)
 from pmlab.core.fees import DEFAULT_TAKER_BPS
+
+if TYPE_CHECKING:
+    from pmlab.markets.fees import FeeSnapshot
 
 __all__ = ["CostModel"]
 
@@ -148,6 +159,37 @@ def _is_finite_number(value: object) -> bool:
     return isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
 
 
+def _utc_moment(value: object) -> datetime:
+    """An aware UTC datetime from an aware datetime, a date (its midnight, UTC) or an ISO string.
+
+    The same rule as ``FeeSnapshot.seen_at``: a datetime or timestamp string without a timezone is
+    refused, because read as local time it would shift the moment by the machine's offset.
+    """
+    parsed: object = value
+    if isinstance(value, str):
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            try:
+                parsed = datetime.fromisoformat(value)
+            except ValueError:
+                raise ValueError(
+                    f"fee_seen_at is not an ISO date or timestamp: {value!r}"
+                ) from None
+    if isinstance(parsed, datetime):
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError(f"fee_seen_at needs a timezone (UTC is fine), got {value!r}")
+        return parsed.astimezone(UTC)
+    if isinstance(parsed, date):
+        return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)
+    raise TypeError(f"fee_seen_at must be a datetime, a date or an ISO string, got {value!r}")
+
+
+def _is_a_category_schedule(schedule: FeeSchedule) -> bool:
+    """Whether ``schedule`` is the published default of some category (what a fallback charges)."""
+    return any(schedule == category_fee_schedule(key) for key in POLYMARKET_CATEGORY_FEE_RATES)
+
+
 @dataclass(frozen=True)
 class CostModel:
     """Execution costs applied to a backtest fill.
@@ -182,13 +224,32 @@ class CostModel:
             (``"gamma"``, ``"clob"``, ``"category_default"``), ``"user"`` for a schedule that was
             given without a source, ``"flat_bps"`` for the flat model. Each trade carries it, so a
             number in a report can be traced to what priced it. ``None`` is resolved on
-            construction.
+            construction. A polymarket model refuses ``"flat_bps"`` (that is the flat model's
+            label), and ``"category_default"`` for a schedule that is no category's default: a
+            label must describe the fee it sits on, also after `dataclasses.replace` changed the
+            schedule and not the label.
+        fee_seen_at: When the schedule was seen, as a timezone-aware datetime, a date (its
+            midnight, UTC) or an ISO string; stored in UTC. ``None``, the default, claims no
+            moment: the schedule is whatever the caller says it is, for the whole history.
+            `with_fee_snapshot` sets it with the schedule, and `rolling_origin_eval` then refuses
+            a fold that decided at or before it, because a fee that was not known yet cannot have
+            priced the trade (``FeeScheduleStore.as_of`` is the schedule that was). ``to_dict``
+            writes it only when it is set. A flat-bps model has no schedule to date and refuses it.
 
     Raises:
         ValueError: If a numeric field is not a finite number >= 0 (``depth_reference_stake`` > 0),
             ``fee_model`` is not one of the two, a ``fee_schedule`` is not a `FeeSchedule` (or a
-            mapping of its fields), a flat-bps model is given a schedule or a source of its own,
-            or a schedule is given together with a ``taker_bps`` and no ``fee_model``.
+            mapping of its fields), a flat-bps model is given a schedule, a source of its own or a
+            ``fee_seen_at``, a polymarket model is given the flat model's source or a
+            ``"category_default"`` label for a schedule that is no category's, ``fee_seen_at`` is
+            not a moment with a timezone, or a schedule is given together with a ``taker_bps`` and
+            no ``fee_model``.
+        TypeError: If ``fee_seen_at`` is not a datetime, a date or a string.
+
+    Warns:
+        UserWarning: If a polymarket model carries a ``taker_bps`` other than the default: it is
+            read only by the flat model, so it prices nothing (``dataclasses.replace(costs,
+            taker_bps=50)`` of a default model is that mistake, and used to do nothing in silence).
     """
 
     taker_bps: float = _TAKER_BPS_NOT_GIVEN
@@ -199,6 +260,7 @@ class CostModel:
     fee_model: Literal["polymarket", "flat-bps"] | None = None
     fee_schedule: FeeSchedule | None = None
     fee_source: str | None = None
+    fee_seen_at: datetime | None = None
 
     def __post_init__(self) -> None:
         taker_given = not isinstance(self.taker_bps, _DefaultTakerBps)
@@ -212,10 +274,35 @@ class CostModel:
 
         model = self._resolve_model(taker_given)
         schedule, source = self._resolve_schedule(model)
+        seen_at = self._resolve_seen_at(model)
+        if model == "polymarket" and float(self.taker_bps) != DEFAULT_TAKER_BPS:
+            # warnings.warn, here, __post_init__, __init__: the caller of CostModel(...)
+            warnings.warn(
+                f"taker_bps={self.taker_bps!r} is read only by the flat-bps model and this one is "
+                'polymarket, so it prices nothing; use fee_model="flat-bps" for a flat fee, or '
+                "drop taker_bps (the polymarket fee comes from fee_schedule)",
+                UserWarning,
+                stacklevel=3,
+            )
         object.__setattr__(self, "taker_bps", float(self.taker_bps))
         object.__setattr__(self, "fee_model", model)
         object.__setattr__(self, "fee_schedule", schedule)
         object.__setattr__(self, "fee_source", source)
+        object.__setattr__(self, "fee_seen_at", seen_at)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        """Load a pickle of any version: one from 1.4.0 and before is the flat-bps model it was.
+
+        1.4.0 pickled the five numbers and nothing else, so a ``CostModel`` unpickled without this
+        had no ``fee_model``, no schedule and no source: half a model whose ``fee(stake)`` raised.
+        The same rule as `from_dict`: a state with no ``fee_model`` is the flat-bps model of its
+        ``taker_bps``. pmlab itself never pickles a ``CostModel``; a notebook or a cache might.
+        """
+        state = dict(state)
+        if "fee_model" not in state:
+            state.update(fee_model="flat-bps", fee_schedule=None, fee_source=_SOURCE_FLAT)
+        state.setdefault("fee_seen_at", None)
+        self.__dict__.update(state)
 
     def _resolve_model(self, taker_given: bool) -> FeeModelName:
         model = self.fee_model
@@ -253,6 +340,12 @@ class CostModel:
                     f"got {source!r}"
                 )
             return None, _SOURCE_FLAT
+        if source == _SOURCE_FLAT:
+            raise ValueError(
+                f'fee_source "{_SOURCE_FLAT}" is the label of the flat-bps model; a polymarket fee '
+                "needs a source that describes its schedule (a replace() from a flat model keeps "
+                "the old one: pass fee_source= with it)"
+            )
         if schedule is None:
             return category_fee_schedule(_DEFAULT_FEE_CATEGORY), source or _SOURCE_DEFAULT
         if isinstance(schedule, Mapping):
@@ -261,7 +354,61 @@ class CostModel:
             raise ValueError(
                 f"fee_schedule must be a FeeSchedule or a mapping of its fields, got {schedule!r}"
             )
+        if source == _SOURCE_DEFAULT and not _is_a_category_schedule(schedule):
+            raise ValueError(
+                f'fee_source "{_SOURCE_DEFAULT}" says the schedule is a category default, and '
+                f"{schedule!r} is no category's: name where it came from with fee_source= "
+                '("gamma", "clob" or "user"). A dataclasses.replace() that swaps the schedule '
+                "keeps the old label unless it is given the new one"
+            )
         return schedule, source or _SOURCE_GIVEN
+
+    def _resolve_seen_at(self, model: FeeModelName) -> datetime | None:
+        if self.fee_seen_at is None:
+            return None
+        if model == "flat-bps":
+            raise ValueError(
+                'a flat-bps model has no schedule to date; fee_seen_at belongs to fee_model="polymarket"'
+            )
+        return _utc_moment(self.fee_seen_at)
+
+    def with_fee_snapshot(self, snapshot: FeeSnapshot) -> CostModel:
+        """This model with the schedule of ``snapshot``, the source and the moment it was seen.
+
+        The three are set together, so the model cannot carry a schedule under the label of
+        another or without the moment it was known from: ``fee_source`` is ``snapshot.source`` and
+        ``fee_seen_at`` is ``snapshot.seen_at``. Slippage and depth are kept. Use it with
+        ``FeeScheduleStore.as_of(date)`` to price a trade with the schedule that was known before
+        its date, one model per market and date range; `rolling_origin_eval` refuses to price a
+        fold with a model whose schedule was seen after it decided.
+
+        Args:
+            snapshot: A `FeeSnapshot` (``resolve_fee_snapshot``, ``fetch_fee_snapshot`` or
+                ``FeeScheduleStore.as_of`` make them).
+
+        Returns:
+            A new polymarket model.
+
+        Raises:
+            TypeError: If ``snapshot`` is not a `FeeSnapshot`.
+            ValueError: If this is a flat-bps model, which has no schedule: build a polymarket one
+                (``CostModel(fee_model="polymarket", ...)``) first.
+        """
+        from pmlab.markets.fees import FeeSnapshot
+
+        if not isinstance(snapshot, FeeSnapshot):
+            raise TypeError(f"with_fee_snapshot takes a FeeSnapshot, got {snapshot!r}")
+        if self.fee_model == "flat-bps":
+            raise ValueError(
+                "a flat-bps model charges taker_bps of the stake and has no schedule to replace; "
+                'build a CostModel(fee_model="polymarket", ...) to carry a snapshot'
+            )
+        return dataclasses.replace(
+            self,
+            fee_schedule=snapshot.schedule,
+            fee_source=snapshot.source,
+            fee_seen_at=snapshot.seen_at,
+        )
 
     @classmethod
     def frictionless(cls) -> CostModel:
@@ -337,21 +484,24 @@ class CostModel:
         return taker_fee_on_stake(stake, price, self.fee_schedule)
 
     def fee_fields(self, stake: float, price: float | None = None) -> dict[str, Any]:
-        """What a trade records about its fee: ``fee_paid``, ``fee_rate``, ``liquidity``, ``fee_source``.
+        """What a trade records about its fee: ``fee_paid``, ``fee_rate``, ``liquidity``,
+        ``fee_source`` and ``fee_model``.
 
-        The one place those four keys are made, so a backtest trade and a paper trade carry them
+        The one place those five keys are made, so a backtest trade and a paper trade carry them
         under the same names. ``fee_paid`` is `fee`. ``fee_rate`` is the rate of the model that
         charged it: the schedule's ``rate`` (0.0 for a fee-free market) for polymarket, whose fee is
         ``shares x rate x p x (1 - p)``, and ``taker_bps / 10_000`` for flat-bps, whose fee is
-        ``stake x rate``. ``liquidity`` is ``"taker"``: this model fills at the book (maker fills
-        are not modelled yet). ``fee_source`` is the schedule's source (see the class).
+        ``stake x rate``; the two are not the same kind of number, so ``fee_model`` (``"polymarket"``
+        or ``"flat-bps"``) says which formula a trade's ``fee_rate`` belongs to. ``liquidity`` is
+        ``"taker"``: this model fills at the book (maker fills are not modelled yet).
+        ``fee_source`` is the schedule's source (see the class).
 
         Args:
             stake: Notional USDC bought, > 0.
             price: The fill price (see `fee`).
 
         Returns:
-            The four fields as a dict.
+            The five fields as a dict.
 
         Raises:
             ValueError: As for `fee`.
@@ -366,6 +516,7 @@ class CostModel:
             "fee_rate": rate,
             "liquidity": "taker",
             "fee_source": self.fee_source,
+            "fee_model": self.fee_model,
         }
 
     def depth_penalty_bps(self, stake: float) -> float:
@@ -394,9 +545,11 @@ class CostModel:
         """Mapping for the experiment tracker and the JSON files; round-trips via `from_dict`.
 
         Names its ``fee_model``, and for the polymarket model carries the ``fee_schedule`` as the
-        mapping of its fields (``None`` for flat-bps) and its ``fee_source``. A dict from before
-        1.5.0 had only the five numbers; `from_dict` reads it as the flat-bps model.
+        mapping of its fields (``None`` for flat-bps) and its ``fee_source``, and ``fee_seen_at`` (an
+        ISO timestamp in UTC) when the schedule has a moment it was seen. A dict from before 1.5.0
+        had only the five numbers; `from_dict` reads it as the flat-bps model.
         """
+        seen = {} if self.fee_seen_at is None else {"fee_seen_at": self.fee_seen_at.isoformat()}
         return {
             "fee_model": self.fee_model,
             "taker_bps": self.taker_bps,
@@ -406,6 +559,7 @@ class CostModel:
             "depth_reference_stake": self.depth_reference_stake,
             "fee_schedule": None if self.fee_schedule is None else self.fee_schedule.to_dict(),
             "fee_source": self.fee_source,
+            **seen,
         }
 
 

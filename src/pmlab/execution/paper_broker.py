@@ -24,7 +24,15 @@ HORIZON_CUTOFFS = {
 
 
 class PaperBroker:
-    """Records paper trades from EdgeSignals with dedup, staleness, and segment filtering."""
+    """Records paper trades from EdgeSignals with dedup, staleness, and segment filtering.
+
+    Attributes:
+        costs: The `CostModel` every trade is filled and charged under.
+        taker_bps: The flat-bps fee rate of ``costs``, kept for callers of 1.4.0 and before. It
+            means something only when ``costs.fee_model == "flat-bps"``: for the polymarket model
+            (the default) it is the unused default 30.0 and says nothing of the fee charged,
+            which depends on the price (``costs.fee_schedule``, ``costs.fee(stake, price)``).
+    """
 
     def __init__(
         self,
@@ -53,8 +61,9 @@ class PaperBroker:
                 comparable and a drift alarm cannot tell the market from our own
                 arithmetic. Omit both for the default model: the Polymarket taker fee
                 (``rate x (1 - price)`` of the stake) charged at the fill price, fill at the quote.
-                Each trade records ``fee_paid``, ``fee_rate``, ``liquidity`` (``"taker"``) and
-                ``fee_source``, so a settled trade can be traced to the schedule that priced it.
+                Each trade records ``fee_paid``, ``fee_rate``, ``liquidity`` (``"taker"``),
+                ``fee_source`` and ``fee_model``, so a settled trade can be traced to the schedule
+                that priced it and to the formula its ``fee_rate`` belongs to.
 
         Raises:
             ValueError: If both ``taker_bps`` and ``costs`` are supplied.
@@ -75,7 +84,9 @@ class PaperBroker:
                 warn_taker_bps_argument("PaperBroker")
                 costs = CostModel(fee_model="flat-bps", taker_bps=taker_bps)
         self.costs = costs
-        # Kept so existing callers reading broker.taker_bps keep working.
+        # Kept so existing callers reading broker.taker_bps keep working. It is the flat-bps model's
+        # rate and nothing else: under the polymarket model it is the unused default (30.0), and the
+        # fee is that of `self.costs.fee_schedule`. Read `self.costs` to tell.
         self.taker_bps = self.costs.taker_bps
 
     def record(
@@ -192,6 +203,7 @@ class PaperBroker:
             "fee_rate": fee["fee_rate"],
             "liquidity": fee["liquidity"],
             "fee_source": fee["fee_source"],
+            "fee_model": fee["fee_model"],
             "outcome": None,
             "realized_pnl": None,
         }
